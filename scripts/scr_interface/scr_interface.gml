@@ -1148,7 +1148,8 @@ function Interface(_game = undefined) : GuiObject() constructor {
                 break;
             }
             case ord("m"): {
-                // Audio music player enable toggle: see above.
+                // Audio::get_music_player()->enable(!is_enabled())
+                audio_toggle_music();
                 break;
             }
 

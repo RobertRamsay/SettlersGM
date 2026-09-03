@@ -23,7 +23,11 @@ enum ViewportLayer {
     cursor = 1 << 4,
     grid = 1 << 5,
     builds = 1 << 6,
-    all_layers = (1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 6)
+    // viewport.h: LayerAll = landscape|paths|objects|serfs|cursor.
+    // LayerBuilds is deliberately NOT included - it is switched on only while
+    // the player is in build mode (PanelBar's build button calls switch_layer),
+    // otherwise the build-possibility icons cover the whole map.
+    all_layers = (1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4)
 }
 
 // File-level static tables of viewport.cc (and map_building_sprite from
