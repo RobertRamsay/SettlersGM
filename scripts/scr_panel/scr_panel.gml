@@ -359,26 +359,53 @@ function PanelBar(_interface) : GuiObject() constructor {
                                              interface.get_map_cursor_pos());
 
             play_sound(Sfx.accepted);
-        } else if (_cy >= 4 && _cy < 36 && _cx >= 64) {
-            _cx -= 64;
-
-            /* Figure out what button was clicked */
-            var _button = 0;
-            while (true) {
-                if (_cx < 32) {
-                    if (_button < 5) {
-                        break;
-                    } else {
-                        return false;
-                    }
-                }
-                _button += 1;
-                if (_cx < 48) {
-                    return false;
-                }
-                _cx -= 48;
+        } else {
+            var _button = hit_test_button(_cx, _cy);
+            if (_button >= 0) {
+                button_click(_button);
             }
-            button_click(_button);
+        }
+
+        return true;
+    };
+
+    /* Which of the five panel buttons covers (_cx, _cy)? -1 for none. */
+    static hit_test_button = function(_cx, _cy) {
+        if (_cy < 4 || _cy >= 36 || _cx < 64) {
+            return -1;
+        }
+
+        var _bx = _cx - 64;
+        var _button = 0;
+        while (true) {
+            if (_bx < 32) {
+                if (_button < 5) {
+                    return _button;
+                } else {
+                    return -1;
+                }
+            }
+            _button += 1;
+            if (_bx < 48) {
+                return -1;
+            }
+            _bx -= 48;
+        }
+    };
+
+    /* Both mouse buttons on the build button toggles the build-possibility
+       icons over the map - the same overlay the "b" key switches. */
+    static handle_click_middle = function(_cx, _cy) {
+        if (hit_test_button(_cx, _cy) != 0) {
+            return false;
+        }
+
+        set_redraw();
+        play_sound(Sfx.click);
+
+        var _viewport = interface.get_viewport();
+        if (_viewport != undefined) {
+            _viewport.switch_layer(ViewportLayer.builds);
         }
 
         return true;

@@ -46,5 +46,12 @@ drag_y = 0;
 last_click_time = array_create(4, -100000);
 last_click_x = 0;
 last_click_y = 0;
+
+// An Amiga mouse has two buttons, so "both buttons" is its own input in The
+// Settlers. Left+right held together is reported as a middle click, and the
+// left/right clicks that follow are swallowed so the build popup does not open
+// as well. Index 0 is unused; 1 = left, 2 = middle, 3 = right.
+both_buttons_active = false;
+suppress_click = array_create(4, false);
 show_debug = false;
 settlers_play_music();

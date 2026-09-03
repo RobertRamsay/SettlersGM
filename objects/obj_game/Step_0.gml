@@ -19,11 +19,28 @@ var _my = clamp(floor(mouse_y), 0, SCREEN_H - 1);
 
 // ---- clicks fire on button release; double click within time/move sensitivity
 var _buttons = [mb_left, mb_middle, mb_right];
+
+// Left + right held together == "both buttons" on a two-button Amiga mouse.
+if (mouse_check_button(mb_left) && mouse_check_button(mb_right)) {
+    both_buttons_active = true;
+    suppress_click[EventButton.left] = true;
+    suppress_click[EventButton.right] = true;
+}
+
 for (var _b = 1; _b <= 3; _b++) {
     var _mb = _buttons[_b - 1];
     if (mouse_check_button_released(_mb)) {
         if (drag_button == _b) {
             drag_button = 0;
+        }
+        if (both_buttons_active) {
+            both_buttons_active = false;
+            interface.handle_event(gui_make_event(EventType.click, _mx, _my, 0, 0,
+                                                  EventButton.middle));
+        }
+        if (suppress_click[_b]) {
+            suppress_click[_b] = false;
+            continue;
         }
         interface.handle_event(gui_make_event(EventType.click, _mx, _my, 0, 0, _b));
         if (current_time - last_click_time[_b] < MOUSE_TIME_SENSITIVITY

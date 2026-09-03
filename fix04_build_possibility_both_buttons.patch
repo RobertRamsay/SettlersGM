@@ -1,0 +1,151 @@
+diff --git a/objects/obj_game/Create_0.gml b/objects/obj_game/Create_0.gml
+index 28bf5f4..19da961 100644
+--- a/objects/obj_game/Create_0.gml
++++ b/objects/obj_game/Create_0.gml
+@@ -46,5 +46,12 @@ drag_y = 0;
+ last_click_time = array_create(4, -100000);
+ last_click_x = 0;
+ last_click_y = 0;
++
++// An Amiga mouse has two buttons, so "both buttons" is its own input in The
++// Settlers. Left+right held together is reported as a middle click, and the
++// left/right clicks that follow are swallowed so the build popup does not open
++// as well. Index 0 is unused; 1 = left, 2 = middle, 3 = right.
++both_buttons_active = false;
++suppress_click = array_create(4, false);
+ show_debug = false;
+ settlers_play_music();
+diff --git a/objects/obj_game/Step_0.gml b/objects/obj_game/Step_0.gml
+index 299539f..607a680 100644
+--- a/objects/obj_game/Step_0.gml
++++ b/objects/obj_game/Step_0.gml
+@@ -19,12 +19,29 @@ var _my = clamp(floor(mouse_y), 0, SCREEN_H - 1);
+ 
+ // ---- clicks fire on button release; double click within time/move sensitivity
+ var _buttons = [mb_left, mb_middle, mb_right];
++
++// Left + right held together == "both buttons" on a two-button Amiga mouse.
++if (mouse_check_button(mb_left) && mouse_check_button(mb_right)) {
++    both_buttons_active = true;
++    suppress_click[EventButton.left] = true;
++    suppress_click[EventButton.right] = true;
++}
++
+ for (var _b = 1; _b <= 3; _b++) {
+     var _mb = _buttons[_b - 1];
+     if (mouse_check_button_released(_mb)) {
+         if (drag_button == _b) {
+             drag_button = 0;
+         }
++        if (both_buttons_active) {
++            both_buttons_active = false;
++            interface.handle_event(gui_make_event(EventType.click, _mx, _my, 0, 0,
++                                                  EventButton.middle));
++        }
++        if (suppress_click[_b]) {
++            suppress_click[_b] = false;
++            continue;
++        }
+         interface.handle_event(gui_make_event(EventType.click, _mx, _my, 0, 0, _b));
+         if (current_time - last_click_time[_b] < MOUSE_TIME_SENSITIVITY
+             && _mx >= last_click_x - MOUSE_MOVE_SENSITIVITY && _mx <= last_click_x + MOUSE_MOVE_SENSITIVITY
+diff --git a/scripts/scr_gui/scr_gui.gml b/scripts/scr_gui/scr_gui.gml
+index 6760e9b..9e9359a 100644
+--- a/scripts/scr_gui/scr_gui.gml
++++ b/scripts/scr_gui/scr_gui.gml
+@@ -81,6 +81,10 @@ function GuiObject() constructor {
+         return false;
+     };
+ 
++    static handle_click_middle = function(_x, _y) {
++        return false;
++    };
++
+     static handle_dbl_click = function(_x, _y, _button) {
+         return false;
+     };
+@@ -169,6 +173,8 @@ function GuiObject() constructor {
+             case EventType.click:
+                 if (_event.button == EventButton.left) {
+                     _result = handle_click_left(_event_x, _event_y);
++                } else if (_event.button == EventButton.middle) {
++                    _result = handle_click_middle(_event_x, _event_y);
+                 }
+                 break;
+             case EventType.drag:
+diff --git a/scripts/scr_panel/scr_panel.gml b/scripts/scr_panel/scr_panel.gml
+index 57c143e..d5f007a 100644
+--- a/scripts/scr_panel/scr_panel.gml
++++ b/scripts/scr_panel/scr_panel.gml
+@@ -359,26 +359,53 @@ function PanelBar(_interface) : GuiObject() constructor {
+                                              interface.get_map_cursor_pos());
+ 
+             play_sound(Sfx.accepted);
+-        } else if (_cy >= 4 && _cy < 36 && _cx >= 64) {
+-            _cx -= 64;
+-
+-            /* Figure out what button was clicked */
+-            var _button = 0;
+-            while (true) {
+-                if (_cx < 32) {
+-                    if (_button < 5) {
+-                        break;
+-                    } else {
+-                        return false;
+-                    }
+-                }
+-                _button += 1;
+-                if (_cx < 48) {
+-                    return false;
++        } else {
++            var _button = hit_test_button(_cx, _cy);
++            if (_button >= 0) {
++                button_click(_button);
++            }
++        }
++
++        return true;
++    };
++
++    /* Which of the five panel buttons covers (_cx, _cy)? -1 for none. */
++    static hit_test_button = function(_cx, _cy) {
++        if (_cy < 4 || _cy >= 36 || _cx < 64) {
++            return -1;
++        }
++
++        var _bx = _cx - 64;
++        var _button = 0;
++        while (true) {
++            if (_bx < 32) {
++                if (_button < 5) {
++                    return _button;
++                } else {
++                    return -1;
+                 }
+-                _cx -= 48;
+             }
+-            button_click(_button);
++            _button += 1;
++            if (_bx < 48) {
++                return -1;
++            }
++            _bx -= 48;
++        }
++    };
++
++    /* Both mouse buttons on the build button toggles the build-possibility
++       icons over the map - the same overlay the "b" key switches. */
++    static handle_click_middle = function(_cx, _cy) {
++        if (hit_test_button(_cx, _cy) != 0) {
++            return false;
++        }
++
++        set_redraw();
++        play_sound(Sfx.click);
++
++        var _viewport = interface.get_viewport();
++        if (_viewport != undefined) {
++            _viewport.switch_layer(ViewportLayer.builds);
+         }
+ 
+         return true;
