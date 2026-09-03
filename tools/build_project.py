@@ -217,7 +217,7 @@ def apply_mask(ground, mask):
         spos += gw - mw
     return out
 
-def bake(mask_res, mask_count, ground_res, ground_count, name):
+def bake(mask_res, mask_count, ground_res, ground_count, name, ground_base=0):
     minx, miny, cw, ch = category_canvas(mask_res, False)
     frames = []
     for m in range(mask_count):
@@ -225,7 +225,7 @@ def bake(mask_res, mask_count, ground_res, ground_count, name):
         mim = load_png(mask_res, m) if ms is not None else None
         for g in range(ground_count):
             canvas = Image.new('RGBA', (cw, ch), (0, 0, 0, 0))
-            gim = load_png(ground_res, g)
+            gim = load_png(ground_res, ground_base + g)
             if mim is not None and gim is not None:
                 canvas.paste(apply_mask(gim, mim), (ms['ox'] - minx, ms['oy'] - miny))
             frames.append(canvas)
@@ -234,7 +234,13 @@ def bake(mask_res, mask_count, ground_res, ground_count, name):
 
 bake('map_mask_up', 81, 'map_ground', 33, 'spr_ground_up')
 bake('map_mask_down', 81, 'map_ground', 33, 'spr_ground_down')
-bake('path_mask', 27, 'path_ground', 10, 'spr_path_baked')
+# Roads are NOT drawn with the terrain texture. Freeserf's Amiga data source
+# maps AssetPathGround onto get_ground_sprite(index), i.e. the same tiles as the
+# terrain, which makes a road over grass green-on-green and effectively
+# invisible. In the original the road is always the sand ramp, so bake the road
+# from ground tiles 10..19: 10-12 normal terrain, 13-15 desert, 16-18 snow,
+# 19 water (draw_path_segment adds +3 / +6 / uses 9 for those cases).
+bake('path_mask', 27, 'map_ground', 10, 'spr_path_baked', ground_base=10)
 
 # waves: full (unmasked) waves are spr_map_waves; masked with mask 40 up/down
 def bake_waves(mask_res, name):
