@@ -3,8 +3,10 @@
 #macro SCREEN_W 640
 #macro SCREEN_H 400
 #macro SCREEN_SCALE 2
-// 60 fps / 3 = 20 game ticks per second (Freeserf TICKS_PER_SEC)
-#macro FRAMES_PER_TICK 3
+// Game updates are driven by elapsed milliseconds, not frames: Freeserf's
+// event loop fires its update timer every TICK_LENGTH_MS (20 ms) = 50 ticks per
+// second, independently of the render rate (see src/event_loop-sdl.cc).
+#macro MAX_CATCHUP_TICKS 5
 #macro MOUSE_TIME_SENSITIVITY 600
 #macro MOUSE_MOVE_SENSITIVITY 8
 
@@ -37,7 +39,7 @@ interface.get_viewport().move_to_map_pos(game.get_map().pos(game.get_map().geom.
 interface.update_map_cursor_pos(interface.get_viewport().get_current_map_pos());
 
 // Input state (event_loop-sdl.cc)
-frame_counter = 0;
+tick_accumulator = 0;
 drag_button = 0;
 drag_x = 0;
 drag_y = 0;

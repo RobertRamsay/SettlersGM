@@ -18,7 +18,10 @@
 //   A road is a struct { source, dirs } (dirs = array of Direction).
 
 #macro DEFAULT_GAME_SPEED 2
-#macro TICKS_PER_SEC 20
+// Freeserf src/freeserf.h: #define TICK_LENGTH 20 (ms) ->
+// TICKS_PER_SEC = 1000/20 = 50 game updates per second.
+#macro TICK_LENGTH_MS 20
+#macro TICKS_PER_SEC 50
 #macro GAME_MAX_PLAYER_COUNT 4
 #macro GROUND_ANALYSIS_RADIUS 25
 

@@ -1,4 +1,8 @@
 /// obj_game Draw - Interface draws viewport, panel, popups (GuiObject float protocol)
+// Re-assert point sampling every frame: GameMaker's "Interpolate colours
+// between pixels" game option is on by default and would blur the x2 upscale
+// of the application surface, muddying the Amiga palette.
+gpu_set_texfilter(false);
 interface.handle_event(gui_make_event(EventType.draw, 0, 0, 0, 0, 0));
 
 if (show_debug) {

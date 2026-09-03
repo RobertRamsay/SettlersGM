@@ -487,6 +487,12 @@ function Viewport(_interface, _map) : GuiObject() constructor {
     horiz_tiles = map.geom.cols div MAP_TILE_COLS;
     vert_tiles = map.geom.rows div MAP_TILE_ROWS;
     landscape_tiles = array_create(horiz_tiles * vert_tiles, -1);
+    // GuiObject frame cache (gui.cc: GuiObject::draw only calls internal_draw()
+    // when `redraw` is set, otherwise it blits the object's own frame). The
+    // viewport is by far the most expensive object to render, and Freeserf only
+    // marks it dirty every 8 game ticks (Viewport::update), so caching it here
+    // reproduces the original's redraw cadence instead of redrawing at 60 Hz.
+    frame_surface = -1;
 
     tri_spr = [
         32, 32, 32, 32, 32, 32, 32, 32,
@@ -777,6 +783,10 @@ function Viewport(_interface, _map) : GuiObject() constructor {
     };
 
     static layout = function() {
+        if (surface_exists(frame_surface)) {
+            surface_free(frame_surface);
+        }
+        frame_surface = -1;
         var _n = array_length(landscape_tiles);
         for (var _i = 0; _i < _n; _i++) {
             if (landscape_tiles[_i] != -1) {
@@ -835,6 +845,40 @@ function Viewport(_interface, _map) : GuiObject() constructor {
     };
 
     // Draws the landscape at screen origin (_ox, _oy) — the viewport's top-left.
+    /// Builds any visible landscape tile surfaces that are missing. Called
+    /// before the frame surface is targeted so that get_tile_surface() never
+    /// has to nest a second render target inside the frame.
+    static prepare_landscape_tiles = function() {
+        var _tile_width = MAP_TILE_COLS * MAP_TILE_WIDTH;
+        var _tile_height = MAP_TILE_ROWS * MAP_TILE_HEIGHT;
+        var _map_width = map.geom.cols * MAP_TILE_WIDTH;
+        var _map_height = map.geom.rows * MAP_TILE_HEIGHT;
+
+        var _my = offset_y;
+        var _ly = 0;
+        var _x_base = 0;
+        while (_ly < height) {
+            while (_my >= _map_height) {
+                _my -= _map_height;
+                _x_base += (map.geom.rows * MAP_TILE_WIDTH) div 2;
+            }
+            var _ty = _my mod _tile_height;
+            var _lx = 0;
+            var _mx = (offset_x + _x_base) mod _map_width;
+            while (_lx < width) {
+                var _tx = _mx mod _tile_width;
+                var _tc = (_mx div _tile_width) mod horiz_tiles;
+                var _tr = (_my div _tile_height) mod vert_tiles;
+                var _tid = _tc + horiz_tiles * _tr;
+                get_tile_surface(_tid, _tc, _tr);
+                _lx += _tile_width - _tx;
+                _mx += _tile_width - _tx;
+            }
+            _ly += _tile_height - _ty;
+            _my += _tile_height - _ty;
+        }
+    };
+
     static draw_landscape = function(_ox, _oy) {
         var _tile_width = MAP_TILE_COLS * MAP_TILE_WIDTH;
         var _tile_height = MAP_TILE_ROWS * MAP_TILE_HEIGHT;
@@ -2303,6 +2347,45 @@ function Viewport(_interface, _map) : GuiObject() constructor {
     static draw_at = function(_ox, _oy) {
         gfx_set_origin(_ox, _oy);
         internal_draw();
+    };
+
+    /// GuiObject::draw(Frame*) for the viewport: render into our own frame only
+    /// when `redraw` is set, then blit it. Overrides GuiObject.draw.
+    static draw = function() {
+        if (!displayed || width <= 0 || height <= 0 || map == undefined) {
+            return;
+        }
+
+        var _pos = get_screen_position();
+
+        // Build missing landscape tiles first (no nested render targets).
+        prepare_landscape_tiles();
+
+        if (!surface_exists(frame_surface)) {
+            frame_surface = surface_create(width, height);
+            redraw = true;
+        }
+
+        if (redraw) {
+            surface_set_target(frame_surface);
+            draw_clear(c_black);
+            gfx_set_origin(0, 0);
+            internal_draw();
+            surface_reset_target();
+            redraw = false;
+        }
+
+        gfx_set_origin(0, 0);
+        draw_surface(frame_surface, _pos[0], _pos[1]);
+
+        // Floats (the viewport has none in Freeserf, but keep the contract).
+        var _n = array_length(floats);
+        for (var _i = 0; _i < _n; _i++) {
+            var _fl = floats[_i];
+            if (_fl.obj.is_displayed()) {
+                _fl.obj.draw();
+            }
+        }
     };
 
     // ------------------------------------------------------------ events

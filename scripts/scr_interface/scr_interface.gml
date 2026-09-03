@@ -778,6 +778,12 @@ function Interface(_game = undefined) : GuiObject() constructor {
             determine_map_cursor_type();
         }
         update_interface();
+        // Freeserf lets the cursor wait for the viewport's next animation
+        // redraw (up to ~80 ms). Mark the viewport dirty straight away so that
+        // clicking the map responds on the very next frame.
+        if (viewport != undefined) {
+            viewport.set_redraw();
+        }
     };
 
     // ----------------------------------------------------------- roads

@@ -246,8 +246,13 @@ function GuiObject() constructor {
     };
 
     /// No-op: everything is redrawn every frame in GML.
+    /// GuiObject::set_redraw() - marks this object dirty and propagates to the
+    /// parent, exactly as gui.cc does.
     static set_redraw = function() {
         redraw = true;
+        if (parent != undefined) {
+            parent.set_redraw();
+        }
     };
 
     static is_displayed = function() {

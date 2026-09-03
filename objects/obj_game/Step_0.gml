@@ -1,9 +1,15 @@
 /// obj_game Step - event loop (port of event_loop-sdl.cc) + fixed-rate game ticks
 
-// ---- game ticks (20 Hz)
-frame_counter += 1;
-if (frame_counter >= FRAMES_PER_TICK) {
-    frame_counter = 0;
+// ---- game ticks: one update per TICK_LENGTH_MS of real time (50 Hz)
+tick_accumulator += delta_time / 1000;   // delta_time is microseconds
+var _ticks = tick_accumulator div TICK_LENGTH_MS;
+if (_ticks > MAX_CATCHUP_TICKS) {
+    _ticks = MAX_CATCHUP_TICKS;          // never spiral after a stall
+    tick_accumulator = 0;
+} else {
+    tick_accumulator -= _ticks * TICK_LENGTH_MS;
+}
+for (var _t = 0; _t < _ticks; _t++) {
     interface.handle_event(gui_make_event(EventType.update, 0, 0, 0, 0, 0));
 }
 
@@ -42,12 +48,17 @@ for (var _b = 1; _b <= 3; _b++) {
             break;
         }
         if (drag_button == _b) {
+            // Freeserf sends the delta from the drag anchor and then warps the
+            // pointer back to it (SDL_WarpMouseInWindow). Warping the real
+            // cursor every frame fights the user's mouse on Windows, so we send
+            // the same movement as an incremental delta instead - the handlers
+            // only ever use dx/dy, so the result is identical but smooth.
             var _dx = _mx - drag_x;
             var _dy = _my - drag_y;
             if (_dx != 0 || _dy != 0) {
                 interface.handle_event(gui_make_event(EventType.drag, drag_x, drag_y, _dx, _dy, _b));
-                // SDL_WarpMouseInWindow: keep the pointer at the drag origin
-                window_mouse_set(drag_x * SCREEN_SCALE, drag_y * SCREEN_SCALE);
+                drag_x = _mx;
+                drag_y = _my;
             }
         }
         break;
