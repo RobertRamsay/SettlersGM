@@ -1247,7 +1247,7 @@ function Building(_game, _index) : GameObject(_game, _index) constructor {
         if (_total_planks < stock[0].maximum) {
             var _planks_prio = _player.get_planks_construction() >> (8 + _total_planks);
             if (!holder) {
-                _planks_prio >>= 2;
+                _planks_prio = _planks_prio >> 2;
             }
             stock[0].prio = _planks_prio & ~(1 << 0);
         } else {
@@ -1259,7 +1259,7 @@ function Building(_game, _index) : GameObject(_game, _index) constructor {
         if (_total_stone < stock[1].maximum) {
             var _stone_prio = 0xff >> _total_stone;
             if (!holder) {
-                _stone_prio >>= 2;
+                _stone_prio = _stone_prio >> 2;
             }
             stock[1].prio = _stone_prio & ~(1 << 0);
         } else {

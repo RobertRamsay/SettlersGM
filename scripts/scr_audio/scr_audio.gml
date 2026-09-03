@@ -108,7 +108,7 @@ function audio_get_instance() {
     return global.audio_instance;
 }
 
-function audio_play_music() {
+function settlers_play_music() {
     var _a = audio_get_instance();
     if (global.audio_music_id == -1) {
         global.audio_music_id = audio_play_sound(mus_settlers, 1, true);

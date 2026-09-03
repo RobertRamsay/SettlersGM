@@ -1151,7 +1151,7 @@ function Player(_game, _index) : GameObject(_game, _index) constructor {
             _enemy_score = _enemy_score >> 1;
         }
         /*
-          player_score >>= 1;
+          player_score = player_score >> 1;
           unsigned int frac_score = 0;
           if (player_score != 0 && enemy_score != 0) {
             if (player_score > enemy_score) {

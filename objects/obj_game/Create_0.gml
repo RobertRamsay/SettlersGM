@@ -45,4 +45,4 @@ last_click_time = array_create(4, -100000);
 last_click_x = 0;
 last_click_y = 0;
 show_debug = false;
-audio_play_music();
+settlers_play_music();

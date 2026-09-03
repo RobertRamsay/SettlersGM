@@ -83,30 +83,30 @@ function interface_init_tables() {
 // class Road (map.h / map.cc)
 // ---------------------------------------------------------------------------
 
-/// Road. `begin` is the C++ `begin`; `source` mirrors it so that the Map port's
+/// Road. `road_begin` is the C++ `road_begin`; `source` mirrors it so that the Map port's
 /// place_road_segments(road) (which reads road.source / road.dirs) accepts it.
 function Road() constructor {
-    begin = BAD_MAP_POS;
+    road_begin = BAD_MAP_POS;
     source = BAD_MAP_POS;
     dirs = [];
 
     static is_valid = function() {
-        return (begin != BAD_MAP_POS);
+        return (road_begin != BAD_MAP_POS);
     };
 
     static invalidate = function() {
-        begin = BAD_MAP_POS;
+        road_begin = BAD_MAP_POS;
         source = BAD_MAP_POS;
         dirs = [];
     };
 
     static start = function(_start) {
-        begin = _start;
+        road_begin = _start;
         source = _start;
     };
 
     static get_source = function() {
-        return begin;
+        return road_begin;
     };
 
     static get_dirs = function() {
@@ -126,7 +126,7 @@ function Road() constructor {
     };
 
     static get_end = function(_map) {
-        var _result = begin;
+        var _result = road_begin;
         var _n = array_length(dirs);
         for (var _i = 0; _i < _n; _i++) {
             _result = _map.move(_result, dirs[_i]);
@@ -135,7 +135,7 @@ function Road() constructor {
     };
 
     static has_pos = function(_map, _pos) {
-        var _result = begin;
+        var _result = road_begin;
         var _n = array_length(dirs);
         for (var _i = 0; _i < _n; _i++) {
             if (_result == _pos) {
@@ -153,7 +153,7 @@ function Road() constructor {
 
         /* Check that road does not cross itself. */
         var _extended_end = _map.move(get_end(_map), _dir);
-        var _pos = begin;
+        var _pos = road_begin;
         var _valid = true;
         var _n = array_length(dirs);
         for (var _i = 0; _i < _n; _i++) {
@@ -172,7 +172,7 @@ function Road() constructor {
     };
 
     static extend = function(_dir) {
-        if (begin == BAD_MAP_POS) {
+        if (road_begin == BAD_MAP_POS) {
             return false;
         }
 
@@ -182,13 +182,13 @@ function Road() constructor {
     };
 
     static undo = function() {
-        if (begin == BAD_MAP_POS) {
+        if (road_begin == BAD_MAP_POS) {
             return false;
         }
 
         array_pop(dirs);
         if (array_length(dirs) == 0) {
-            begin = BAD_MAP_POS;
+            road_begin = BAD_MAP_POS;
             source = BAD_MAP_POS;
         }
 
@@ -199,7 +199,7 @@ function Road() constructor {
 /// Value copy of a Road (C++ `Road old_road = building_road;`).
 function road_copy(_road) {
     var _r = new Road();
-    _r.begin = _road.begin;
+    _r.road_begin = _road.road_begin;
     _r.source = _road.source;
     var _n = array_length(_road.dirs);
     for (var _i = 0; _i < _n; _i++) {
