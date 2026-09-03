@@ -88,7 +88,10 @@ int main(int argc, char **argv) {
     if (a) js << ",\n";
     js << "  [";
     for (size_t p = 0; p < n; p++) {
-      Data::Animation an = ds.get_animation(a, p);
+      // DataSourceBase::get_animation() does `phase >>= 3` before indexing, so
+      // passing p sampled only real phases 0..n/8 and wrote each one eight
+      // times. Feed it p << 3 to read real phase p.
+      Data::Animation an = ds.get_animation(a, p << 3);
       if (p) js << ",";
       js << "[" << (int)an.sprite << "," << an.x << "," << an.y << "]";
     }
