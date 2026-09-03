@@ -13,6 +13,29 @@ for (var _t = 0; _t < _ticks; _t++) {
     interface.handle_event(gui_make_event(EventType.update, 0, 0, 0, 0, 0));
 }
 
+// ---- time-advance buttons: burn through the owed ticks a slice at a time
+if (global.fast_forward_ticks > 0) {
+    var _burst = min(global.fast_forward_ticks, FAST_FORWARD_TICKS_PER_FRAME);
+    for (var _f = 0; _f < _burst; _f++) {
+        interface.handle_event(gui_make_event(EventType.update, 0, 0, 0, 0, 0));
+    }
+    global.fast_forward_ticks -= _burst;
+}
+
+// ---- mouse wheel: integer pixel zoom, 1x to 4x
+if (mouse_wheel_up() || mouse_wheel_down()) {
+    var _viewport = interface.get_viewport();
+    if (_viewport != undefined) {
+        var _step = 0;
+        if (mouse_wheel_up()) {
+            _step = 1;
+        } else {
+            _step = -1;
+        }
+        _viewport.set_zoom(_viewport.get_zoom() + _step);
+    }
+}
+
 // ---- mouse position in screen pixels (room == screen size)
 var _mx = clamp(floor(mouse_x), 0, SCREEN_W - 1);
 var _my = clamp(floor(mouse_y), 0, SCREEN_H - 1);

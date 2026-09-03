@@ -1000,7 +1000,7 @@ function Interface(_game = undefined) : GuiObject() constructor {
         var _panel_y = height;
 
         if (panel != undefined) {
-            var _panel_width = 352;
+            var _panel_width = PANEL_WIDTH;
             var _panel_height = 40;
             _panel_x = (width - _panel_width) div 2;
             _panel_y = height - _panel_height;

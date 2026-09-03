@@ -10,10 +10,16 @@
 // The 700 ms blink Timer of the C++ is emulated with current_time inside
 // internal_draw() (see on_timer_fired).
 
-#macro PANEL_WIDTH 352
+#macro PANEL_WIDTH 496
 #macro PANEL_HEIGHT 40
 
 /// PanelBar::Button
+// PANEL_WIDTH above was 352 in the original: five buttons plus the two round
+// end pieces. Widened by three 48px slots for the time-advance buttons.
+#macro PANEL_BUTTON_COUNT 8
+#macro TIME_BUTTON_FIRST 5
+
+
 enum PanelButton {
     build_inactive = 0,
     build_flag,
@@ -72,11 +78,28 @@ function panel_init_tables() {
         16, 256, 36,
         25, 288, 0,
 
-        1, 304, 0,
-        6, 312, 0,
+        // Three extra slots for the time-advance buttons. Not in the original;
+        // the strip pairs are reused because there are only five distinct ones.
+        7, 304, 0,
+        8, 304, 36,
+        21, 336, 0,
+
+        9, 352, 0,
+        10, 352, 36,
+        22, 384, 0,
+
+        11, 400, 0,
+        12, 400, 36,
+        23, 432, 0,
+
+        1, 448, 0,
+        6, 456, 0,
         -1
     ];
     // const int inactive_buttons[] (PanelBar::draw_panel_buttons)
+    // Game seconds each of >, >> and >>> jumps the world forward.
+    global.panel_time_skip_seconds = [30, 120, 300];
+
     global.panel_inactive_buttons = [
         PanelButton.build_inactive,
         PanelButton.destroy_inactive,
@@ -157,6 +180,34 @@ function PanelBar(_interface) : GuiObject() constructor {
             var _sy = 4;
             gfx_draw_sprite(_sx, _sy, Asset.panel_button, _button);
         }
+
+        for (var _i = 0; _i < 3; _i++) {
+            draw_time_button(64 + (TIME_BUTTON_FIRST + _i) * 48, 4, _i + 1);
+        }
+    };
+
+    /// A panel button face with `_chevrons` >'s stamped on it, drawn in the
+    /// panel's own palette so it sits with the rest of the bar.
+    static draw_time_button = function(_sx, _sy, _chevrons) {
+        gfx_draw_sprite(_sx, _sy, Asset.panel_button, PanelButton.build_inactive);
+
+        var _ox = global.gfx_ox + _sx;
+        var _oy = global.gfx_oy + _sy;
+        var _light = make_colour_rgb(0xff, 0xdd, 0xbb);
+        var _dark = make_colour_rgb(0x55, 0x22, 0x00);
+
+        var _spacing = 7;
+        var _left = 16 - ((_chevrons - 1) * _spacing) div 2 - 4;
+
+        for (var _c = 0; _c < _chevrons; _c++) {
+            var _cx = _ox + _left + _c * _spacing;
+            var _cy = _oy + 16;
+
+            draw_triangle_colour(_cx + 1, _cy - 6, _cx + 1, _cy + 6,
+                                 _cx + 8, _cy, _dark, _dark, _dark, false);
+            draw_triangle_colour(_cx, _cy - 6, _cx, _cy + 6,
+                                 _cx + 7, _cy, _light, _light, _light, false);
+        }
     };
 
     static internal_draw = function() {
@@ -172,6 +223,14 @@ function PanelBar(_interface) : GuiObject() constructor {
 
     /* Handle a click on the panel buttons. */
     static button_click = function(_button) {
+        if (_button >= TIME_BUTTON_FIRST) {
+            var _seconds = global.panel_time_skip_seconds[_button - TIME_BUTTON_FIRST];
+            global.fast_forward_ticks += _seconds * TICKS_PER_SEC;
+            play_sound(Sfx.click);
+            set_redraw();
+            return;
+        }
+
         var _popup = interface.get_popup_box();
         switch (panel_btns[_button]) {
             case PanelButton.map:
@@ -379,7 +438,7 @@ function PanelBar(_interface) : GuiObject() constructor {
         var _button = 0;
         while (true) {
             if (_bx < 32) {
-                if (_button < 5) {
+                if (_button < PANEL_BUTTON_COUNT) {
                     return _button;
                 } else {
                     return -1;

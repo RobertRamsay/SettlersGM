@@ -12,6 +12,8 @@
 #macro MAP_TILE_HEIGHT 20
 #macro MAP_TILE_TEXTURES 33
 #macro MAP_TILE_MASKS 81
+#macro MAX_ZOOM 4
+
 #macro MAP_TILE_COLS 16
 #macro MAP_TILE_ROWS 16
 
@@ -498,6 +500,13 @@ function Viewport(_interface, _map) : GuiObject() constructor {
     // reproduces the original's redraw cadence instead of redrawing at 60 Hz.
     frame_surface = -1;
 
+    // Integer pixel zoom. The viewport always renders at 1:1 into a surface of
+    // width x height (which is the *logical* size, screen size div zoom) and
+    // that surface is then blitted at `zoom` scale, so zooming never resamples.
+    zoom = 1;
+    screen_width = 0;
+    screen_height = 0;
+
     tri_spr = [
         32, 32, 32, 32, 32, 32, 32, 32,
         32, 32, 32, 32, 32, 32, 32, 32,
@@ -784,6 +793,35 @@ function Viewport(_interface, _map) : GuiObject() constructor {
             _left = map.get_height(_pos);
             _right = map.get_height(map.geom.move_right(_pos));
         }
+    };
+
+    /// GuiObject.set_size(), but the argument is the on-screen size. The
+    /// logical size the map is rendered at is that divided by the zoom.
+    static set_size = function(_new_width, _new_height) {
+        screen_width = _new_width;
+        screen_height = _new_height;
+        width = _new_width div zoom;
+        height = _new_height div zoom;
+        layout();
+        set_redraw();
+    };
+
+    static get_zoom = function() {
+        return zoom;
+    };
+
+    /// 1..MAX_ZOOM. Keeps whatever map position is under the middle of the
+    /// view centred, so zooming does not throw you across the map.
+    static set_zoom = function(_new_zoom) {
+        var _z = clamp(_new_zoom, 1, MAX_ZOOM);
+        if (_z == zoom) {
+            return;
+        }
+
+        var _centre = get_current_map_pos();
+        zoom = _z;
+        set_size(screen_width, screen_height);
+        move_to_map_pos(_centre);
     };
 
     static layout = function() {
@@ -2383,7 +2421,12 @@ function Viewport(_interface, _map) : GuiObject() constructor {
         }
 
         gfx_set_origin(0, 0);
-        draw_surface(frame_surface, _pos[0], _pos[1]);
+        if (zoom == 1) {
+            draw_surface(frame_surface, _pos[0], _pos[1]);
+        } else {
+            draw_surface_ext(frame_surface, _pos[0], _pos[1], zoom, zoom,
+                             0, c_white, 1);
+        }
 
         // Floats (the viewport has none in Freeserf, but keep the contract).
         var _n = array_length(floats);
@@ -2398,6 +2441,29 @@ function Viewport(_interface, _map) : GuiObject() constructor {
     };
 
     // ------------------------------------------------------------ events
+
+    /// Pointer events arrive in screen pixels. The map renders at the logical
+    /// size, so divide the position and any drag delta by the zoom before
+    /// GuiObject's bounds check and the handlers below see them.
+    static handle_event = function(_event) {
+        if (zoom == 1) {
+            return gui_handle_event(_event);
+        }
+
+        if (_event.type != EventType.click &&
+            _event.type != EventType.dbl_click &&
+            _event.type != EventType.drag) {
+            return gui_handle_event(_event);
+        }
+
+        var _scaled = gui_make_event(_event.type,
+                                     x + (_event.x - x) div zoom,
+                                     y + (_event.y - y) div zoom,
+                                     _event.dx div zoom,
+                                     _event.dy div zoom,
+                                     _event.button);
+        return gui_handle_event(_scaled);
+    };
 
     /// bool handle_click_left(int lx, int ly)
     static handle_click_left = function(_lx, _ly) {
