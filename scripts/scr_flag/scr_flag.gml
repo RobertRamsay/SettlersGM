@@ -833,8 +833,11 @@ function Flag(_game, _index) : GameObject(_game, _index) constructor {
         }
 
         if (_sources > 0) {
+            // NOTE: `self` inside a struct literal refers to the literal itself
+            // in GML, so capture the flag in a local first.
+            var _this_flag = self;
             var _data = {
-                src: self,
+                src: _this_flag,
                 dest: game.get_flag(slot[_slot].dest),
                 slot: _slot
             };
