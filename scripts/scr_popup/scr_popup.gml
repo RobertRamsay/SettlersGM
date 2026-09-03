@@ -835,6 +835,11 @@ function PopupBox(_interface) : GuiObject() constructor {
     current_sett_5_item = 8;
     current_sett_6_item = 15;
 
+    // Small map view inside the transport-info popup. Built on first use and
+    // kept, because every Viewport owns GPU surfaces - making a new one each
+    // redraw leaked them.
+    flag_view = undefined;
+
     /* Initialize minimap */
     minimap.set_displayed(false);
     minimap.set_parent(self);

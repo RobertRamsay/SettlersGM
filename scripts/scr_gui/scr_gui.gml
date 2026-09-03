@@ -121,6 +121,12 @@ function GuiObject() constructor {
             return;
         }
 
+        // Freeserf passes a Frame down the tree, so a nested draw cannot disturb
+        // its caller. This port uses one global origin instead, so save the
+        // caller's and put it back on the way out.
+        var _saved_ox = global.gfx_ox;
+        var _saved_oy = global.gfx_oy;
+
         var _sp = get_screen_position();
         gfx_set_origin(_sp[0], _sp[1]);
         internal_draw();
@@ -134,8 +140,7 @@ function GuiObject() constructor {
         }
         redraw = false;
 
-        // Restore our origin in case a caller keeps drawing after us.
-        gfx_set_origin(_sp[0], _sp[1]);
+        gfx_set_origin(_saved_ox, _saved_oy);
     };
 
     /// GuiObject::handle_event(const Event *). `_event` = {type, x, y, dx, dy, button}.

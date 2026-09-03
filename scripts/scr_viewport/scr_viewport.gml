@@ -2360,6 +2360,9 @@ function Viewport(_interface, _map) : GuiObject() constructor {
             return;
         }
 
+        var _saved_ox = global.gfx_ox;
+        var _saved_oy = global.gfx_oy;
+
         var _pos = get_screen_position();
 
         // Build missing landscape tiles first (no nested render targets).
@@ -2390,6 +2393,8 @@ function Viewport(_interface, _map) : GuiObject() constructor {
                 _fl.obj.draw();
             }
         }
+
+        gfx_set_origin(_saved_ox, _saved_oy);
     };
 
     // ------------------------------------------------------------ events

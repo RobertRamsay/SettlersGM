@@ -1,0 +1,103 @@
+diff --git a/scripts/scr_gui/scr_gui.gml b/scripts/scr_gui/scr_gui.gml
+index 6760e9b..ed14639 100644
+--- a/scripts/scr_gui/scr_gui.gml
++++ b/scripts/scr_gui/scr_gui.gml
+@@ -117,6 +117,12 @@ function GuiObject() constructor {
+             return;
+         }
+ 
++        // Freeserf passes a Frame down the tree, so a nested draw cannot disturb
++        // its caller. This port uses one global origin instead, so save the
++        // caller's and put it back on the way out.
++        var _saved_ox = global.gfx_ox;
++        var _saved_oy = global.gfx_oy;
++
+         var _sp = get_screen_position();
+         gfx_set_origin(_sp[0], _sp[1]);
+         internal_draw();
+@@ -130,8 +136,7 @@ function GuiObject() constructor {
+         }
+         redraw = false;
+ 
+-        // Restore our origin in case a caller keeps drawing after us.
+-        gfx_set_origin(_sp[0], _sp[1]);
++        gfx_set_origin(_saved_ox, _saved_oy);
+     };
+ 
+     /// GuiObject::handle_event(const Event *). `_event` = {type, x, y, dx, dy, button}.
+diff --git a/scripts/scr_popup/scr_popup.gml b/scripts/scr_popup/scr_popup.gml
+index 880a2f1..6f1fe68 100644
+--- a/scripts/scr_popup/scr_popup.gml
++++ b/scripts/scr_popup/scr_popup.gml
+@@ -835,6 +835,11 @@ function PopupBox(_interface) : GuiObject() constructor {
+     current_sett_5_item = 8;
+     current_sett_6_item = 15;
+ 
++    // Small map view inside the transport-info popup. Built on first use and
++    // kept, because every Viewport owns GPU surfaces - making a new one each
++    // redraw leaked them.
++    flag_view = undefined;
++
+     /* Initialize minimap */
+     minimap.set_displayed(false);
+     minimap.set_parent(self);
+diff --git a/scripts/scr_popup_b/scr_popup_b.gml b/scripts/scr_popup_b/scr_popup_b.gml
+index 82e1817..cc56af6 100644
+--- a/scripts/scr_popup_b/scr_popup_b.gml
++++ b/scripts/scr_popup_b/scr_popup_b.gml
+@@ -900,18 +900,22 @@ function popup_draw_transport_info_box(_popup) {
+     var _flag = _popup.interface.get_game().get_flag(_popup.interface.get_player().temp_index);
+ 
+     /* Draw viewport of flag */
+-    var _flag_view = new Viewport(_popup.interface, _popup.interface.get_game().get_map());
+-    _flag_view.switch_layer(ViewportLayer.landscape);
+-    _flag_view.switch_layer(ViewportLayer.serfs);
+-    _flag_view.switch_layer(ViewportLayer.cursor);
+-    _flag_view.set_displayed(true);
+-
+-    _flag_view.set_parent(_popup);
+-    _flag_view.set_size(128, 64);
++    if (_popup.flag_view == undefined) {
++        var _new_view = new Viewport(_popup.interface, _popup.interface.get_game().get_map());
++        _new_view.switch_layer(ViewportLayer.landscape);
++        _new_view.switch_layer(ViewportLayer.serfs);
++        _new_view.switch_layer(ViewportLayer.cursor);
++        _new_view.set_displayed(true);
++        _new_view.set_parent(_popup);
++        _new_view.set_size(128, 64);
++        _new_view.move_to(8, 24);
++        _popup.flag_view = _new_view;
++    }
++
++    var _flag_view = _popup.flag_view;
+     _flag_view.move_to_map_pos(_flag.get_position());
+     _flag_view.move_by_pixels(0, -10);
+-
+-    _flag_view.move_to(8, 24);
++    _flag_view.set_redraw();
+     _flag_view.draw();
+ 
+     // for (Direction d : cycle_directions_cw())
+diff --git a/scripts/scr_viewport/scr_viewport.gml b/scripts/scr_viewport/scr_viewport.gml
+index d3ee95d..75f3253 100644
+--- a/scripts/scr_viewport/scr_viewport.gml
++++ b/scripts/scr_viewport/scr_viewport.gml
+@@ -2360,6 +2360,9 @@ function Viewport(_interface, _map) : GuiObject() constructor {
+             return;
+         }
+ 
++        var _saved_ox = global.gfx_ox;
++        var _saved_oy = global.gfx_oy;
++
+         var _pos = get_screen_position();
+ 
+         // Build missing landscape tiles first (no nested render targets).
+@@ -2390,6 +2393,8 @@ function Viewport(_interface, _map) : GuiObject() constructor {
+                 _fl.obj.draw();
+             }
+         }
++
++        gfx_set_origin(_saved_ox, _saved_oy);
+     };
+ 
+     // ------------------------------------------------------------ events

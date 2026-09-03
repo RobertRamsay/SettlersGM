@@ -900,18 +900,22 @@ function popup_draw_transport_info_box(_popup) {
     var _flag = _popup.interface.get_game().get_flag(_popup.interface.get_player().temp_index);
 
     /* Draw viewport of flag */
-    var _flag_view = new Viewport(_popup.interface, _popup.interface.get_game().get_map());
-    _flag_view.switch_layer(ViewportLayer.landscape);
-    _flag_view.switch_layer(ViewportLayer.serfs);
-    _flag_view.switch_layer(ViewportLayer.cursor);
-    _flag_view.set_displayed(true);
+    if (_popup.flag_view == undefined) {
+        var _new_view = new Viewport(_popup.interface, _popup.interface.get_game().get_map());
+        _new_view.switch_layer(ViewportLayer.landscape);
+        _new_view.switch_layer(ViewportLayer.serfs);
+        _new_view.switch_layer(ViewportLayer.cursor);
+        _new_view.set_displayed(true);
+        _new_view.set_parent(_popup);
+        _new_view.set_size(128, 64);
+        _new_view.move_to(8, 24);
+        _popup.flag_view = _new_view;
+    }
 
-    _flag_view.set_parent(_popup);
-    _flag_view.set_size(128, 64);
+    var _flag_view = _popup.flag_view;
     _flag_view.move_to_map_pos(_flag.get_position());
     _flag_view.move_by_pixels(0, -10);
-
-    _flag_view.move_to(8, 24);
+    _flag_view.set_redraw();
     _flag_view.draw();
 
     // for (Direction d : cycle_directions_cw())
