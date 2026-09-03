@@ -53,5 +53,12 @@ last_click_y = 0;
 // as well. Index 0 is unused; 1 = left, 2 = middle, 3 = right.
 both_buttons_active = false;
 suppress_click = array_create(4, false);
+
+// The original had these two as options-popup toggles. Freeserf only ever
+// declared the enum entries (ACTION_OPTIONS_FAST_MAP_CLICK_1/2,
+// ACTION_OPTIONS_FAST_BUILDING_1/2) and never handled them, so they are globals
+// here, ready for the options popup to drive once those buttons are wired.
+global.fast_map_click = true;       // dbl-click own flag -> start a road there
+global.fast_building_click = true;  // dbl-click a build spot -> that build popup
 show_debug = false;
 settlers_play_music();

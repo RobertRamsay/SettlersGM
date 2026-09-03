@@ -2505,6 +2505,20 @@ function Viewport(_interface, _map) : GuiObject() constructor {
                 }
             }
         } else {
+            /* Fast building click: the first click already moved the cursor and
+               refreshed the panel, so a second click on a spot showing a build
+               possibility icon can just press the panel's build button. That
+               picks basic_bld / basic_bld_flip / mine_building / flag / castle
+               to match the possibility, exactly as clicking the button does. */
+            if (global.fast_building_click &&
+                interface.get_build_possibility() != BuildPossibility.none) {
+                var _panel = interface.get_panel_bar();
+                if (_panel != undefined) {
+                    _panel.button_click(0);
+                    return true;
+                }
+            }
+
             if (map.get_obj(_clk_pos) == MapObject.none ||
                 map.get_obj(_clk_pos) > MapObject.castle) {
                 return false;
@@ -2512,7 +2526,13 @@ function Viewport(_interface, _map) : GuiObject() constructor {
 
             if (map.get_obj(_clk_pos) == MapObject.flag) {
                 if (map.get_owner(_clk_pos) == _player.get_index()) {
-                    interface.open_popup(PopupType.transport_info);
+                    /* Fast map click: start a road from this flag rather than
+                       opening the transport info popup. */
+                    if (global.fast_map_click) {
+                        interface.build_road_begin();
+                    } else {
+                        interface.open_popup(PopupType.transport_info);
+                    }
                 }
 
                 _player.temp_index = map.get_obj_index(_clk_pos);
