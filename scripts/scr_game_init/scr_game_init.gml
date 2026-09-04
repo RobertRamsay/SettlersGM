@@ -517,8 +517,9 @@ function GameInitBox(_interface) : GuiObject() constructor {
             return;
         }
 
-        interface.set_game(_loaded);
-        interface.close_game_init();
+        load_status = "Loading...";
+        set_redraw();
+        interface.request_game(_loaded);
     };
 
     static handle_action = function(_action) {
@@ -609,6 +610,23 @@ function GameInitBox(_interface) : GuiObject() constructor {
             default:
                 break;
         }
+    };
+
+    /// Dump what the save slots actually look like on disk. Bound to F12.
+    static dump_save_state = function() {
+        show_debug_message("--- savegame state ---");
+        show_debug_message("game_type = " + string(game_type) +
+                           " (load is " + string(GameType.load) + ")");
+        show_debug_message("file_list displayed = " + string(file_list.is_displayed()) +
+                           ", selected slot = " + string(file_list.get_selected_slot()));
+        for (var _i = 0; _i < SAVEGAME_SLOTS; _i++) {
+            var _path = savegame_slot_path(_i);
+            show_debug_message("  slot " + string(_i) + ": " + _path +
+                               " exists=" + string(file_exists(_path)) +
+                               " label=" + savegame_slot_label(_i));
+        }
+        show_debug_message("last load error: '" + savegame_last_error() + "'");
+        show_debug_message("--- end ---");
     };
 
     static handle_click_left = function(_cx, _cy) {

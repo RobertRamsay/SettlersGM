@@ -13,6 +13,25 @@ for (var _t = 0; _t < _ticks; _t++) {
     interface.handle_event(gui_make_event(EventType.update, 0, 0, 0, 0, 0));
 }
 
+// ---- a queued game switch runs here, never inside event dispatch
+interface.apply_pending_game();
+
+// ---- F12 dumps the save slot state to the output log
+if (keyboard_check_pressed(vk_f12)) {
+    var _box = interface.get_game_init_box();
+    if (_box != undefined) {
+        _box.dump_save_state();
+    } else {
+        show_debug_message("--- savegame state (no start screen open) ---");
+        for (var _i = 0; _i < SAVEGAME_SLOTS; _i++) {
+            show_debug_message("  slot " + string(_i) + ": " + savegame_slot_path(_i) +
+                               " exists=" + string(file_exists(savegame_slot_path(_i))) +
+                               " label=" + savegame_slot_label(_i));
+        }
+        show_debug_message("last load error: '" + savegame_last_error() + "'");
+    }
+}
+
 // ---- save / load, until the slot UI lands
 // F1..F10 pick the slot, F5 saves to it, F9 loads it, F11 runs the round-trip
 // self test and reports to the output log.

@@ -246,6 +246,7 @@ function Interface(_game = undefined) : GuiObject() constructor {
     build_possibility = BuildPossibility.none;
 
     player = undefined;
+    pending_game = undefined;
 
     /* Settings */
     config = 0x39;
@@ -431,6 +432,30 @@ function Interface(_game = undefined) : GuiObject() constructor {
         }
         viewport.set_enabled(false);
         layout();
+    };
+
+    /// Queue a game to switch to. Doing it immediately means set_game() and
+    /// close_game_init() delete and add floats while gui_handle_event() is
+    /// still walking the float list that contains the box we were called from.
+    static request_game = function(_new_game) {
+        pending_game = _new_game;
+    };
+
+    /// Perform a queued switch. Called from the step event, outside any event
+    /// dispatch, so the float list is safe to rearrange.
+    static apply_pending_game = function() {
+        if (pending_game == undefined) {
+            return false;
+        }
+        var _new_game = pending_game;
+        pending_game = undefined;
+        set_game(_new_game);
+        close_game_init();
+        return true;
+    };
+
+    static get_game_init_box = function() {
+        return init_box;
     };
 
     static close_game_init = function() {
