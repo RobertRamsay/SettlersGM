@@ -29,6 +29,9 @@ ROOT = sys.argv[2] if len(sys.argv) > 2 else '.'
 GML = ROOT + '/scripts/scr_sprite_meta/scr_sprite_meta.gml'
 
 ANIMATION_COUNT = 200
+# load_animation_table() is handed get_subbuffer(0, 30528), so the block is that
+# many bytes and the last animation ends there - not at the end of the file.
+ANIMATION_BLOCK_BYTES = 30528
 
 
 def decode(data):
@@ -67,13 +70,25 @@ def current_table(text):
     return json.loads(m.group(1))
 
 
-def signature(old):
-    """Bytes the real animation 0 must start with, taken from old[j * 8]."""
+def stride(old):
+    """8 if the table still has the off-by-eight repeats, else 1.
+
+    Lets the script be re-run against a table it has already rebuilt."""
+    a0 = old[0]
+    if len(a0) >= 8 and all(a0[k] == a0[0] for k in range(8)):
+        return 8
+    return 1
+
+
+def signature(old, step):
+    """Bytes the real animation 0 must start with."""
     sig = bytearray()
     a0 = old[0]
-    for j in range(len(a0) // 8):
-        s, x, y = a0[j * 8]
+    for j in range(0, len(a0) // step):
+        s, x, y = a0[j * step]
         sig += bytes([s & 0xFF, x & 0xFF, y & 0xFF])
+        if len(sig) >= 24:
+            break
     return bytes(sig)
 
 
@@ -95,7 +110,8 @@ def locate(blob, sig):
     return hits
 
 
-def read_table(blob, base, limit):
+def read_table(blob, base):
+    limit = min(ANIMATION_BLOCK_BYTES, len(blob) - base)
     offsets = [int.from_bytes(blob[base + i * 4:base + i * 4 + 4], 'big')
                for i in range(ANIMATION_COUNT)]
     animations = []
@@ -115,12 +131,12 @@ def read_table(blob, base, limit):
     return animations
 
 
-def check(animations, old):
-    """Every rebuilt phase j must equal old phase j * 8. Returns count or None."""
+def check(animations, old, step):
+    """Every rebuilt phase j must equal old phase j * step. Count, or None."""
     checked = 0
     for i in range(min(len(old), len(animations))):
         for j, phase in enumerate(animations[i]):
-            k = j * 8
+            k = j * step
             if k >= len(old[i]):
                 break
             if old[i][k] != phase:
@@ -135,7 +151,11 @@ def main():
 
     text = open(GML, encoding='utf-8').read()
     old = current_table(text)
-    sig = signature(old)
+    step = stride(old)
+    sig = signature(old, step)
+    print('existing table stride %d (%s)'
+          % (step, 'still has the off-by-eight repeats' if step == 8
+             else 'already rebuilt, re-verifying'))
     print('searching for a %d byte signature from animation 0: %s'
           % (len(sig), sig.hex()))
 
@@ -157,8 +177,8 @@ def main():
         print('  %-20s %8d bytes, %d candidate position(s)'
               % (name, len(blob), len(hits)))
         for base, pos in hits:
-            animations = read_table(blob, base, len(blob) - base)
-            n = check(animations, old)
+            animations = read_table(blob, base)
+            n = check(animations, old, step)
             if n is None:
                 print('    base 0x%x rejected by self-check' % base)
             else:
