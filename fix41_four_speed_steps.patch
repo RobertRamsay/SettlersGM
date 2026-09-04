@@ -1,0 +1,152 @@
+diff --git a/scripts/scr_gui/scr_gui.gml b/scripts/scr_gui/scr_gui.gml
+index 3209388..aee871c 100644
+--- a/scripts/scr_gui/scr_gui.gml
++++ b/scripts/scr_gui/scr_gui.gml
+@@ -85,6 +85,10 @@ function GuiObject() constructor {
+         return false;
+     };
+ 
++    static handle_click_right = function(_x, _y) {
++        return false;
++    };
++
+     static handle_dbl_click = function(_x, _y, _button) {
+         return false;
+     };
+@@ -180,6 +184,8 @@ function GuiObject() constructor {
+                     _result = handle_click_left(_event_x, _event_y);
+                 } else if (_event.button == EventButton.middle) {
+                     _result = handle_click_middle(_event_x, _event_y);
++                } else if (_event.button == EventButton.right) {
++                    _result = handle_click_right(_event_x, _event_y);
+                 }
+                 break;
+             case EventType.drag:
+diff --git a/scripts/scr_panel/scr_panel.gml b/scripts/scr_panel/scr_panel.gml
+index a6946b8..239dc31 100644
+--- a/scripts/scr_panel/scr_panel.gml
++++ b/scripts/scr_panel/scr_panel.gml
+@@ -24,6 +24,7 @@
+ // caps at 40, so 15x (= 30) is the most that stays in range.
+ #macro SPEED_STEP_2 20
+ #macro SPEED_STEP_3 50
++#macro SPEED_STEP_4 100
+ 
+ 
+ enum PanelButton {
+@@ -95,6 +96,11 @@ function panel_init_tables() {
+         -1
+     ];
+     // const int inactive_buttons[] (PanelBar::draw_panel_buttons)
++    // Multipliers of DEFAULT_GAME_SPEED the speed button steps through. Held as
++    // data so a step can be added or removed here alone: the chevron count, the
++    // stepping and the clamping all read from it.
++    global.panel_speed_steps = [1, SPEED_STEP_2, SPEED_STEP_3, SPEED_STEP_4];
++
+     global.panel_inactive_buttons = [
+         PanelButton.build_inactive,
+         PanelButton.destroy_inactive,
+@@ -179,19 +185,43 @@ function PanelBar(_interface) : GuiObject() constructor {
+         draw_speed_button(64 + SPEED_BUTTON * 48, 4, speed_chevrons());
+     };
+ 
+-    /// 1, 2 or 3 chevrons for normal, double and quadruple speed.
+-    static speed_chevrons = function() {
++    /// Which step the game speed is currently on, 0 being normal. Takes the
++    /// highest step at or below the current speed, so the keyboard's
++    /// speed_increase landing between steps still shows something sensible.
++    static speed_step = function() {
+         var _game = interface.get_game();
+         if (_game == undefined) {
+-            return 1;
++            return 0;
+         }
+-        if (_game.game_speed >= DEFAULT_GAME_SPEED * SPEED_STEP_3) {
+-            return 3;
++
++        var _steps = global.panel_speed_steps;
++        var _found = 0;
++        for (var _i = 0; _i < array_length(_steps); _i++) {
++            if (_game.game_speed >= DEFAULT_GAME_SPEED * _steps[_i]) {
++                _found = _i;
++            }
+         }
+-        if (_game.game_speed >= DEFAULT_GAME_SPEED * SPEED_STEP_2) {
+-            return 2;
++
++        return _found;
++    };
++
++    static set_speed_step = function(_step) {
++        var _game = interface.get_game();
++        if (_game == undefined) {
++            return;
+         }
+-        return 1;
++
++        var _steps = global.panel_speed_steps;
++        var _clamped = clamp(_step, 0, array_length(_steps) - 1);
++
++        _game.set_speed(DEFAULT_GAME_SPEED * _steps[_clamped]);
++        play_sound(Sfx.click);
++        set_redraw();
++    };
++
++    /// One chevron per step, so four steps draw >, >>, >>> and >>>>.
++    static speed_chevrons = function() {
++        return speed_step() + 1;
+     };
+ 
+     /// A panel button face with `_chevrons` >'s stamped on it, drawn in the
+@@ -204,7 +234,11 @@ function PanelBar(_interface) : GuiObject() constructor {
+         var _light = make_colour_rgb(0xff, 0xdd, 0xbb);
+         var _dark = make_colour_rgb(0x55, 0x22, 0x00);
+ 
++        /* Tighter once there are four, so the run still fits the 32px face. */
+         var _spacing = 7;
++        if (_chevrons >= 4) {
++            _spacing = 6;
++        }
+         var _left = 16 - ((_chevrons - 1) * _spacing) div 2 - 4;
+ 
+         for (var _c = 0; _c < _chevrons; _c++) {
+@@ -232,18 +266,9 @@ function PanelBar(_interface) : GuiObject() constructor {
+     /* Handle a click on the panel buttons. */
+     static button_click = function(_button) {
+         if (_button == SPEED_BUTTON) {
+-            var _game = interface.get_game();
+-            if (_game != undefined) {
+-                var _next = DEFAULT_GAME_SPEED;
+-                if (_game.game_speed == DEFAULT_GAME_SPEED) {
+-                    _next = DEFAULT_GAME_SPEED * SPEED_STEP_2;
+-                } else if (_game.game_speed == DEFAULT_GAME_SPEED * SPEED_STEP_2) {
+-                    _next = DEFAULT_GAME_SPEED * SPEED_STEP_3;
+-                }
+-                _game.set_speed(_next);
+-            }
+-            play_sound(Sfx.click);
+-            set_redraw();
++            /* Left click steps up and stops at the fastest; right click steps
++               down and stops at normal. See handle_click_right. */
++            set_speed_step(speed_step() + 1);
+             return;
+         }
+ 
+@@ -468,6 +493,17 @@ function PanelBar(_interface) : GuiObject() constructor {
+         }
+     };
+ 
++    /// Right click on the speed button steps back down, so left is faster and
++    /// right is slower. set_speed_step clamps, so neither end wraps.
++    static handle_click_right = function(_cx, _cy) {
++        if (hit_test_button(_cx, _cy) != SPEED_BUTTON) {
++            return false;
++        }
++
++        set_speed_step(speed_step() - 1);
++        return true;
++    };
++
+     /* Both mouse buttons on the build button toggles the build-possibility
+        icons over the map - the same overlay the "b" key switches. */
+     static handle_click_middle = function(_cx, _cy) {

@@ -85,6 +85,10 @@ function GuiObject() constructor {
         return false;
     };
 
+    static handle_click_right = function(_x, _y) {
+        return false;
+    };
+
     static handle_dbl_click = function(_x, _y, _button) {
         return false;
     };
@@ -180,6 +184,8 @@ function GuiObject() constructor {
                     _result = handle_click_left(_event_x, _event_y);
                 } else if (_event.button == EventButton.middle) {
                     _result = handle_click_middle(_event_x, _event_y);
+                } else if (_event.button == EventButton.right) {
+                    _result = handle_click_right(_event_x, _event_y);
                 }
                 break;
             case EventType.drag:
