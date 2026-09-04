@@ -74,5 +74,9 @@ global.fast_forward_ticks = 0;
 
 // Slot the next F5 writes to / the last one loaded. 0..SAVEGAME_SLOTS-1.
 global.save_slot = 0;
+
+// Show the start screen over the freshly built game rather than dropping
+// straight into it, so START and LOAD are reachable. Ctrl+N reopens it.
+interface.open_game_init();
 show_debug = false;
 settlers_play_music();

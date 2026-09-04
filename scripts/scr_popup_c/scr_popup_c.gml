@@ -1183,6 +1183,16 @@ function popup_handle_action(_popup, _action, _x, _y) {
     _popup.set_box(PopupType.load_save);
     break;
   case Action.save: {
+    var _slot = _popup.file_list.get_selected_slot();
+    if (_slot >= 0) {
+      if (savegame_save_slot(_slot, _interface.get_game(),
+                             _popup.file_list.get_edit_text())) {
+        _popup.file_list.stop_editing();
+        _popup.set_redraw();
+      }
+      break;
+    }
+
     var _file_name = _popup.file_field.get_text();
     /* file_name.find_last_of('.') -> 1-based position or 0 if none */
     var _p = string_last_pos(".", _file_name);
@@ -1410,18 +1420,6 @@ function popup_handle_box_bld_4(_popup, _cx, _cy) {
 
 function popup_handle_save_clk(_popup, _cx, _cy) {
   popup_c_init_tables();
-
-  /* Slot rows sit above the icon strip; anything at or below y=126 falls
-     through to the click map so Exit still works. */
-  if (_cy >= 14 && _cy < 14 + SAVEGAME_SLOTS * 11) {
-    var _slot = (_cy - 14) div 11;
-    if (_slot >= 0 && _slot < SAVEGAME_SLOTS) {
-      if (savegame_save_slot(_slot, _popup.interface.get_game())) {
-        _popup.set_redraw();
-      }
-      return;
-    }
-  }
 
   popup_handle_clickmap(_popup, _cx, _cy, global.popup_c_clk_save);
 }

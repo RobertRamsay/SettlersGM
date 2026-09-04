@@ -279,15 +279,19 @@ function savegame_slot_path(_slot) {
 }
 
 /// Write a snapshot to an arbitrary path. Returns true on success.
-function savegame_save_path(_path, _game) {
+function savegame_save_path(_path, _game, _label = "") {
     if (_game == undefined) {
         show_debug_message("savegame: no game to save");
         return false;
     }
 
     var _data = savegame_encode_game(_game);
-    _data.label = "Tick " + string(_game.tick) + "  " +
-                  date_datetime_string(date_current_datetime());
+    if (_label == "") {
+        _data.label = "Tick " + string(_game.tick) + "  " +
+                      date_datetime_string(date_current_datetime());
+    } else {
+        _data.label = _label;
+    }
 
     var _text = json_stringify(_data);
     var _buffer = buffer_create(string_byte_length(_text) + 1, buffer_grow, 1);
@@ -359,8 +363,8 @@ function savegame_slot_label(_slot) {
     return _text;
 }
 
-function savegame_save_slot(_slot, _game) {
-    return savegame_save_path(savegame_slot_path(_slot), _game);
+function savegame_save_slot(_slot, _game, _label = "") {
+    return savegame_save_path(savegame_slot_path(_slot), _game, _label);
 }
 
 function savegame_load_slot(_slot) {

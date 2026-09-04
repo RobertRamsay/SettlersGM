@@ -1,0 +1,272 @@
+diff --git a/objects/obj_game/Create_0.gml b/objects/obj_game/Create_0.gml
+index fe288c6..241b1ca 100644
+--- a/objects/obj_game/Create_0.gml
++++ b/objects/obj_game/Create_0.gml
+@@ -74,5 +74,9 @@ global.fast_forward_ticks = 0;
+ 
+ // Slot the next F5 writes to / the last one loaded. 0..SAVEGAME_SLOTS-1.
+ global.save_slot = 0;
++
++// Show the start screen over the freshly built game rather than dropping
++// straight into it, so START and LOAD are reachable. Ctrl+N reopens it.
++interface.open_game_init();
+ show_debug = false;
+ settlers_play_music();
+diff --git a/scripts/scr_game_init/scr_game_init.gml b/scripts/scr_game_init/scr_game_init.gml
+index 7405a6e..06ef71e 100644
+--- a/scripts/scr_game_init/scr_game_init.gml
++++ b/scripts/scr_game_init/scr_game_init.gml
+@@ -32,7 +32,8 @@ enum GameInitAction {
+     decrement,
+     close,
+     gen_random,
+-    apply_random
++    apply_random,
++    show_load
+ }
+ 
+ /// GameInitBox::GameType
+@@ -77,6 +78,7 @@ function game_init_init_tables() {
+     global.game_init_clickmap_mission = [
+         GameInitAction.start_game,        20,  16, 32, 32,
+         GameInitAction.toggle_game_type,  60,  16, 32, 32,
++        GameInitAction.show_load,        100,  16, 40, 16,
+         GameInitAction.show_options,     308,  16, 32, 32,
+         GameInitAction.increment,        284,  16, 16, 16,
+         GameInitAction.decrement,        284,  32, 16, 16,
+@@ -87,6 +89,7 @@ function game_init_init_tables() {
+     global.game_init_clickmap_custom = [
+         GameInitAction.start_game,        20,  16, 32, 32,
+         GameInitAction.toggle_game_type,  60,  16, 32, 32,
++        GameInitAction.show_load,        100,  16, 40, 16,
+         GameInitAction.show_options,     308,  16, 32, 32,
+         GameInitAction.increment,        220,  24, 24, 24,
+         GameInitAction.decrement,        220,  16,  8,  8,
+@@ -99,6 +102,7 @@ function game_init_init_tables() {
+     global.game_init_clickmap_load = [
+         GameInitAction.start_game,        20,  16, 32, 32,
+         GameInitAction.toggle_game_type,  60,  16, 32, 32,
++        GameInitAction.show_load,        100,  16, 40, 16,
+         GameInitAction.show_options,     308,  16, 32, 32,
+         GameInitAction.close,            324, 216, 16, 16,
+         -1
+@@ -307,6 +311,12 @@ function GameInitBox(_interface) : GuiObject() constructor {
+     static internal_draw = function() {
+         draw_bg();
+ 
++        /* Plain labels rather than icons: the original has no LOAD button to
++           borrow art from, and this is scaffolding until the real start/end
++           screens land. */
++        gfx_fill_rect(100, 16, 40, 16, make_colour_rgb(0x00, 0x00, 0x00));
++        gfx_draw_string(104, 20, "LOAD", make_colour_rgb(0xff, 0xff, 0xff), -1);
++
+         var _layout = global.game_init_layout;
+         var _i = 0;
+         while (_layout[_i] >= 0) {
+@@ -495,6 +505,11 @@ function GameInitBox(_interface) : GuiObject() constructor {
+                 set_game_type(_next_type);
+                 break;
+             }
++            case GameInitAction.show_load: {
++                set_game_type(GameType.load);
++                file_list.update();
++                break;
++            }
+             case GameInitAction.show_options: {
+                 if (interface != undefined) {
+                     interface.open_popup(PopupType.options);
+diff --git a/scripts/scr_popup/scr_popup.gml b/scripts/scr_popup/scr_popup.gml
+index 0a55142..3a57c4a 100644
+--- a/scripts/scr_popup/scr_popup.gml
++++ b/scripts/scr_popup/scr_popup.gml
+@@ -2196,10 +2196,12 @@ function ListSavedFiles() : GuiObject() constructor {
+     selected_item = -1;
+     selection_handler = undefined;
+     folder_path = "";
+-    row_height = 10;
++    row_height = 11;
+     color_background = make_colour_rgb(0x00, 0x00, 0x00);
+-    color_text = make_colour_rgb(0xff, 0xff, 0xff);
+     color_selected = make_colour_rgb(0x00, 0x8b, 0x47);
++    editing = false;
++    edit_text = "";
++    max_name_length = 14;
+ 
+     /// One entry per save slot, occupied or not, so saving over a slot is just
+     /// as easy as loading one. Slot N is settlers_save_N.json.
+@@ -2229,6 +2231,45 @@ function ListSavedFiles() : GuiObject() constructor {
+         return selected_item;
+     };
+ 
++    /// The name being typed for the selected slot. "" means keep the default.
++    static get_edit_text = function() {
++        return edit_text;
++    };
++
++    static stop_editing = function() {
++        editing = false;
++        edit_text = "";
++        set_redraw();
++    };
++
++    /// Click a row then type. Backspace deletes, Enter saves nothing by itself -
++    /// the SAVE button commits, so a mistyped name can still be abandoned.
++    static handle_key_pressed = function(_key, _modifier) {
++        if (!editing || selected_item < 0) {
++            return false;
++        }
++
++        if (_key == 8) {
++            if (string_length(edit_text) > 0) {
++                edit_text = string_delete(edit_text, string_length(edit_text), 1);
++                set_redraw();
++            }
++            return true;
++        }
++
++        if (_key < 32 || _key > 126) {
++            return false;
++        }
++
++        if (string_length(edit_text) >= max_name_length) {
++            return true;
++        }
++
++        edit_text += chr(_key);
++        set_redraw();
++        return true;
++    };
++
+     static get_folder_path = function() {
+         return folder_path;
+     };
+@@ -2254,8 +2295,18 @@ function ListSavedFiles() : GuiObject() constructor {
+                 gfx_fill_rect(0, _y, width, row_height, color_selected);
+             }
+ 
+-            var _label = string(_index + 1) + ". " + savegame_slot_label(_index);
+-            gfx_draw_string(1, _y + 1, _label, color_text, -1);
++            var _name = savegame_slot_label(_index);
++            if (editing && _index == selected_item) {
++                _name = edit_text + "_";
++            }
++
++            var _number = string(_index + 1);
++            if (_index < 9) {
++                _number = " " + _number;
++            }
++
++            gfx_draw_string(1, _y + 1, _number + ". " + _name,
++                            global.popup_color_green, -1);
+         }
+     };
+ 
+@@ -2270,6 +2321,8 @@ function ListSavedFiles() : GuiObject() constructor {
+         }
+ 
+         selected_item = _index;
++        editing = true;
++        edit_text = "";
+         set_redraw();
+ 
+         if (selection_handler != undefined) {
+diff --git a/scripts/scr_popup_b/scr_popup_b.gml b/scripts/scr_popup_b/scr_popup_b.gml
+index f100c56..acb121a 100644
+--- a/scripts/scr_popup_b/scr_popup_b.gml
++++ b/scripts/scr_popup_b/scr_popup_b.gml
+@@ -1232,16 +1232,8 @@ function popup_draw_save_box(_popup) {
+ 
+     _popup.draw_green_string(3, 2, "Save  Game");
+ 
+-    /* Slots rather than a typed name: nothing to spell, and overwriting is one
+-       click. Row N maps to settlers_save_N.json. */
+-    for (var _i = 0; _i < SAVEGAME_SLOTS; _i++) {
+-        var _label = string(_i + 1);
+-        if (_i < 9) {
+-            _label = " " + _label;
+-        }
+-        _popup.draw_green_string(1, 14 + _i * 11,
+-                                 _label + " " + savegame_slot_label(_i));
+-    }
++    /* Rows are drawn by the file_list float; drawing them here too was what
++       produced the doubled row under the list. */
+ 
+     _popup.draw_popup_icon(14, 128, 60); /* Exit */
+ }
+diff --git a/scripts/scr_popup_c/scr_popup_c.gml b/scripts/scr_popup_c/scr_popup_c.gml
+index 2ea6bfc..66e49d4 100644
+--- a/scripts/scr_popup_c/scr_popup_c.gml
++++ b/scripts/scr_popup_c/scr_popup_c.gml
+@@ -1183,6 +1183,16 @@ function popup_handle_action(_popup, _action, _x, _y) {
+     _popup.set_box(PopupType.load_save);
+     break;
+   case Action.save: {
++    var _slot = _popup.file_list.get_selected_slot();
++    if (_slot >= 0) {
++      if (savegame_save_slot(_slot, _interface.get_game(),
++                             _popup.file_list.get_edit_text())) {
++        _popup.file_list.stop_editing();
++        _popup.set_redraw();
++      }
++      break;
++    }
++
+     var _file_name = _popup.file_field.get_text();
+     /* file_name.find_last_of('.') -> 1-based position or 0 if none */
+     var _p = string_last_pos(".", _file_name);
+@@ -1411,17 +1421,5 @@ function popup_handle_box_bld_4(_popup, _cx, _cy) {
+ function popup_handle_save_clk(_popup, _cx, _cy) {
+   popup_c_init_tables();
+ 
+-  /* Slot rows sit above the icon strip; anything at or below y=126 falls
+-     through to the click map so Exit still works. */
+-  if (_cy >= 14 && _cy < 14 + SAVEGAME_SLOTS * 11) {
+-    var _slot = (_cy - 14) div 11;
+-    if (_slot >= 0 && _slot < SAVEGAME_SLOTS) {
+-      if (savegame_save_slot(_slot, _popup.interface.get_game())) {
+-        _popup.set_redraw();
+-      }
+-      return;
+-    }
+-  }
+-
+   popup_handle_clickmap(_popup, _cx, _cy, global.popup_c_clk_save);
+ }
+diff --git a/scripts/scr_savegame/scr_savegame.gml b/scripts/scr_savegame/scr_savegame.gml
+index 74822d7..a609adf 100644
+--- a/scripts/scr_savegame/scr_savegame.gml
++++ b/scripts/scr_savegame/scr_savegame.gml
+@@ -279,15 +279,19 @@ function savegame_slot_path(_slot) {
+ }
+ 
+ /// Write a snapshot to an arbitrary path. Returns true on success.
+-function savegame_save_path(_path, _game) {
++function savegame_save_path(_path, _game, _label = "") {
+     if (_game == undefined) {
+         show_debug_message("savegame: no game to save");
+         return false;
+     }
+ 
+     var _data = savegame_encode_game(_game);
+-    _data.label = "Tick " + string(_game.tick) + "  " +
+-                  date_datetime_string(date_current_datetime());
++    if (_label == "") {
++        _data.label = "Tick " + string(_game.tick) + "  " +
++                      date_datetime_string(date_current_datetime());
++    } else {
++        _data.label = _label;
++    }
+ 
+     var _text = json_stringify(_data);
+     var _buffer = buffer_create(string_byte_length(_text) + 1, buffer_grow, 1);
+@@ -359,8 +363,8 @@ function savegame_slot_label(_slot) {
+     return _text;
+ }
+ 
+-function savegame_save_slot(_slot, _game) {
+-    return savegame_save_path(savegame_slot_path(_slot), _game);
++function savegame_save_slot(_slot, _game, _label = "") {
++    return savegame_save_path(savegame_slot_path(_slot), _game, _label);
+ }
+ 
+ function savegame_load_slot(_slot) {

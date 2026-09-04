@@ -2196,10 +2196,12 @@ function ListSavedFiles() : GuiObject() constructor {
     selected_item = -1;
     selection_handler = undefined;
     folder_path = "";
-    row_height = 10;
+    row_height = 11;
     color_background = make_colour_rgb(0x00, 0x00, 0x00);
-    color_text = make_colour_rgb(0xff, 0xff, 0xff);
     color_selected = make_colour_rgb(0x00, 0x8b, 0x47);
+    editing = false;
+    edit_text = "";
+    max_name_length = 14;
 
     /// One entry per save slot, occupied or not, so saving over a slot is just
     /// as easy as loading one. Slot N is settlers_save_N.json.
@@ -2229,6 +2231,45 @@ function ListSavedFiles() : GuiObject() constructor {
         return selected_item;
     };
 
+    /// The name being typed for the selected slot. "" means keep the default.
+    static get_edit_text = function() {
+        return edit_text;
+    };
+
+    static stop_editing = function() {
+        editing = false;
+        edit_text = "";
+        set_redraw();
+    };
+
+    /// Click a row then type. Backspace deletes, Enter saves nothing by itself -
+    /// the SAVE button commits, so a mistyped name can still be abandoned.
+    static handle_key_pressed = function(_key, _modifier) {
+        if (!editing || selected_item < 0) {
+            return false;
+        }
+
+        if (_key == 8) {
+            if (string_length(edit_text) > 0) {
+                edit_text = string_delete(edit_text, string_length(edit_text), 1);
+                set_redraw();
+            }
+            return true;
+        }
+
+        if (_key < 32 || _key > 126) {
+            return false;
+        }
+
+        if (string_length(edit_text) >= max_name_length) {
+            return true;
+        }
+
+        edit_text += chr(_key);
+        set_redraw();
+        return true;
+    };
+
     static get_folder_path = function() {
         return folder_path;
     };
@@ -2254,8 +2295,18 @@ function ListSavedFiles() : GuiObject() constructor {
                 gfx_fill_rect(0, _y, width, row_height, color_selected);
             }
 
-            var _label = string(_index + 1) + ". " + savegame_slot_label(_index);
-            gfx_draw_string(1, _y + 1, _label, color_text, -1);
+            var _name = savegame_slot_label(_index);
+            if (editing && _index == selected_item) {
+                _name = edit_text + "_";
+            }
+
+            var _number = string(_index + 1);
+            if (_index < 9) {
+                _number = " " + _number;
+            }
+
+            gfx_draw_string(1, _y + 1, _number + ". " + _name,
+                            global.popup_color_green, -1);
         }
     };
 
@@ -2270,6 +2321,8 @@ function ListSavedFiles() : GuiObject() constructor {
         }
 
         selected_item = _index;
+        editing = true;
+        edit_text = "";
         set_redraw();
 
         if (selection_handler != undefined) {

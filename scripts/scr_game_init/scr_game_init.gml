@@ -32,7 +32,8 @@ enum GameInitAction {
     decrement,
     close,
     gen_random,
-    apply_random
+    apply_random,
+    show_load
 }
 
 /// GameInitBox::GameType
@@ -77,6 +78,7 @@ function game_init_init_tables() {
     global.game_init_clickmap_mission = [
         GameInitAction.start_game,        20,  16, 32, 32,
         GameInitAction.toggle_game_type,  60,  16, 32, 32,
+        GameInitAction.show_load,        100,  16, 40, 16,
         GameInitAction.show_options,     308,  16, 32, 32,
         GameInitAction.increment,        284,  16, 16, 16,
         GameInitAction.decrement,        284,  32, 16, 16,
@@ -87,6 +89,7 @@ function game_init_init_tables() {
     global.game_init_clickmap_custom = [
         GameInitAction.start_game,        20,  16, 32, 32,
         GameInitAction.toggle_game_type,  60,  16, 32, 32,
+        GameInitAction.show_load,        100,  16, 40, 16,
         GameInitAction.show_options,     308,  16, 32, 32,
         GameInitAction.increment,        220,  24, 24, 24,
         GameInitAction.decrement,        220,  16,  8,  8,
@@ -99,6 +102,7 @@ function game_init_init_tables() {
     global.game_init_clickmap_load = [
         GameInitAction.start_game,        20,  16, 32, 32,
         GameInitAction.toggle_game_type,  60,  16, 32, 32,
+        GameInitAction.show_load,        100,  16, 40, 16,
         GameInitAction.show_options,     308,  16, 32, 32,
         GameInitAction.close,            324, 216, 16, 16,
         -1
@@ -307,6 +311,12 @@ function GameInitBox(_interface) : GuiObject() constructor {
     static internal_draw = function() {
         draw_bg();
 
+        /* Plain labels rather than icons: the original has no LOAD button to
+           borrow art from, and this is scaffolding until the real start/end
+           screens land. */
+        gfx_fill_rect(100, 16, 40, 16, make_colour_rgb(0x00, 0x00, 0x00));
+        gfx_draw_string(104, 20, "LOAD", make_colour_rgb(0xff, 0xff, 0xff), -1);
+
         var _layout = global.game_init_layout;
         var _i = 0;
         while (_layout[_i] >= 0) {
@@ -493,6 +503,11 @@ function GameInitBox(_interface) : GuiObject() constructor {
                     _next_type = GameType.custom;
                 }
                 set_game_type(_next_type);
+                break;
+            }
+            case GameInitAction.show_load: {
+                set_game_type(GameType.load);
+                file_list.update();
                 break;
             }
             case GameInitAction.show_options: {
