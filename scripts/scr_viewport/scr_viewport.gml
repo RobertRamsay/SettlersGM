@@ -506,6 +506,12 @@ function Viewport(_interface, _map) : GuiObject() constructor {
     zoom = 1;
     screen_width = 0;
     screen_height = 0;
+    // A drag delta arrives in screen pixels and the map can only move by whole
+    // *map* pixels, so dividing by the zoom leaves a remainder. It is carried
+    // here into the next event rather than dropped: at 4x, dropping it threw
+    // away up to 3 pixels of every event, which is most of a slow drag.
+    drag_carry_x = 0;
+    drag_carry_y = 0;
 
     tri_spr = [
         32, 32, 32, 32, 32, 32, 32, 32,
@@ -820,6 +826,8 @@ function Viewport(_interface, _map) : GuiObject() constructor {
 
         var _centre = get_current_map_pos();
         zoom = _z;
+        drag_carry_x = 0;
+        drag_carry_y = 0;
         set_size(screen_width, screen_height);
         move_to_map_pos(_centre);
     };
@@ -2456,11 +2464,26 @@ function Viewport(_interface, _map) : GuiObject() constructor {
             return gui_handle_event(_event);
         }
 
+        var _dx = _event.dx;
+        var _dy = _event.dy;
+
+        if (_event.type == EventType.drag) {
+            // Whole map pixels only, remainder carried (see drag_carry_x).
+            // floor() rather than div so the carry stays positive and the sign
+            // is handled the same dragging either way.
+            var _rest_x = _event.dx + drag_carry_x;
+            var _rest_y = _event.dy + drag_carry_y;
+            _dx = floor(_rest_x / zoom);
+            _dy = floor(_rest_y / zoom);
+            drag_carry_x = _rest_x - _dx * zoom;
+            drag_carry_y = _rest_y - _dy * zoom;
+        }
+
         var _scaled = gui_make_event(_event.type,
                                      x + (_event.x - x) div zoom,
                                      y + (_event.y - y) div zoom,
-                                     _event.dx div zoom,
-                                     _event.dy div zoom,
+                                     _dx,
+                                     _dy,
                                      _event.button);
         return gui_handle_event(_scaled);
     };
@@ -2733,7 +2756,15 @@ function Viewport(_interface, _map) : GuiObject() constructor {
     /// bool handle_drag(int lx, int ly)
     static handle_drag = function(_dx, _dy) {
         if (_dx != 0 || _dy != 0) {
-            move_by_pixels(_dx, _dy);
+            if (global.map_drag_1to1) {
+                // Grab the ground: the map travels with the pointer, so the
+                // pixel that was under the cursor stays under it.
+                move_by_pixels(-_dx, -_dy);
+            } else {
+                // Freeserf/original: the drag pushes the view, so the map
+                // slides against the hand.
+                move_by_pixels(_dx, _dy);
+            }
         }
 
         return true;

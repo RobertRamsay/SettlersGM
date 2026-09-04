@@ -26,6 +26,7 @@ function popup_c_init_tables() {
     Action.options_volume_plus, 106, 50, 16, 16,
     Action.options_fullscreen, 106, 70, 16, 16,
     Action.options_message_count_1, 90, 90, 32, 16,
+    Action.options_map_drag, 88, 106, 40, 16,
     Action.close_options, 112, 126, 16, 16,
     -1
   ];
@@ -1182,6 +1183,10 @@ function popup_handle_action(_popup, _action, _x, _y) {
   }
   case Action.options_fullscreen:
     window_set_fullscreen(!window_get_fullscreen());
+    _popup.play_sound(Sfx.click);
+    break;
+  case Action.options_map_drag:
+    global.map_drag_1to1 = !global.map_drag_1to1;
     _popup.play_sound(Sfx.click);
     break;
   case Action.options_volume_minus: {

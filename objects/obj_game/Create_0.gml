@@ -46,8 +46,14 @@ interface.update_map_cursor_pos(interface.get_viewport().get_current_map_pos());
 // Input state (event_loop-sdl.cc)
 tick_accumulator = 0;
 drag_button = 0;
+// The drag anchor is where the button went down, in unrounded room pixels, and
+// it stays there for the whole drag. drag_sent_* is how many whole pixels of
+// the movement since then have already been handed to the interface, so a slow
+// drag cannot lose the fraction of a pixel it makes each frame.
 drag_x = 0;
 drag_y = 0;
+drag_sent_x = 0;
+drag_sent_y = 0;
 last_click_time = array_create(4, -100000);
 last_click_x = 0;
 last_click_y = 0;
@@ -65,6 +71,15 @@ suppress_click = array_create(4, false);
 // here, ready for the options popup to drive once those buttons are wired.
 global.fast_map_click = true;       // dbl-click own flag -> start a road there
 global.fast_building_click = true;  // dbl-click a build spot -> that build popup
+
+// Map drag direction, toggled by the "Map drag" row in the options popup.
+// false = "Orig": Freeserf's drag pushes the *view* the way the pointer goes,
+//         so the map slides the opposite way to the hand.
+// true  = "1:1": the map moves with the pointer - whatever was under the cursor
+//         when the button went down stays under it.
+// Both are pixel-exact; the setting only changes which way the map goes. The
+// minimap always drags 1:1 whatever this is set to.
+global.map_drag_1to1 = false;
 
 
 // Slot the next F5 writes to / the last one loaded. 0..SAVEGAME_SLOTS-1.

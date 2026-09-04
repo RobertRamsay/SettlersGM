@@ -467,7 +467,12 @@ function Minimap(_map) : GuiObject() constructor {
 
     static handle_drag = function(_dx, _dy) {
         if (_dx != 0 || _dy != 0) {
-            move_by_pixels(_dx, _dy);
+            // The minimap is drawn 1:1 - one minimap pixel per screen pixel,
+            // whatever `scale` is set to, since scale only changes how many map
+            // tiles a minimap pixel covers. So the delta needs no division, and
+            // this always drags 1:1 with the pointer regardless of the map drag
+            // option, which only governs the main view.
+            move_by_pixels(-_dx, -_dy);
         }
 
         return true;

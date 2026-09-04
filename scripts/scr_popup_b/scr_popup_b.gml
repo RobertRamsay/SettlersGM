@@ -669,6 +669,16 @@ function popup_draw_options_box(_popup) {
     _popup.draw_green_string(1, 94, "Messages");
     _popup.draw_green_string(11, 94, _value);
 
+    // Not in the original. "Orig" is Freeserf's drag, which pushes the view the
+    // way the pointer goes so the map slides against the hand; "1:1" moves the
+    // map with the pointer, pixel for pixel at any zoom.
+    var _drag_value = "Orig";
+    if (global.map_drag_1to1) {
+        _drag_value = "1:1";
+    }
+    _popup.draw_green_string(1, 110, "Map drag");
+    _popup.draw_green_string(11, 110, _drag_value);
+
     _popup.draw_popup_icon(14, 128, 60); /* exit */
 }
 

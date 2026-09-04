@@ -75,8 +75,15 @@ if (mouse_wheel_up() || mouse_wheel_down()) {
 }
 
 // ---- mouse position in screen pixels (room == screen size)
-var _mx = clamp(floor(mouse_x), 0, SCREEN_W - 1);
-var _my = clamp(floor(mouse_y), 0, SCREEN_H - 1);
+// mouse_x / mouse_y are room coordinates, so GameMaker has already divided out
+// the window-to-application-surface scale for us: x2 in a window, whatever
+// ratio fullscreen ends up using. One unit here is always one drawn game pixel,
+// so nothing else in this file needs to know the window size. The unrounded
+// values are kept as well, because 1:1 dragging needs the fraction.
+var _mx_raw = clamp(mouse_x, 0, SCREEN_W - 1);
+var _my_raw = clamp(mouse_y, 0, SCREEN_H - 1);
+var _mx = floor(_mx_raw);
+var _my = floor(_my_raw);
 
 // ---- clicks fire on button release; double click within time/move sensitivity
 var _buttons = [mb_left, mb_middle, mb_right];
@@ -121,8 +128,10 @@ for (var _b = 1; _b <= 3; _b++) {
     if (mouse_check_button(_mb)) {
         if (drag_button == 0) {
             drag_button = _b;
-            drag_x = _mx;
-            drag_y = _my;
+            drag_x = _mx_raw;
+            drag_y = _my_raw;
+            drag_sent_x = 0;
+            drag_sent_y = 0;
             break;
         }
         if (drag_button == _b) {
@@ -131,12 +140,24 @@ for (var _b = 1; _b <= 3; _b++) {
             // cursor every frame fights the user's mouse on Windows, so we send
             // the same movement as an incremental delta instead - the handlers
             // only ever use dx/dy, so the result is identical but smooth.
-            var _dx = _mx - drag_x;
-            var _dy = _my - drag_y;
+            //
+            // The anchor stays where the button went down and we send only the
+            // whole pixels not sent yet. Two things that fixes, both of which
+            // made the drag feel loose:
+            //   - re-anchoring every frame floored away the fraction of a pixel
+            //     a slow drag makes each frame, so the map fell behind the
+            //     pointer and never caught up;
+            //   - the event carries the press position, so a drag that wanders
+            //     over the panel or a popup still reaches the viewport instead
+            //     of being swallowed by whatever is under the cursor now.
+            var _want_x = round(_mx_raw - drag_x);
+            var _want_y = round(_my_raw - drag_y);
+            var _dx = _want_x - drag_sent_x;
+            var _dy = _want_y - drag_sent_y;
             if (_dx != 0 || _dy != 0) {
-                interface.handle_event(gui_make_event(EventType.drag, drag_x, drag_y, _dx, _dy, _b));
-                drag_x = _mx;
-                drag_y = _my;
+                drag_sent_x = _want_x;
+                drag_sent_y = _want_y;
+                interface.handle_event(gui_make_event(EventType.drag, floor(drag_x), floor(drag_y), _dx, _dy, _b));
             }
         }
         break;
@@ -144,17 +165,24 @@ for (var _b = 1; _b <= 3; _b++) {
 }
 
 // ---- keyboard: map scroll (arrow keys = drag by 32) and key presses
+// The arrows scroll the view the way they point. In 1:1 mode the viewport's
+// drag handler moves the map with the pointer, which is the opposite sign, so
+// the synthetic delta flips to keep the arrows doing the same thing either way.
+var _scroll_sign = 1;
+if (global.map_drag_1to1) {
+    _scroll_sign = -1;
+}
 if (keyboard_check_pressed(vk_up)) {
-    interface.handle_event(gui_make_event(EventType.drag, 0, 0, 0, -32, EventButton.left));
+    interface.handle_event(gui_make_event(EventType.drag, 0, 0, 0, -32 * _scroll_sign, EventButton.left));
 }
 if (keyboard_check_pressed(vk_down)) {
-    interface.handle_event(gui_make_event(EventType.drag, 0, 0, 0, 32, EventButton.left));
+    interface.handle_event(gui_make_event(EventType.drag, 0, 0, 0, 32 * _scroll_sign, EventButton.left));
 }
 if (keyboard_check_pressed(vk_left)) {
-    interface.handle_event(gui_make_event(EventType.drag, 0, 0, -32, 0, EventButton.left));
+    interface.handle_event(gui_make_event(EventType.drag, 0, 0, -32 * _scroll_sign, 0, EventButton.left));
 }
 if (keyboard_check_pressed(vk_right)) {
-    interface.handle_event(gui_make_event(EventType.drag, 0, 0, 32, 0, EventButton.left));
+    interface.handle_event(gui_make_event(EventType.drag, 0, 0, 32 * _scroll_sign, 0, EventButton.left));
 }
 
 var _modifier = 0;
