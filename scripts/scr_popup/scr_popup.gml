@@ -852,6 +852,7 @@ function PopupBox(_interface) : GuiObject() constructor {
 
     file_list.set_size(120, 100);
     file_list.set_displayed(false);
+    file_list.set_allow_rename(true);
     file_list.set_selection_handler(method(self, function(_item) {
         /* size_t p = item.find_last_of("/\\"); file_name = item.substr(p+1) */
         var _p = 0;
@@ -2211,6 +2212,9 @@ function ListSavedFiles() : GuiObject() constructor {
     editing = false;
     edit_text = "";
     max_name_length = 14;
+    /// Only the save box wants click-to-rename. On the start screen's load
+    /// list it wiped the name you were trying to read.
+    allow_rename = false;
 
     /// One entry per save slot, occupied or not, so saving over a slot is just
     /// as easy as loading one. Slot N is settlers_save_N.json.
@@ -2245,6 +2249,10 @@ function ListSavedFiles() : GuiObject() constructor {
         return edit_text;
     };
 
+    static set_allow_rename = function(_allow) {
+        allow_rename = _allow;
+    };
+
     static stop_editing = function() {
         editing = false;
         edit_text = "";
@@ -2254,7 +2262,7 @@ function ListSavedFiles() : GuiObject() constructor {
     /// Click a row then type. Backspace deletes, Enter saves nothing by itself -
     /// the SAVE button commits, so a mistyped name can still be abandoned.
     static handle_key_pressed = function(_key, _modifier) {
-        if (!editing || selected_item < 0) {
+        if (!allow_rename || !editing || selected_item < 0) {
             return false;
         }
 
@@ -2330,8 +2338,10 @@ function ListSavedFiles() : GuiObject() constructor {
         }
 
         selected_item = _index;
-        editing = true;
-        edit_text = "";
+        if (allow_rename) {
+            editing = true;
+            edit_text = "";
+        }
         set_redraw();
 
         if (selection_handler != undefined) {

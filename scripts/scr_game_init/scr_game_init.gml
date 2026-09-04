@@ -321,8 +321,11 @@ function GameInitBox(_interface) : GuiObject() constructor {
         gfx_fill_rect(200, 222, 40, 16, make_colour_rgb(0x00, 0x00, 0x00));
         gfx_draw_string(204, 226, "LOAD", make_colour_rgb(0xff, 0xff, 0xff), -1);
 
+        /* Below the list, not under it: file_list is 160x160 at (20,55) and
+           paints a black background over everything from y=55 to y=215, so a
+           status drawn inside that range was never visible. */
         if (load_status != "") {
-            gfx_draw_string(20, 206, load_status,
+            gfx_draw_string(20, 240, load_status,
                             make_colour_rgb(0xff, 0xff, 0x99), -1);
         }
 
@@ -488,9 +491,10 @@ function GameInitBox(_interface) : GuiObject() constructor {
             return;
         }
 
+        var _slot = file_list.get_selected_slot();
         var _path = file_list.get_selected();
         if (!file_exists(_path)) {
-            load_status = "That slot is empty";
+            load_status = "Slot " + string(_slot + 1) + " is empty";
             set_redraw();
             return;
         }
