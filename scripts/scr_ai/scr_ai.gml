@@ -81,7 +81,7 @@ function ai_init_tables() {
 }
 
 
-, where Freeserf's disabled AI block sat.
+/// Called from Game.update, where Freeserf's disabled AI block sat.
 function ai_update_players(_game) {
     var _players = _game.players.objects;
     var _n = array_length(_players);
