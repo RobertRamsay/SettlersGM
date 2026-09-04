@@ -2196,6 +2196,23 @@ function ListSavedFiles() : GuiObject() constructor {
     selected_item = -1;
     selection_handler = undefined;
     folder_path = "";
+    row_height = 10;
+    color_background = make_colour_rgb(0x00, 0x00, 0x00);
+    color_text = make_colour_rgb(0xff, 0xff, 0xff);
+    color_selected = make_colour_rgb(0x00, 0x8b, 0x47);
+
+    /// One entry per save slot, occupied or not, so saving over a slot is just
+    /// as easy as loading one. Slot N is settlers_save_N.json.
+    static update = function() {
+        items = [];
+        for (var _i = 0; _i < SAVEGAME_SLOTS; _i++) {
+            array_push(items, savegame_slot_path(_i));
+        }
+        if (selected_item >= array_length(items)) {
+            selected_item = -1;
+        }
+        set_redraw();
+    };
 
     static set_selection_handler = function(_handler) {
         selection_handler = _handler;
@@ -2208,12 +2225,58 @@ function ListSavedFiles() : GuiObject() constructor {
         return "";
     };
 
+    static get_selected_slot = function() {
+        return selected_item;
+    };
+
     static get_folder_path = function() {
         return folder_path;
     };
 
     static internal_draw = function() {
-        /* stub: no drawing */
+        if (array_length(items) == 0) {
+            update();
+        }
+
+        gfx_fill_rect(0, 0, width, height, color_background);
+
+        var _rows = height div row_height;
+        var _n = array_length(items);
+
+        for (var _i = 0; _i < _rows; _i++) {
+            var _index = first_item + _i;
+            if (_index >= _n) {
+                break;
+            }
+
+            var _y = _i * row_height;
+            if (_index == selected_item) {
+                gfx_fill_rect(0, _y, width, row_height, color_selected);
+            }
+
+            var _label = string(_index + 1) + ". " + savegame_slot_label(_index);
+            gfx_draw_string(1, _y + 1, _label, color_text, -1);
+        }
+    };
+
+    static handle_click_left = function(_cx, _cy) {
+        if (array_length(items) == 0) {
+            update();
+        }
+
+        var _index = first_item + (_cy div row_height);
+        if (_index < 0 || _index >= array_length(items)) {
+            return false;
+        }
+
+        selected_item = _index;
+        set_redraw();
+
+        if (selection_handler != undefined) {
+            selection_handler(items[_index]);
+        }
+
+        return true;
     };
 }
 

@@ -295,6 +295,14 @@ function savegame_save_path(_path, _game) {
     buffer_save(_buffer, _path);
     buffer_delete(_buffer);
 
+    // Sidecar so the slot list can show a label without parsing the whole
+    // snapshot: the save popup redraws every frame, and ten json_parse calls
+    // over a few hundred KB each would make it unusable.
+    var _label_buffer = buffer_create(string_byte_length(_data.label) + 1, buffer_grow, 1);
+    buffer_write(_label_buffer, buffer_text, _data.label);
+    buffer_save(_label_buffer, _path + ".label");
+    buffer_delete(_label_buffer);
+
     show_debug_message("savegame: wrote " + string(_path) + " (" +
                        string(string_length(_text)) + " chars)");
     return true;
@@ -329,24 +337,26 @@ function savegame_slot_exists(_slot) {
     return file_exists(savegame_slot_path(_slot));
 }
 
-/// Short label for a slot, for the save/load list.
+/// Short label for a slot, read from the sidecar written alongside the save.
+/// Cheap enough to call from a draw handler.
 function savegame_slot_label(_slot) {
     if (!savegame_slot_exists(_slot)) {
         return "- empty -";
     }
-    var _buffer = buffer_load(savegame_slot_path(_slot));
+
+    var _label_path = savegame_slot_path(_slot) + ".label";
+    if (!file_exists(_label_path)) {
+        return "saved game";
+    }
+
+    var _buffer = buffer_load(_label_path);
     if (_buffer < 0) {
-        return "- unreadable -";
+        return "saved game";
     }
     var _text = buffer_read(_buffer, buffer_text);
     buffer_delete(_buffer);
 
-    try {
-        var _data = json_parse(_text);
-        return string(_data.label);
-    } catch (_e) {
-        return "- damaged -";
-    }
+    return _text;
 }
 
 function savegame_save_slot(_slot, _game) {

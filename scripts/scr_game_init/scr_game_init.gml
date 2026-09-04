@@ -464,10 +464,16 @@ function GameInitBox(_interface) : GuiObject() constructor {
         switch (_action) {
             case GameInitAction.start_game: {
                 if (game_type == GameType.load) {
-                    // GameManager::load_game(file_list->get_selected()) — save
-                    // games are not ported.
                     var _path = file_list.get_selected();
-                    show_debug_message("GameInitBox: load game not supported: " + string(_path));
+                    var _loaded = game_store_load(_path);
+                    if (_loaded == undefined) {
+                        show_debug_message("GameInitBox: could not load " + string(_path));
+                        return;
+                    }
+                    if (interface != undefined) {
+                        interface.set_game(_loaded);
+                        interface.close_game_init();
+                    }
                     return;
                 } else {
                     // GameManager::start_game(mission)
@@ -709,9 +715,14 @@ function GameInitBox(_interface) : GuiObject() constructor {
     file_list.set_size(160, 160);
     file_list.set_displayed(false);
     file_list.set_selection_handler(method(self, function(_item) {
-        // GameStore::load(item, &game) -> map = game.get_map();
-        // minimap->set_map(map);  — save games are not ported.
-        show_debug_message("GameInitBox: load game not supported: " + string(_item));
+        /* Show the saved world in the preview pane, as picking a mission does. */
+        var _loaded = game_store_load(_item);
+        if (_loaded == undefined) {
+            return;
+        }
+        map = _loaded.get_map();
+        minimap.set_map(map);
+        set_redraw();
     }));
     add_float(file_list, 20, 55);
 }

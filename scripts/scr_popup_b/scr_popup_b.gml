@@ -1232,5 +1232,16 @@ function popup_draw_save_box(_popup) {
 
     _popup.draw_green_string(3, 2, "Save  Game");
 
+    /* Slots rather than a typed name: nothing to spell, and overwriting is one
+       click. Row N maps to settlers_save_N.json. */
+    for (var _i = 0; _i < SAVEGAME_SLOTS; _i++) {
+        var _label = string(_i + 1);
+        if (_i < 9) {
+            _label = " " + _label;
+        }
+        _popup.draw_green_string(1, 14 + _i * 11,
+                                 _label + " " + savegame_slot_label(_i));
+    }
+
     _popup.draw_popup_icon(14, 128, 60); /* Exit */
 }

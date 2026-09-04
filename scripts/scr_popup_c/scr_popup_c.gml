@@ -1410,5 +1410,18 @@ function popup_handle_box_bld_4(_popup, _cx, _cy) {
 
 function popup_handle_save_clk(_popup, _cx, _cy) {
   popup_c_init_tables();
+
+  /* Slot rows sit above the icon strip; anything at or below y=126 falls
+     through to the click map so Exit still works. */
+  if (_cy >= 14 && _cy < 14 + SAVEGAME_SLOTS * 11) {
+    var _slot = (_cy - 14) div 11;
+    if (_slot >= 0 && _slot < SAVEGAME_SLOTS) {
+      if (savegame_save_slot(_slot, _popup.interface.get_game())) {
+        _popup.set_redraw();
+      }
+      return;
+    }
+  }
+
   popup_handle_clickmap(_popup, _cx, _cy, global.popup_c_clk_save);
 }

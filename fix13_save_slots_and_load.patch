@@ -1,0 +1,229 @@
+diff --git a/scripts/scr_game_init/scr_game_init.gml b/scripts/scr_game_init/scr_game_init.gml
+index 32374d0..7405a6e 100644
+--- a/scripts/scr_game_init/scr_game_init.gml
++++ b/scripts/scr_game_init/scr_game_init.gml
+@@ -464,10 +464,16 @@ function GameInitBox(_interface) : GuiObject() constructor {
+         switch (_action) {
+             case GameInitAction.start_game: {
+                 if (game_type == GameType.load) {
+-                    // GameManager::load_game(file_list->get_selected()) — save
+-                    // games are not ported.
+                     var _path = file_list.get_selected();
+-                    show_debug_message("GameInitBox: load game not supported: " + string(_path));
++                    var _loaded = game_store_load(_path);
++                    if (_loaded == undefined) {
++                        show_debug_message("GameInitBox: could not load " + string(_path));
++                        return;
++                    }
++                    if (interface != undefined) {
++                        interface.set_game(_loaded);
++                        interface.close_game_init();
++                    }
+                     return;
+                 } else {
+                     // GameManager::start_game(mission)
+@@ -709,9 +715,14 @@ function GameInitBox(_interface) : GuiObject() constructor {
+     file_list.set_size(160, 160);
+     file_list.set_displayed(false);
+     file_list.set_selection_handler(method(self, function(_item) {
+-        // GameStore::load(item, &game) -> map = game.get_map();
+-        // minimap->set_map(map);  — save games are not ported.
+-        show_debug_message("GameInitBox: load game not supported: " + string(_item));
++        /* Show the saved world in the preview pane, as picking a mission does. */
++        var _loaded = game_store_load(_item);
++        if (_loaded == undefined) {
++            return;
++        }
++        map = _loaded.get_map();
++        minimap.set_map(map);
++        set_redraw();
+     }));
+     add_float(file_list, 20, 55);
+ }
+diff --git a/scripts/scr_popup/scr_popup.gml b/scripts/scr_popup/scr_popup.gml
+index 6f1fe68..0a55142 100644
+--- a/scripts/scr_popup/scr_popup.gml
++++ b/scripts/scr_popup/scr_popup.gml
+@@ -2196,6 +2196,23 @@ function ListSavedFiles() : GuiObject() constructor {
+     selected_item = -1;
+     selection_handler = undefined;
+     folder_path = "";
++    row_height = 10;
++    color_background = make_colour_rgb(0x00, 0x00, 0x00);
++    color_text = make_colour_rgb(0xff, 0xff, 0xff);
++    color_selected = make_colour_rgb(0x00, 0x8b, 0x47);
++
++    /// One entry per save slot, occupied or not, so saving over a slot is just
++    /// as easy as loading one. Slot N is settlers_save_N.json.
++    static update = function() {
++        items = [];
++        for (var _i = 0; _i < SAVEGAME_SLOTS; _i++) {
++            array_push(items, savegame_slot_path(_i));
++        }
++        if (selected_item >= array_length(items)) {
++            selected_item = -1;
++        }
++        set_redraw();
++    };
+ 
+     static set_selection_handler = function(_handler) {
+         selection_handler = _handler;
+@@ -2208,12 +2225,58 @@ function ListSavedFiles() : GuiObject() constructor {
+         return "";
+     };
+ 
++    static get_selected_slot = function() {
++        return selected_item;
++    };
++
+     static get_folder_path = function() {
+         return folder_path;
+     };
+ 
+     static internal_draw = function() {
+-        /* stub: no drawing */
++        if (array_length(items) == 0) {
++            update();
++        }
++
++        gfx_fill_rect(0, 0, width, height, color_background);
++
++        var _rows = height div row_height;
++        var _n = array_length(items);
++
++        for (var _i = 0; _i < _rows; _i++) {
++            var _index = first_item + _i;
++            if (_index >= _n) {
++                break;
++            }
++
++            var _y = _i * row_height;
++            if (_index == selected_item) {
++                gfx_fill_rect(0, _y, width, row_height, color_selected);
++            }
++
++            var _label = string(_index + 1) + ". " + savegame_slot_label(_index);
++            gfx_draw_string(1, _y + 1, _label, color_text, -1);
++        }
++    };
++
++    static handle_click_left = function(_cx, _cy) {
++        if (array_length(items) == 0) {
++            update();
++        }
++
++        var _index = first_item + (_cy div row_height);
++        if (_index < 0 || _index >= array_length(items)) {
++            return false;
++        }
++
++        selected_item = _index;
++        set_redraw();
++
++        if (selection_handler != undefined) {
++            selection_handler(items[_index]);
++        }
++
++        return true;
+     };
+ }
+ 
+diff --git a/scripts/scr_popup_b/scr_popup_b.gml b/scripts/scr_popup_b/scr_popup_b.gml
+index cc56af6..f100c56 100644
+--- a/scripts/scr_popup_b/scr_popup_b.gml
++++ b/scripts/scr_popup_b/scr_popup_b.gml
+@@ -1232,5 +1232,16 @@ function popup_draw_save_box(_popup) {
+ 
+     _popup.draw_green_string(3, 2, "Save  Game");
+ 
++    /* Slots rather than a typed name: nothing to spell, and overwriting is one
++       click. Row N maps to settlers_save_N.json. */
++    for (var _i = 0; _i < SAVEGAME_SLOTS; _i++) {
++        var _label = string(_i + 1);
++        if (_i < 9) {
++            _label = " " + _label;
++        }
++        _popup.draw_green_string(1, 14 + _i * 11,
++                                 _label + " " + savegame_slot_label(_i));
++    }
++
+     _popup.draw_popup_icon(14, 128, 60); /* Exit */
+ }
+diff --git a/scripts/scr_popup_c/scr_popup_c.gml b/scripts/scr_popup_c/scr_popup_c.gml
+index 2edd0b6..2ea6bfc 100644
+--- a/scripts/scr_popup_c/scr_popup_c.gml
++++ b/scripts/scr_popup_c/scr_popup_c.gml
+@@ -1410,5 +1410,18 @@ function popup_handle_box_bld_4(_popup, _cx, _cy) {
+ 
+ function popup_handle_save_clk(_popup, _cx, _cy) {
+   popup_c_init_tables();
++
++  /* Slot rows sit above the icon strip; anything at or below y=126 falls
++     through to the click map so Exit still works. */
++  if (_cy >= 14 && _cy < 14 + SAVEGAME_SLOTS * 11) {
++    var _slot = (_cy - 14) div 11;
++    if (_slot >= 0 && _slot < SAVEGAME_SLOTS) {
++      if (savegame_save_slot(_slot, _popup.interface.get_game())) {
++        _popup.set_redraw();
++      }
++      return;
++    }
++  }
++
+   popup_handle_clickmap(_popup, _cx, _cy, global.popup_c_clk_save);
+ }
+diff --git a/scripts/scr_savegame/scr_savegame.gml b/scripts/scr_savegame/scr_savegame.gml
+index c5014cd..74822d7 100644
+--- a/scripts/scr_savegame/scr_savegame.gml
++++ b/scripts/scr_savegame/scr_savegame.gml
+@@ -295,6 +295,14 @@ function savegame_save_path(_path, _game) {
+     buffer_save(_buffer, _path);
+     buffer_delete(_buffer);
+ 
++    // Sidecar so the slot list can show a label without parsing the whole
++    // snapshot: the save popup redraws every frame, and ten json_parse calls
++    // over a few hundred KB each would make it unusable.
++    var _label_buffer = buffer_create(string_byte_length(_data.label) + 1, buffer_grow, 1);
++    buffer_write(_label_buffer, buffer_text, _data.label);
++    buffer_save(_label_buffer, _path + ".label");
++    buffer_delete(_label_buffer);
++
+     show_debug_message("savegame: wrote " + string(_path) + " (" +
+                        string(string_length(_text)) + " chars)");
+     return true;
+@@ -329,24 +337,26 @@ function savegame_slot_exists(_slot) {
+     return file_exists(savegame_slot_path(_slot));
+ }
+ 
+-/// Short label for a slot, for the save/load list.
++/// Short label for a slot, read from the sidecar written alongside the save.
++/// Cheap enough to call from a draw handler.
+ function savegame_slot_label(_slot) {
+     if (!savegame_slot_exists(_slot)) {
+         return "- empty -";
+     }
+-    var _buffer = buffer_load(savegame_slot_path(_slot));
++
++    var _label_path = savegame_slot_path(_slot) + ".label";
++    if (!file_exists(_label_path)) {
++        return "saved game";
++    }
++
++    var _buffer = buffer_load(_label_path);
+     if (_buffer < 0) {
+-        return "- unreadable -";
++        return "saved game";
+     }
+     var _text = buffer_read(_buffer, buffer_text);
+     buffer_delete(_buffer);
+ 
+-    try {
+-        var _data = json_parse(_text);
+-        return string(_data.label);
+-    } catch (_e) {
+-        return "- damaged -";
+-    }
++    return _text;
+ }
+ 
+ function savegame_save_slot(_slot, _game) {
