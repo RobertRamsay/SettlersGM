@@ -22,8 +22,8 @@
 // Multiples of DEFAULT_GAME_SPEED the button cycles through: >, >>, >>>.
 // game_speed is what Game.update adds to tick each step, and speed_increase
 // caps at 40, so 15x (= 30) is the most that stays in range.
-#macro SPEED_STEP_2 5
-#macro SPEED_STEP_3 15
+#macro SPEED_STEP_2 20
+#macro SPEED_STEP_3 50
 
 
 enum PanelButton {
