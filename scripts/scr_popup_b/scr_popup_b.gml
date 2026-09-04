@@ -587,13 +587,17 @@ function popup_draw_quit_confirm_box(_popup) {
 function popup_draw_send_geologist_confirm_box(_popup) {
     _popup.draw_box_background(BackgroundPattern.diagonal_green);
 
-    _popup.draw_green_string(0, 12, "  Send geologist");
-    _popup.draw_green_string(0, 22, "   to this flag?");
+    /* draw_green_string(sx, sy) lands at (8 * sx + 8, sy + 9) and the font is
+       8px per character, so a 14 character line centres in the 128px interior
+       at sx = 1 and a 16px icon centres at sx = 7. */
+    _popup.draw_green_string(1, 16, "Send geologist");
+    _popup.draw_green_string(1, 26, "to this flag?");
 
     /* Same icon the transport info box uses for its geologist button. */
-    _popup.draw_popup_icon(6, 44, 0x1c);
+    _popup.draw_popup_icon(7, 52, 0x1c);
 
-    _popup.draw_green_string(0, 92, "  Yes       No");
+    _popup.draw_green_string(3, 100, "Yes");
+    _popup.draw_green_string(11, 100, "No");
 
     _popup.draw_popup_icon(14, 128, 60); /* Exit */
 }

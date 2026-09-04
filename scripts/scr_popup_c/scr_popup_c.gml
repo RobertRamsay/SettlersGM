@@ -323,9 +323,12 @@ function popup_c_init_tables() {
     -1
   ];
 
+  /* handle_click_left() subtracts 8 from both axes before the clickmap sees
+     them, so text drawn with draw_green_string(sx, sy) is hit at (8 * sx,
+     sy + 1). These boxes are a little larger than the glyphs to click. */
   global.popup_c_clk_send_geologist_confirm = [
-    Action.send_geologist_confirm_yes,   8,  92, 32, 8,
-    Action.close_box,                   88,  92, 32, 8,
+    Action.send_geologist_confirm_yes,  20,  97, 40, 14,
+    Action.close_box,                   84,  97, 40, 14,
     Action.close_box,                  112, 128, 16, 16,
     -1
   ];
