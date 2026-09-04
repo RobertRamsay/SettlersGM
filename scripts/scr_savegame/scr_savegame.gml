@@ -21,6 +21,9 @@
 /// Collections on Game, in the order they are rebuilt.
 #macro SAVEGAME_COLLECTIONS ["players", "flags", "inventories", "buildings", "serfs"]
 
+/// Fields of Game written separately rather than inline.
+#macro SAVEGAME_GAME_SKIP ["players", "flags", "inventories", "buildings", "serfs", "map"]
+
 function savegame_init_tables() {
     if (variable_global_exists("savegame_ref_kinds")) {
         return;
@@ -151,7 +154,7 @@ function savegame_encode_game(_game) {
         version: SAVEGAME_VERSION,
         map_size: _map.geom.size,
         map: savegame_encode_struct(_map, 0, []),
-        game: savegame_encode_struct(_game, 0, SAVEGAME_COLLECTIONS),
+        game: savegame_encode_struct(_game, 0, SAVEGAME_GAME_SKIP),
         collections: {},
     };
 
@@ -174,36 +177,51 @@ function savegame_is_ref(_value) {
     return variable_struct_exists(_value, "__r") && variable_struct_exists(_value, "i");
 }
 
-/// Rebuild a value, turning {__r,i} markers back into the live objects.
-function savegame_decode_value(_value, _game, _depth) {
+/// Rebuild a value. `_current` is whatever the freshly constructed object
+/// already holds there: when it is a struct we fill it in place rather than
+/// substituting a plain copy, so members built by a constructor (RandomState,
+/// MapUpdateState, the Map itself) keep their type and therefore their statics.
+function savegame_decode_value(_value, _current, _game, _depth) {
     if (_depth > 32) {
         return undefined;
     }
     if (is_undefined(_value) || is_real(_value) || is_bool(_value) || is_string(_value)) {
         return _value;
     }
+
     if (is_array(_value)) {
         var _n = array_length(_value);
         var _out = array_create(_n, undefined);
+        var _current_is_array = is_array(_current);
         for (var _i = 0; _i < _n; _i++) {
-            _out[_i] = savegame_decode_value(_value[_i], _game, _depth + 1);
+            var _element = undefined;
+            if (_current_is_array && _i < array_length(_current)) {
+                _element = _current[_i];
+            }
+            _out[_i] = savegame_decode_value(_value[_i], _element, _game, _depth + 1);
         }
         return _out;
     }
+
     if (is_struct(_value)) {
         if (savegame_is_ref(_value)) {
             var _collection = variable_struct_get(_game, _value.__r);
             return _collection.get(_value.i);
         }
-        var _out = {};
+        if (is_struct(_current)) {
+            savegame_apply_struct(_current, _value, _game);
+            return _current;
+        }
+        var _out_struct = {};
         var _names = variable_struct_get_names(_value);
         var _m = array_length(_names);
         for (var _j = 0; _j < _m; _j++) {
-            _out[$ _names[_j]] = savegame_decode_value(
-                variable_struct_get(_value, _names[_j]), _game, _depth + 1);
+            _out_struct[$ _names[_j]] = savegame_decode_value(
+                variable_struct_get(_value, _names[_j]), undefined, _game, _depth + 1);
         }
-        return _out;
+        return _out_struct;
     }
+
     return undefined;
 }
 
@@ -216,9 +234,13 @@ function savegame_apply_struct(_target, _source, _game) {
         if (savegame_is_skipped(_name)) {
             continue;
         }
+        var _current = undefined;
+        if (variable_struct_exists(_target, _name)) {
+            _current = variable_struct_get(_target, _name);
+        }
         variable_struct_set(_target, _name,
                             savegame_decode_value(variable_struct_get(_source, _name),
-                                                  _game, 0));
+                                                  _current, _game, 0));
     }
 }
 
