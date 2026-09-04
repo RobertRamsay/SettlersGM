@@ -23,9 +23,18 @@
 /// four rings, which is roughly the radius a hut claims.
 #macro AI_SCAN_POSITIONS 61
 
-/// Never keep more huts than this in stage 1. Without an economy the AI would
-/// otherwise spend the castle's whole stock of planks and stone on huts.
-#macro AI_MAX_MILITARY 8
+/// Cap on military buildings. Stage 1 held this at 8 because the AI could only
+/// spend the castle's opening stock; with an economy behind it there is more
+/// room, though it is still bounded so huts do not crowd out the industry.
+#macro AI_MAX_MILITARY 24
+
+/// How far around a candidate site to count trees, stone and minerals when
+/// deciding whether it is worth putting a woodcutter or a mine there.
+#macro AI_RESOURCE_SCAN 37
+
+/// A site with less than this nearby is not worth building on for the trades
+/// that need a resource under them.
+#macro AI_MIN_RESOURCE 4
 
 /// A candidate this far from the target or worse is not worth the walk.
 #macro AI_SCORE_REJECT 999999
@@ -41,7 +50,38 @@
 #macro AI_CASTLE_MIN_SPACING 12
 
 
-/// Called from Game.update, where Freeserf's disabled AI block sat.
+/// The order an AI settlement is built in, and how many of each. Planks come
+/// first because everything else needs them, then stone, then food to keep
+/// miners working, then the ore chain that ends in weapons.
+function ai_init_tables() {
+    if (variable_global_exists("ai_build_plan")) {
+        return;
+    }
+
+    global.ai_build_plan = [
+        { type: BuildingType.lumberjack,    want: 2 },
+        { type: BuildingType.sawmill,       want: 1 },
+        { type: BuildingType.forester,      want: 2 },
+        { type: BuildingType.stonecutter,   want: 1 },
+        { type: BuildingType.lumberjack,    want: 3 },
+        { type: BuildingType.sawmill,       want: 2 },
+        { type: BuildingType.farm,          want: 2 },
+        { type: BuildingType.mill,          want: 1 },
+        { type: BuildingType.baker,         want: 1 },
+        { type: BuildingType.coal_mine,     want: 2 },
+        { type: BuildingType.iron_mine,     want: 1 },
+        { type: BuildingType.steel_smelter, want: 1 },
+        { type: BuildingType.tool_maker,    want: 1 },
+        { type: BuildingType.weapon_smith,  want: 1 },
+        { type: BuildingType.farm,          want: 4 },
+        { type: BuildingType.coal_mine,     want: 3 },
+        { type: BuildingType.gold_mine,     want: 1 },
+        { type: BuildingType.gold_smelter,  want: 1 },
+    ];
+}
+
+
+, where Freeserf's disabled AI block sat.
 function ai_update_players(_game) {
     var _players = _game.players.objects;
     var _n = array_length(_players);
@@ -62,7 +102,11 @@ function ai_update_players(_game) {
         _player.ai_next_tick = _game.const_tick + AI_UPDATE_INTERVAL +
                                _player.get_index() * 37;
 
-        ai_expand(_game, _player);
+        // Economy first: a settlement that cannot make planks cannot expand
+        // anyway. Only push the border when there is nothing to build.
+        if (!ai_build_economy(_game, _player)) {
+            ai_expand(_game, _player);
+        }
     }
 }
 
@@ -348,6 +392,211 @@ function ai_place_castle(_game, _player) {
 }
 
 
+/// How many finished-or-building of a type this player has.
+function ai_building_count(_game, _player, _type) {
+    var _buildings = _game.buildings.objects;
+    var _n = array_length(_buildings);
+    var _count = 0;
+
+    for (var _i = 0; _i < _n; _i++) {
+        var _building = _buildings[_i];
+        if (_building == undefined) {
+            continue;
+        }
+        if (_building.get_owner() != _player.get_index()) {
+            continue;
+        }
+        if (_building.get_type() == _type) {
+            _count += 1;
+        }
+    }
+
+    return _count;
+}
+
+
+/// The next thing the plan says is missing, or none when it is all built.
+function ai_next_building_type(_game, _player) {
+    ai_init_tables();
+
+    var _plan = global.ai_build_plan;
+    var _n = array_length(_plan);
+
+    for (var _i = 0; _i < _n; _i++) {
+        var _entry = _plan[_i];
+        if (ai_building_count(_game, _player, _entry.type) < _entry.want) {
+            return _entry.type;
+        }
+    }
+
+    return BuildingType.none;
+}
+
+
+/// Trees near a position, for siting a woodcutter.
+function ai_count_trees(_game, _pos) {
+    var _map = _game.get_map();
+    var _count = 0;
+
+    for (var _i = 0; _i < AI_RESOURCE_SCAN; _i++) {
+        var _obj = _map.get_obj(_map.pos_add_spirally(_pos, _i));
+        if (_obj >= MapObject.tree0 && _obj <= MapObject.water_tree3) {
+            _count += 1;
+        }
+    }
+
+    return _count;
+}
+
+
+/// Stone near a position, for siting a quarry.
+function ai_count_stone(_game, _pos) {
+    var _map = _game.get_map();
+    var _count = 0;
+
+    for (var _i = 0; _i < AI_RESOURCE_SCAN; _i++) {
+        var _obj = _map.get_obj(_map.pos_add_spirally(_pos, _i));
+        if (_obj >= MapObject.stone0 && _obj <= MapObject.stone7) {
+            _count += 1;
+        }
+    }
+
+    return _count;
+}
+
+
+/// Buried mineral of one kind near a position, for siting a mine.
+function ai_count_mineral(_game, _pos, _mineral) {
+    var _map = _game.get_map();
+    var _total = 0;
+
+    for (var _i = 0; _i < AI_RESOURCE_SCAN; _i++) {
+        var _p = _map.pos_add_spirally(_pos, _i);
+        if (_map.get_res_type(_p) == _mineral) {
+            _total += _map.get_res_amount(_p);
+        }
+    }
+
+    return _total;
+}
+
+
+/// What a given trade actually cares about being near. Higher is better, and
+/// a return of 0 means "do not build here at all".
+function ai_site_value(_game, _player, _pos, _type) {
+    switch (_type) {
+        case BuildingType.lumberjack: {
+            var _trees = ai_count_trees(_game, _pos);
+            if (_trees < AI_MIN_RESOURCE) {
+                return 0;
+            }
+            return _trees;
+        }
+        case BuildingType.forester: {
+            // Wants room to plant, so the opposite: open ground.
+            return AI_RESOURCE_SCAN - ai_count_trees(_game, _pos);
+        }
+        case BuildingType.stonecutter: {
+            var _stone = ai_count_stone(_game, _pos);
+            if (_stone < 1) {
+                return 0;
+            }
+            return _stone;
+        }
+        case BuildingType.coal_mine:
+            return ai_count_mineral(_game, _pos, Minerals.coal);
+        case BuildingType.iron_mine:
+            return ai_count_mineral(_game, _pos, Minerals.iron);
+        case BuildingType.gold_mine:
+            return ai_count_mineral(_game, _pos, Minerals.gold);
+        case BuildingType.stone_mine:
+            return ai_count_mineral(_game, _pos, Minerals.stone);
+        case BuildingType.farm:
+            // Fields need open flat ground, same test as the forester.
+            return AI_RESOURCE_SCAN - ai_count_trees(_game, _pos);
+        default:
+            // Workshops just need to be somewhere legal and connected.
+            return 1;
+    }
+}
+
+
+/// Best legal site for a given building inside our own territory.
+function ai_find_site(_game, _player, _type) {
+    var _map = _game.get_map();
+    var _sources = ai_military_buildings(_game, _player);
+    var _source_count = array_length(_sources);
+
+    var _best = BAD_MAP_POS;
+    var _best_value = 0;
+
+    for (var _s = 0; _s < _source_count; _s++) {
+        var _origin = _sources[_s].get_position();
+
+        for (var _i = 1; _i < AI_SCAN_POSITIONS; _i++) {
+            var _pos = _map.pos_add_spirally(_origin, _i);
+
+            if (_map.get_owner(_pos) != _player.get_index()) {
+                continue;
+            }
+            if (!_game.can_build_building(_pos, _type, _player)) {
+                continue;
+            }
+
+            var _value = ai_site_value(_game, _player, _pos, _type);
+            if (_value > _best_value) {
+                _best_value = _value;
+                _best = _pos;
+            }
+        }
+    }
+
+    return _best;
+}
+
+
+/// Place a building and join it to the road network. Shared by the economy and
+/// the military expansion, because a building with no road is never staffed.
+function ai_place_building(_game, _player, _pos, _type) {
+    var _map = _game.get_map();
+
+    if (!_game.build_building(_pos, _type, _player)) {
+        return false;
+    }
+
+    var _flag_pos = _map.move_down_right(_pos);
+    if (!_map.has_flag(_flag_pos)) {
+        _game.build_flag(_flag_pos, _player);
+    }
+
+    ai_connect_flag(_game, _player, _flag_pos);
+    return true;
+}
+
+
+/// One economy step: build whatever the plan says is next. Returns true if it
+/// managed to place something.
+function ai_build_economy(_game, _player) {
+    var _type = ai_next_building_type(_game, _player);
+    if (_type == BuildingType.none) {
+        return false;
+    }
+
+    var _pos = ai_find_site(_game, _player, _type);
+    if (_pos == BAD_MAP_POS) {
+        return false;   // nowhere suitable yet; expansion may open somewhere up
+    }
+
+    if (!ai_place_building(_game, _player, _pos, _type)) {
+        return false;
+    }
+
+    show_debug_message("ai: player " + string(_player.get_index()) +
+                       " built type " + string(_type) + " at " + string(_pos));
+    return true;
+}
+
+
 /// One expansion step: place a hut and wire it up.
 function ai_expand(_game, _player) {
     var _map = _game.get_map();
@@ -375,18 +624,9 @@ function ai_expand(_game, _player) {
         return;
     }
 
-    if (!_game.build_building(_pos, BuildingType.hut, _player)) {
+    if (!ai_place_building(_game, _player, _pos, BuildingType.hut)) {
         return;
     }
-
-    // build_building does not place the building's flag, so do that and then
-    // join it to the network. A hut with no road is never occupied.
-    var _flag_pos = _map.move_down_right(_pos);
-    if (!_map.has_flag(_flag_pos)) {
-        _game.build_flag(_flag_pos, _player);
-    }
-
-    ai_connect_flag(_game, _player, _flag_pos);
 
     show_debug_message("ai: player " + string(_player.get_index()) +
                        " placed a hut at " + string(_pos));

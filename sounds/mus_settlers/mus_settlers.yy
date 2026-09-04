@@ -10,7 +10,7 @@
   "compression":1,
   "compressionQuality":4,
   "conversionMode":0,
-  "duration":1.0,
+  "duration":751.82,
   "exportDir":"",
   "name":"mus_settlers",
   "parent":{

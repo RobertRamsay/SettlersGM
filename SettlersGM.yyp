@@ -27,6 +27,7 @@
   "resources":[
     {"id":{"name":"obj_game","path":"objects/obj_game/obj_game.yy",},},
     {"id":{"name":"rm_game","path":"rooms/rm_game/rm_game.yy",},},
+    {"id":{"name":"scr_ai","path":"scripts/scr_ai/scr_ai.yy",},},
     {"id":{"name":"scr_audio","path":"scripts/scr_audio/scr_audio.yy",},},
     {"id":{"name":"scr_building","path":"scripts/scr_building/scr_building.yy",},},
     {"id":{"name":"scr_flag","path":"scripts/scr_flag/scr_flag.yy",},},
@@ -51,7 +52,6 @@
     {"id":{"name":"scr_popup","path":"scripts/scr_popup/scr_popup.yy",},},
     {"id":{"name":"scr_random","path":"scripts/scr_random/scr_random.yy",},},
     {"id":{"name":"scr_savegame","path":"scripts/scr_savegame/scr_savegame.yy",},},
-    {"id":{"name":"scr_ai","path":"scripts/scr_ai/scr_ai.yy",},},
     {"id":{"name":"scr_serf_b","path":"scripts/scr_serf_b/scr_serf_b.yy",},},
     {"id":{"name":"scr_serf_c","path":"scripts/scr_serf_c/scr_serf_c.yy",},},
     {"id":{"name":"scr_serf","path":"scripts/scr_serf/scr_serf.yy",},},

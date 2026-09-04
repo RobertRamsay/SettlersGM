@@ -2680,6 +2680,13 @@ function Viewport(_interface, _map) : GuiObject() constructor {
                             /* It is not allowed to attack
                                if currently not occupied or
                                is too far from the border. */
+                            if (!_building.is_active()) {
+                                show_debug_message("attack refused: that building has no knight in it yet");
+                            } else {
+                                show_debug_message("attack refused: threat level " +
+                                                   string(_building.get_threat_level()) +
+                                                   ", needs 3 - it is not on the border with you");
+                            }
                             play_sound(Sfx.not_accepted);
                             return false;
                         }
@@ -2695,6 +2702,7 @@ function Viewport(_interface, _map) : GuiObject() constructor {
                         }
 
                         if (_found == 0) {
+                            show_debug_message("attack refused: none of your land is close enough to it");
                             play_sound(Sfx.not_accepted);
                             return false;
                         }
