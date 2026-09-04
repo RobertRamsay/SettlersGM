@@ -1,0 +1,52 @@
+diff --git a/scripts/scr_viewport/scr_viewport.gml b/scripts/scr_viewport/scr_viewport.gml
+index 01eb3fb..31227f3 100644
+--- a/scripts/scr_viewport/scr_viewport.gml
++++ b/scripts/scr_viewport/scr_viewport.gml
+@@ -2535,6 +2535,47 @@ function Viewport(_interface, _map) : GuiObject() constructor {
+     };
+ 
+     /// bool handle_dbl_click(int lx, int ly, Event::Button button)
++    /// Both mouse buttons on one of your own flags sends a geologist to it,
++    /// as in the original. Useful on a mountain, where the geologist surveys
++    /// for ore; harmless anywhere else, and the game refuses if it cannot
++    /// spare one.
++    static handle_click_middle = function(_lx, _ly) {
++        var _player = interface.get_player();
++        if (_player == undefined) {
++            return false;
++        }
++
++        var _clk_pos = map_pos_from_screen_pix(_lx, _ly);
++
++        if (map.get_obj(_clk_pos) != MapObject.flag) {
++            return false;
++        }
++        if (map.get_owner(_clk_pos) != _player.get_index()) {
++            return false;
++        }
++
++        var _game = interface.get_game();
++        if (_game == undefined) {
++            return false;
++        }
++
++        var _flag = _game.get_flag_at_pos(_clk_pos);
++        if (_flag == undefined) {
++            return false;
++        }
++
++        interface.update_map_cursor_pos(_clk_pos);
++        set_redraw();
++
++        if (_game.send_geologist(_flag)) {
++            play_sound(Sfx.accepted);
++        } else {
++            play_sound(Sfx.not_accepted);
++        }
++
++        return true;
++    };
++
+     static handle_dbl_click = function(_lx, _ly, _button) {
+         if (_button != EventButton.left) {
+             return false;
