@@ -136,8 +136,12 @@ function audio_volume_down() {
     audio_get_instance().volume.volume_down();
 }
 
-/// Save games are not implemented yet (see CONVENTIONS2.md).
+/// Snapshot the whole Game struct. See scr_savegame.
 function game_store_save(_path, _game) {
-    show_debug_message("game_store_save: saving is not implemented (" + string(_path) + ")");
-    return false;
+    return savegame_save_path(_path, _game);
+}
+
+/// Read a snapshot back. Returns a Game, or undefined.
+function game_store_load(_path) {
+    return savegame_load_path(_path);
 }

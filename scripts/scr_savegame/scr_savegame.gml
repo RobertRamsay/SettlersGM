@@ -278,6 +278,53 @@ function savegame_slot_path(_slot) {
     return "settlers_save_" + string(_slot) + ".json";
 }
 
+/// Write a snapshot to an arbitrary path. Returns true on success.
+function savegame_save_path(_path, _game) {
+    if (_game == undefined) {
+        show_debug_message("savegame: no game to save");
+        return false;
+    }
+
+    var _data = savegame_encode_game(_game);
+    _data.label = "Tick " + string(_game.tick) + "  " +
+                  date_datetime_string(date_current_datetime());
+
+    var _text = json_stringify(_data);
+    var _buffer = buffer_create(string_byte_length(_text) + 1, buffer_grow, 1);
+    buffer_write(_buffer, buffer_text, _text);
+    buffer_save(_buffer, _path);
+    buffer_delete(_buffer);
+
+    show_debug_message("savegame: wrote " + string(_path) + " (" +
+                       string(string_length(_text)) + " chars)");
+    return true;
+}
+
+/// Read a snapshot back. Returns a Game, or undefined.
+function savegame_load_path(_path) {
+    if (!file_exists(_path)) {
+        show_debug_message("savegame: " + string(_path) + " does not exist");
+        return undefined;
+    }
+
+    var _buffer = buffer_load(_path);
+    if (_buffer < 0) {
+        return undefined;
+    }
+    var _text = buffer_read(_buffer, buffer_text);
+    buffer_delete(_buffer);
+
+    var _data = undefined;
+    try {
+        _data = json_parse(_text);
+    } catch (_e) {
+        show_debug_message("savegame: " + string(_path) + " is not valid JSON");
+        return undefined;
+    }
+
+    return savegame_decode_game(_data);
+}
+
 function savegame_slot_exists(_slot) {
     return file_exists(savegame_slot_path(_slot));
 }
@@ -303,41 +350,11 @@ function savegame_slot_label(_slot) {
 }
 
 function savegame_save_slot(_slot, _game) {
-    var _data = savegame_encode_game(_game);
-    _data.label = "Tick " + string(_game.tick) + "  " + date_datetime_string(date_current_datetime());
-
-    var _text = json_stringify(_data);
-    var _buffer = buffer_create(string_byte_length(_text) + 1, buffer_grow, 1);
-    buffer_write(_buffer, buffer_text, _text);
-    buffer_save(_buffer, savegame_slot_path(_slot));
-    buffer_delete(_buffer);
-
-    show_debug_message("savegame: wrote slot " + string(_slot) + " (" +
-                       string(string_length(_text)) + " chars)");
-    return true;
+    return savegame_save_path(savegame_slot_path(_slot), _game);
 }
 
 function savegame_load_slot(_slot) {
-    if (!savegame_slot_exists(_slot)) {
-        return undefined;
-    }
-
-    var _buffer = buffer_load(savegame_slot_path(_slot));
-    if (_buffer < 0) {
-        return undefined;
-    }
-    var _text = buffer_read(_buffer, buffer_text);
-    buffer_delete(_buffer);
-
-    var _data = undefined;
-    try {
-        _data = json_parse(_text);
-    } catch (_e) {
-        show_debug_message("savegame: slot " + string(_slot) + " is not valid JSON");
-        return undefined;
-    }
-
-    return savegame_decode_game(_data);
+    return savegame_load_path(savegame_slot_path(_slot));
 }
 
 // ---------------------------------------------------------------- self test
