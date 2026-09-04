@@ -2355,7 +2355,10 @@ function ListSavedFiles() : GuiObject() constructor {
         selected_item = _index;
         if (allow_rename) {
             editing = true;
-            edit_text = "";
+            /* Keep a name that was typed, so selecting an existing save and
+               pressing SAVE overwrites it under the same name. Generated
+               "Tick ..." labels start blank - there is nothing to preserve. */
+            edit_text = savegame_slot_name(_index);
         }
         set_redraw();
 

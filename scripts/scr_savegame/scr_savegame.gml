@@ -26,6 +26,10 @@
                             "paths", "idle_serf"]
 #macro SAVEGAME_SLOTS 10
 
+/// Labels starting with this were generated rather than typed, so there is no
+/// name worth carrying over when the slot is selected for overwriting.
+#macro SAVEGAME_DEFAULT_PREFIX "Tick "
+
 /// Fields that must never be followed: back references, GPU/GUI objects and
 /// things rebuilt from scratch on load.
 #macro SAVEGAME_SKIP ["game", "interface", "ctor", "handlers", "geom", "parent", "floats"]
@@ -475,7 +479,7 @@ function savegame_save_path(_path, _game, _label = "") {
 
     var _data = savegame_encode_game(_game);
     if (_label == "") {
-        _data.label = "Tick " + string(_game.tick) + "  " +
+        _data.label = SAVEGAME_DEFAULT_PREFIX + string(_game.tick) + "  " +
                       date_datetime_string(date_current_datetime());
     } else {
         _data.label = _label;
@@ -528,6 +532,23 @@ function savegame_load_path(_path) {
 
 function savegame_slot_exists(_slot) {
     return file_exists(savegame_slot_path(_slot));
+}
+
+/// The typed name for a slot, or "" when the label was generated. Used to keep
+/// a name on screen when an existing save is selected, so pressing SAVE writes
+/// over it under the same name instead of a blank one.
+function savegame_slot_name(_slot) {
+    var _label = savegame_slot_label(_slot);
+    var _prefix_length = string_length(SAVEGAME_DEFAULT_PREFIX);
+
+    if (string_copy(_label, 1, _prefix_length) == SAVEGAME_DEFAULT_PREFIX) {
+        return "";
+    }
+    if (string_char_at(_label, 1) == "-") {
+        return "";   // "- empty -" and friends
+    }
+
+    return _label;
 }
 
 /// Short label for a slot, read from the sidecar written alongside the save.
