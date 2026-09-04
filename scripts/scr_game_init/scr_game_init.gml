@@ -311,14 +311,16 @@ function GameInitBox(_interface) : GuiObject() constructor {
     static internal_draw = function() {
         draw_bg();
 
-        /* Wooden surround, same pieces the map view uses. */
+        /* Wooden surround, same pieces the map view uses, clipped to the box. */
         for (var _fx = 0; _fx < width; _fx += 312) {
-            gfx_draw_sprite(_fx, 0, Asset.frame_top, 2);
-            gfx_draw_sprite(_fx, height - 8, Asset.frame_top, 2);
+            var _rw = min(312, width - _fx);
+            gfx_draw_sprite_part(_fx, 0, Asset.frame_top, 2, _rw, 8);
+            gfx_draw_sprite_part(_fx, height - 8, Asset.frame_top, 2, _rw, 8);
         }
         for (var _fy = 0; _fy < height; _fy += 233) {
-            gfx_draw_sprite(0, _fy, Asset.frame_top, 0);
-            gfx_draw_sprite(width - 16, _fy, Asset.frame_top, 1);
+            var _uh = min(233, height - _fy);
+            gfx_draw_sprite_part(0, _fy, Asset.frame_top, 0, 16, _uh);
+            gfx_draw_sprite_part(width - 16, _fy, Asset.frame_top, 1, 16, _uh);
         }
 
         /* Plain labels rather than icons: the original has no LOAD button to

@@ -1010,22 +1010,24 @@ function Interface(_game = undefined) : GuiObject() constructor {
     /// view in wood, so the four pieces are tiled here: 0 and 1 are 16x233
     /// uprights, 2 is a 312x8 rail, 3 is a decorated 32x216 column.
     static internal_draw = function() {
-        var _map_bottom = height - SCREEN_FRAME_BOTTOM;
+        var _rail_y = height - SCREEN_FRAME_BOTTOM;
+        var _frame_bottom = _rail_y + SCREEN_FRAME_TOP;
 
-        // Top rail, tiled across.
+        // Rails first, tiled across and clipped at the last piece.
         for (var _fx = 0; _fx < width; _fx += 312) {
-            gfx_draw_sprite(_fx, 0, Asset.frame_top, 2);
+            var _rw = min(312, width - _fx);
+            gfx_draw_sprite_part(_fx, 0, Asset.frame_top, 2, _rw, SCREEN_FRAME_TOP);
+            gfx_draw_sprite_part(_fx, _rail_y, Asset.frame_top, 2, _rw, SCREEN_FRAME_TOP);
         }
 
-        // Uprights, tiled down each side.
-        for (var _fy = SCREEN_FRAME_TOP; _fy < _map_bottom; _fy += 233) {
-            gfx_draw_sprite(0, _fy, Asset.frame_top, 0);
-            gfx_draw_sprite(width - SCREEN_FRAME_LEFT, _fy, Asset.frame_top, 1);
-        }
-
-        // Bottom rail, so the map does not run into the panel.
-        for (var _bx = 0; _bx < width; _bx += 312) {
-            gfx_draw_sprite(_bx, _map_bottom, Asset.frame_top, 2);
+        // Uprights over the top, so the corners are wood rather than a seam,
+        // clipped so the last piece stops on the bottom rail instead of
+        // running past it.
+        for (var _fy = 0; _fy < _frame_bottom; _fy += 233) {
+            var _uh = min(233, _frame_bottom - _fy);
+            gfx_draw_sprite_part(0, _fy, Asset.frame_top, 0, SCREEN_FRAME_LEFT, _uh);
+            gfx_draw_sprite_part(width - SCREEN_FRAME_LEFT, _fy, Asset.frame_top, 1,
+                                 SCREEN_FRAME_LEFT, _uh);
         }
     };
 

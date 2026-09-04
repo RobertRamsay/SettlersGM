@@ -165,6 +165,36 @@ function gfx_draw_sprite(_x, _y, _asset, _index) {
     gfx_draw_sprite_full(_x, _y, _asset, _index, false, -1, 1);
 }
 
+/// Draw only the top-left _w x _h of a sprite. Used to tile the wooden frame
+/// without the last piece overhanging the corner it is running into.
+function gfx_draw_sprite_part(_x, _y, _asset, _index, _w, _h) {
+    var _a = global.gfx_assets[_asset];
+    if (_a == undefined) {
+        return;
+    }
+    var _m = gfx_meta(_asset, _index);
+    if (_m[0] == 0) {
+        return;
+    }
+
+    var _cw = min(_w, _m[5]);
+    var _ch = min(_h, _m[6]);
+    if (_cw <= 0 || _ch <= 0) {
+        return;
+    }
+
+    var _spr = _a[0];
+    if (_spr == -1) {
+        return;
+    }
+
+    draw_sprite_part(_spr, _index,
+                     sprite_get_xoffset(_spr) + _m[1],
+                     sprite_get_yoffset(_spr) + _m[2],
+                     _cw, _ch,
+                     global.gfx_ox + _x, global.gfx_oy + _y);
+}
+
 function gfx_draw_sprite_off(_x, _y, _asset, _index, _use_off) {
     gfx_draw_sprite_full(_x, _y, _asset, _index, _use_off, -1, 1);
 }
