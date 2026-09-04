@@ -2564,14 +2564,11 @@ function Viewport(_interface, _map) : GuiObject() constructor {
             return false;
         }
 
+        /* Confirm first. The popup reads the flag back off the map cursor, so
+           move the cursor there before opening it. */
         interface.update_map_cursor_pos(_clk_pos);
         set_redraw();
-
-        if (_game.send_geologist(_flag)) {
-            play_sound(Sfx.accepted);
-        } else {
-            play_sound(Sfx.not_accepted);
-        }
+        interface.open_popup(PopupType.send_geologist_confirm);
 
         return true;
     };

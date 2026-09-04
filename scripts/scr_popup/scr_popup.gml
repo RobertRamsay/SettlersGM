@@ -50,6 +50,7 @@ enum PopupType {
     sett_5,
     quit_confirm,
     no_save_quit_confirm,
+    send_geologist_confirm,
     sett_select_file, /* UNUSED */
     options,
     castle_res,
@@ -280,6 +281,7 @@ enum Action {
     quit_confirm,
     quit_cancel,
     no_save_quit_confirm,
+    send_geologist_confirm_yes,
     show_quit,
     show_options,
     show_save,
@@ -1778,6 +1780,9 @@ function PopupBox(_interface) : GuiObject() constructor {
         case PopupType.sett_5:
             draw_sett_5_box();
             break;
+        case PopupType.send_geologist_confirm:
+            draw_send_geologist_confirm_box();
+            break;
         case PopupType.quit_confirm:
             draw_quit_confirm_box();
             break;
@@ -1988,6 +1993,9 @@ function PopupBox(_interface) : GuiObject() constructor {
         case PopupType.sett_5:
             handle_sett_5_6_click(_cx, _cy);
             break;
+        case PopupType.send_geologist_confirm:
+            handle_send_geologist_confirm_clk(_cx, _cy);
+            break;
         case PopupType.quit_confirm:
             handle_quit_confirm_click(_cx, _cy);
             break;
@@ -2095,6 +2103,8 @@ function PopupBox(_interface) : GuiObject() constructor {
     static draw_popup_resource_stairs = function(_order) { popup_draw_popup_resource_stairs(self, _order); };
     static draw_sett_5_box = function() { popup_draw_sett_5_box(self); };
     static draw_quit_confirm_box = function() { popup_draw_quit_confirm_box(self); };
+    static draw_send_geologist_confirm_box = function() { popup_draw_send_geologist_confirm_box(self); };
+    static handle_send_geologist_confirm_clk = function(_cx, _cy) { popup_handle_send_geologist_confirm_clk(self, _cx, _cy); };
     static draw_no_save_quit_confirm_box = function() { popup_draw_no_save_quit_confirm_box(self); };
     static draw_options_box = function() { popup_draw_options_box(self); };
     static draw_castle_res_box = function() { popup_draw_castle_res_box(self); };

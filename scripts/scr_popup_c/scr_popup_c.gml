@@ -323,6 +323,13 @@ function popup_c_init_tables() {
     -1
   ];
 
+  global.popup_c_clk_send_geologist_confirm = [
+    Action.send_geologist_confirm_yes,   8,  92, 32, 8,
+    Action.close_box,                   88,  92, 32, 8,
+    Action.close_box,                  112, 128, 16, 16,
+    -1
+  ];
+
   global.popup_c_clk_transport_info = [
     Action.unknown_tp_info_flag, 56, 51, 16, 15,
     Action.send_geologist, 16, 96, 16, 16,
@@ -449,6 +456,11 @@ function popup_c_init_tables() {
     Action.close_box, 112, 128, 16, 16,
     -1
   ];
+}
+
+function popup_handle_send_geologist_confirm_clk(_popup, _cx, _cy) {
+  popup_c_init_tables();
+  popup_handle_clickmap(_popup, _cx, _cy, global.popup_c_clk_send_geologist_confirm);
 }
 
 /* PopupBox::handle_send_geologist */
@@ -1020,6 +1032,10 @@ function popup_handle_action(_popup, _action, _x, _y) {
     break;
   case Action.show_castle_res:
     _popup.set_box(PopupType.castle_res);
+    break;
+  case Action.send_geologist_confirm_yes:
+    popup_handle_send_geologist(_popup);
+    _interface.close_popup();
     break;
   case Action.send_geologist:
     popup_handle_send_geologist(_popup);
