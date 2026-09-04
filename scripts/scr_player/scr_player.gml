@@ -87,6 +87,10 @@ function Player(_game, _index) : GameObject(_game, _index) constructor {
     inventory_prio = array_create(26, 0);
     attacking_buildings = array_create(64, 0);
 
+    /// Next const_tick this player's AI may act on. Saved with everything else,
+    /// so a loaded game does not have every opponent think on the same tick.
+    ai_next_tick = 0;
+
     messages = [];   // std::queue<Message> -> array (front = index 0)
     timers = [];     // std::vector<PosTimer> -> array of {timeout, pos}
 

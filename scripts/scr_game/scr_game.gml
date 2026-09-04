@@ -807,7 +807,9 @@ function Game() constructor {
             inventory_schedule_counter += 64;
         }
 
-        /* AI related updates: not implemented (#if 0 in C++). */
+        /* Freeserf's block here is #if 0 around two TODOs, so this is new
+           code rather than a port. See scr_ai. */
+        ai_update_players(self);
 
         update_flags();
         update_buildings();

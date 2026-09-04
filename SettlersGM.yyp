@@ -51,6 +51,7 @@
     {"id":{"name":"scr_popup","path":"scripts/scr_popup/scr_popup.yy",},},
     {"id":{"name":"scr_random","path":"scripts/scr_random/scr_random.yy",},},
     {"id":{"name":"scr_savegame","path":"scripts/scr_savegame/scr_savegame.yy",},},
+    {"id":{"name":"scr_ai","path":"scripts/scr_ai/scr_ai.yy",},},
     {"id":{"name":"scr_serf_b","path":"scripts/scr_serf_b/scr_serf_b.yy",},},
     {"id":{"name":"scr_serf_c","path":"scripts/scr_serf_c/scr_serf_c.yy",},},
     {"id":{"name":"scr_serf","path":"scripts/scr_serf/scr_serf.yy",},},
