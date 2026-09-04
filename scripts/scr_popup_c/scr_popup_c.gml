@@ -943,16 +943,20 @@ function popup_handle_action(_popup, _action, _x, _y) {
     _popup.move_sett_5_6_item(0, 1);
     break;
   case Action.quit_confirm:
-    /* C++: TODO suggest save game -> TypeNoSaveQuitConfirm (disabled) */
+    /* C++: TODO suggest save game -> TypeNoSaveQuitConfirm (disabled).
+       Freeserf quits the process here; go back to the main menu instead, which
+       has its own exit. */
     _popup.play_sound(Sfx.ahhh);
-    game_end();
+    _interface.close_popup();
+    _interface.open_game_init();
     break;
   case Action.quit_cancel:
     _interface.close_popup();
     break;
   case Action.no_save_quit_confirm:
     _popup.play_sound(Sfx.ahhh);
-    game_end();
+    _interface.close_popup();
+    _interface.open_game_init();
     break;
   case Action.show_quit:
     _interface.open_popup(PopupType.quit_confirm);

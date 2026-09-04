@@ -221,7 +221,12 @@ function NotificationBox(_interface) : GuiObject() constructor {
 
     static internal_draw = function() {
         draw_bg(width, height, 0x13a);
-        draw_icon(14, 128, 0x120); /* Checkbox */
+        gfx_draw_frame_box(0, 0, width, height);
+
+        /* Freeserf draws this at (14, 128), which is off the bottom of a box
+           only 88 tall - that is why there was no visible OK. Put it in the
+           bottom right corner instead, inside the frame. */
+        draw_icon(21, height - 26, 0x120); /* Checkbox */
 
         var _views = global.notification_views;
         for (var _i = 0; _views[_i].type != MessageType.none; _i++) {

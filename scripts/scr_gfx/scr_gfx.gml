@@ -196,6 +196,49 @@ function gfx_draw_sprite_region(_x, _y, _asset, _index, _rx, _ry, _w, _h) {
                      global.gfx_ox + _x, global.gfx_oy + _y);
 }
 
+/// Tile a frame_popup piece for _len px, taking the final piece from the END of
+/// the art so both carved caps land on the corners rather than a joint showing
+/// partway along the run.
+function gfx_draw_frame_run_h(_x0, _y, _index, _len, _sw, _sh) {
+    var _done = 0;
+    while (_done < _len) {
+        var _left = _len - _done;
+        if (_left >= _sw) {
+            gfx_draw_sprite_region(_x0 + _done, _y, Asset.frame_popup, _index, 0, 0, _sw, _sh);
+            _done += _sw;
+        } else {
+            gfx_draw_sprite_region(_x0 + _done, _y, Asset.frame_popup, _index,
+                                   _sw - _left, 0, _left, _sh);
+            _done += _left;
+        }
+    }
+}
+
+function gfx_draw_frame_run_v(_x, _y0, _index, _len, _sw, _sh) {
+    var _done = 0;
+    while (_done < _len) {
+        var _left = _len - _done;
+        if (_left >= _sh) {
+            gfx_draw_sprite_region(_x, _y0 + _done, Asset.frame_popup, _index, 0, 0, _sw, _sh);
+            _done += _sh;
+        } else {
+            gfx_draw_sprite_region(_x, _y0 + _done, Asset.frame_popup, _index,
+                                   0, _sh - _left, _sw, _left);
+            _done += _left;
+        }
+    }
+}
+
+/// Wooden surround for a box of any size. Uses the plain rail top and bottom:
+/// frame_popup piece 0 carries a crest centred for a 144 wide popup, which
+/// would repeat across anything wider.
+function gfx_draw_frame_box(_x, _y, _w, _h) {
+    gfx_draw_frame_run_h(_x, _y, 1, _w, 144, 7);
+    gfx_draw_frame_run_h(_x, _y + _h - 7, 1, _w, 144, 7);
+    gfx_draw_frame_run_v(_x, _y, 2, _h, 8, 144);
+    gfx_draw_frame_run_v(_x + _w - 8, _y, 3, _h, 8, 144);
+}
+
 /// Draw only the top-left _w x _h of a sprite. Used to tile the wooden frame
 /// without the last piece overhanging the corner it is running into.
 function gfx_draw_sprite_part(_x, _y, _asset, _index, _w, _h) {

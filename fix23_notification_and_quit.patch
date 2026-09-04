@@ -1,0 +1,169 @@
+diff --git a/scripts/scr_game_init/scr_game_init.gml b/scripts/scr_game_init/scr_game_init.gml
+index 298f75e..d3b4de0 100644
+--- a/scripts/scr_game_init/scr_game_init.gml
++++ b/scripts/scr_game_init/scr_game_init.gml
+@@ -277,40 +277,6 @@ function GameInitBox(_interface) : GuiObject() constructor {
+     minimap = new Minimap(undefined);
+     file_list = new ListSavedFiles();
+ 
+-    /// Tile a frame piece for _len px, taking the final piece from the end of
+-    /// the art so both caps land on the corners.
+-    static draw_frame_run_h = function(_x0, _y, _index, _len, _sw, _sh) {
+-        var _done = 0;
+-        while (_done < _len) {
+-            var _left = _len - _done;
+-            if (_left >= _sw) {
+-                gfx_draw_sprite_region(_x0 + _done, _y, Asset.frame_popup, _index,
+-                                       0, 0, _sw, _sh);
+-                _done += _sw;
+-            } else {
+-                gfx_draw_sprite_region(_x0 + _done, _y, Asset.frame_popup, _index,
+-                                       _sw - _left, 0, _left, _sh);
+-                _done += _left;
+-            }
+-        }
+-    };
+-
+-    static draw_frame_run_v = function(_x, _y0, _index, _len, _sw, _sh) {
+-        var _done = 0;
+-        while (_done < _len) {
+-            var _left = _len - _done;
+-            if (_left >= _sh) {
+-                gfx_draw_sprite_region(_x, _y0 + _done, Asset.frame_popup, _index,
+-                                       0, 0, _sw, _sh);
+-                _done += _sh;
+-            } else {
+-                gfx_draw_sprite_region(_x, _y0 + _done, Asset.frame_popup, _index,
+-                                       0, _sh - _left, _sw, _left);
+-                _done += _left;
+-            }
+-        }
+-    };
+-
+     static draw_box_icon = function(_ix, _iy, _sprite) {
+         gfx_draw_sprite(8 * _ix + 20, _iy + 16, Asset.icon, _sprite);
+     };
+@@ -347,12 +313,7 @@ function GameInitBox(_interface) : GuiObject() constructor {
+ 
+         /* Popup frame art rather than frame_top: plain planks with a cap at
+            each end, no studs partway along, and only 8px thick. */
+-        /* Piece 1 top and bottom: piece 0 carries a crest that would repeat
+-           two and a half times across a 360 wide box. */
+-        draw_frame_run_h(0, 0, 1, width, 144, 7);
+-        draw_frame_run_h(0, height - 7, 1, width, 144, 7);
+-        draw_frame_run_v(0, 0, 2, height, 8, 144);
+-        draw_frame_run_v(width - 8, 0, 3, height, 8, 144);
++        gfx_draw_frame_box(0, 0, width, height);
+ 
+         /* Plain label rather than an icon: the original has no LOAD button to
+            borrow art from, and this is scaffolding until the real start/end
+@@ -584,7 +545,8 @@ function GameInitBox(_interface) : GuiObject() constructor {
+                 generate_map_preview();
+                 break;
+             case GameInitAction.close:
+-                interface.close_game_init();
++                /* Quitting in-game returns here, so this is the way out. */
++                game_end();
+                 break;
+             case GameInitAction.gen_random: {
+                 random_input.set_random(game_init_random_default());
+diff --git a/scripts/scr_gfx/scr_gfx.gml b/scripts/scr_gfx/scr_gfx.gml
+index 214ad3c..9bfa3ee 100644
+--- a/scripts/scr_gfx/scr_gfx.gml
++++ b/scripts/scr_gfx/scr_gfx.gml
+@@ -196,6 +196,49 @@ function gfx_draw_sprite_region(_x, _y, _asset, _index, _rx, _ry, _w, _h) {
+                      global.gfx_ox + _x, global.gfx_oy + _y);
+ }
+ 
++/// Tile a frame_popup piece for _len px, taking the final piece from the END of
++/// the art so both carved caps land on the corners rather than a joint showing
++/// partway along the run.
++function gfx_draw_frame_run_h(_x0, _y, _index, _len, _sw, _sh) {
++    var _done = 0;
++    while (_done < _len) {
++        var _left = _len - _done;
++        if (_left >= _sw) {
++            gfx_draw_sprite_region(_x0 + _done, _y, Asset.frame_popup, _index, 0, 0, _sw, _sh);
++            _done += _sw;
++        } else {
++            gfx_draw_sprite_region(_x0 + _done, _y, Asset.frame_popup, _index,
++                                   _sw - _left, 0, _left, _sh);
++            _done += _left;
++        }
++    }
++}
++
++function gfx_draw_frame_run_v(_x, _y0, _index, _len, _sw, _sh) {
++    var _done = 0;
++    while (_done < _len) {
++        var _left = _len - _done;
++        if (_left >= _sh) {
++            gfx_draw_sprite_region(_x, _y0 + _done, Asset.frame_popup, _index, 0, 0, _sw, _sh);
++            _done += _sh;
++        } else {
++            gfx_draw_sprite_region(_x, _y0 + _done, Asset.frame_popup, _index,
++                                   0, _sh - _left, _sw, _left);
++            _done += _left;
++        }
++    }
++}
++
++/// Wooden surround for a box of any size. Uses the plain rail top and bottom:
++/// frame_popup piece 0 carries a crest centred for a 144 wide popup, which
++/// would repeat across anything wider.
++function gfx_draw_frame_box(_x, _y, _w, _h) {
++    gfx_draw_frame_run_h(_x, _y, 1, _w, 144, 7);
++    gfx_draw_frame_run_h(_x, _y + _h - 7, 1, _w, 144, 7);
++    gfx_draw_frame_run_v(_x, _y, 2, _h, 8, 144);
++    gfx_draw_frame_run_v(_x + _w - 8, _y, 3, _h, 8, 144);
++}
++
+ /// Draw only the top-left _w x _h of a sprite. Used to tile the wooden frame
+ /// without the last piece overhanging the corner it is running into.
+ function gfx_draw_sprite_part(_x, _y, _asset, _index, _w, _h) {
+diff --git a/scripts/scr_notification/scr_notification.gml b/scripts/scr_notification/scr_notification.gml
+index 31ad03f..075902e 100644
+--- a/scripts/scr_notification/scr_notification.gml
++++ b/scripts/scr_notification/scr_notification.gml
+@@ -221,7 +221,12 @@ function NotificationBox(_interface) : GuiObject() constructor {
+ 
+     static internal_draw = function() {
+         draw_bg(width, height, 0x13a);
+-        draw_icon(14, 128, 0x120); /* Checkbox */
++        gfx_draw_frame_box(0, 0, width, height);
++
++        /* Freeserf draws this at (14, 128), which is off the bottom of a box
++           only 88 tall - that is why there was no visible OK. Put it in the
++           bottom right corner instead, inside the frame. */
++        draw_icon(21, height - 26, 0x120); /* Checkbox */
+ 
+         var _views = global.notification_views;
+         for (var _i = 0; _views[_i].type != MessageType.none; _i++) {
+diff --git a/scripts/scr_popup_c/scr_popup_c.gml b/scripts/scr_popup_c/scr_popup_c.gml
+index 66e49d4..8de7c56 100644
+--- a/scripts/scr_popup_c/scr_popup_c.gml
++++ b/scripts/scr_popup_c/scr_popup_c.gml
+@@ -943,16 +943,20 @@ function popup_handle_action(_popup, _action, _x, _y) {
+     _popup.move_sett_5_6_item(0, 1);
+     break;
+   case Action.quit_confirm:
+-    /* C++: TODO suggest save game -> TypeNoSaveQuitConfirm (disabled) */
++    /* C++: TODO suggest save game -> TypeNoSaveQuitConfirm (disabled).
++       Freeserf quits the process here; go back to the main menu instead, which
++       has its own exit. */
+     _popup.play_sound(Sfx.ahhh);
+-    game_end();
++    _interface.close_popup();
++    _interface.open_game_init();
+     break;
+   case Action.quit_cancel:
+     _interface.close_popup();
+     break;
+   case Action.no_save_quit_confirm:
+     _popup.play_sound(Sfx.ahhh);
+-    game_end();
++    _interface.close_popup();
++    _interface.open_game_init();
+     break;
+   case Action.show_quit:
+     _interface.open_popup(PopupType.quit_confirm);

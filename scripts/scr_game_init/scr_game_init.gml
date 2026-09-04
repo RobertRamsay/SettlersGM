@@ -277,40 +277,6 @@ function GameInitBox(_interface) : GuiObject() constructor {
     minimap = new Minimap(undefined);
     file_list = new ListSavedFiles();
 
-    /// Tile a frame piece for _len px, taking the final piece from the end of
-    /// the art so both caps land on the corners.
-    static draw_frame_run_h = function(_x0, _y, _index, _len, _sw, _sh) {
-        var _done = 0;
-        while (_done < _len) {
-            var _left = _len - _done;
-            if (_left >= _sw) {
-                gfx_draw_sprite_region(_x0 + _done, _y, Asset.frame_popup, _index,
-                                       0, 0, _sw, _sh);
-                _done += _sw;
-            } else {
-                gfx_draw_sprite_region(_x0 + _done, _y, Asset.frame_popup, _index,
-                                       _sw - _left, 0, _left, _sh);
-                _done += _left;
-            }
-        }
-    };
-
-    static draw_frame_run_v = function(_x, _y0, _index, _len, _sw, _sh) {
-        var _done = 0;
-        while (_done < _len) {
-            var _left = _len - _done;
-            if (_left >= _sh) {
-                gfx_draw_sprite_region(_x, _y0 + _done, Asset.frame_popup, _index,
-                                       0, 0, _sw, _sh);
-                _done += _sh;
-            } else {
-                gfx_draw_sprite_region(_x, _y0 + _done, Asset.frame_popup, _index,
-                                       0, _sh - _left, _sw, _left);
-                _done += _left;
-            }
-        }
-    };
-
     static draw_box_icon = function(_ix, _iy, _sprite) {
         gfx_draw_sprite(8 * _ix + 20, _iy + 16, Asset.icon, _sprite);
     };
@@ -347,12 +313,7 @@ function GameInitBox(_interface) : GuiObject() constructor {
 
         /* Popup frame art rather than frame_top: plain planks with a cap at
            each end, no studs partway along, and only 8px thick. */
-        /* Piece 1 top and bottom: piece 0 carries a crest that would repeat
-           two and a half times across a 360 wide box. */
-        draw_frame_run_h(0, 0, 1, width, 144, 7);
-        draw_frame_run_h(0, height - 7, 1, width, 144, 7);
-        draw_frame_run_v(0, 0, 2, height, 8, 144);
-        draw_frame_run_v(width - 8, 0, 3, height, 8, 144);
+        gfx_draw_frame_box(0, 0, width, height);
 
         /* Plain label rather than an icon: the original has no LOAD button to
            borrow art from, and this is scaffolding until the real start/end
@@ -584,7 +545,8 @@ function GameInitBox(_interface) : GuiObject() constructor {
                 generate_map_preview();
                 break;
             case GameInitAction.close:
-                interface.close_game_init();
+                /* Quitting in-game returns here, so this is the way out. */
+                game_end();
                 break;
             case GameInitAction.gen_random: {
                 random_input.set_random(game_init_random_default());
