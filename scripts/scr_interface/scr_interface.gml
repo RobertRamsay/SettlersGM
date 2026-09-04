@@ -711,6 +711,13 @@ function Interface(_game = undefined) : GuiObject() constructor {
 
         game = _new_game;
 
+        // The old player struct belongs to the previous Game, so it must not be
+        // carried over. It also unblocks set_player() below: that deletes the
+        // panel first and then returns early when the index is unchanged, so
+        // starting a new game as player 0 while player 0 was already selected
+        // removed the panel and never rebuilt it.
+        player = undefined;
+
         if (game != undefined) {
             viewport = new Viewport(self, game.get_map());
             viewport.set_size(width, height);
