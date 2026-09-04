@@ -221,6 +221,12 @@ function interface_can_build_road(_game, _road, _player) {
 // class Interface
 // ---------------------------------------------------------------------------
 
+// Wooden frame around the map view. frame_top pieces 0 and 1 are 16 wide,
+// piece 2 is 8 tall; the bottom leaves room for the rail plus the panel.
+#macro SCREEN_FRAME_LEFT 16
+#macro SCREEN_FRAME_TOP 8
+#macro SCREEN_FRAME_BOTTOM 48
+
 function Interface(_game = undefined) : GuiObject() constructor {
     interface_init_tables();
 
@@ -999,10 +1005,38 @@ function Interface(_game = undefined) : GuiObject() constructor {
 
     // ----------------------------------------------------------- GUI
 
+    /// AssetFrameTop is decoded by the data source but Freeserf never draws it -
+    /// Interface::internal_draw() is empty there. The original frames the map
+    /// view in wood, so the four pieces are tiled here: 0 and 1 are 16x233
+    /// uprights, 2 is a 312x8 rail, 3 is a decorated 32x216 column.
     static internal_draw = function() {
+        var _map_bottom = height - SCREEN_FRAME_BOTTOM;
+
+        // Top rail, tiled across.
+        for (var _fx = 0; _fx < width; _fx += 312) {
+            gfx_draw_sprite(_fx, 0, Asset.frame_top, 2);
+        }
+
+        // Uprights, tiled down each side.
+        for (var _fy = SCREEN_FRAME_TOP; _fy < _map_bottom; _fy += 233) {
+            gfx_draw_sprite(0, _fy, Asset.frame_top, 0);
+            gfx_draw_sprite(width - SCREEN_FRAME_LEFT, _fy, Asset.frame_top, 1);
+        }
+
+        // Bottom rail, so the map does not run into the panel.
+        for (var _bx = 0; _bx < width; _bx += 312) {
+            gfx_draw_sprite(_bx, _map_bottom, Asset.frame_top, 2);
+        }
     };
 
     static layout = function() {
+        // Inset the map so it sits inside the wooden frame rather than under it.
+        if (viewport != undefined) {
+            viewport.move_to(SCREEN_FRAME_LEFT, SCREEN_FRAME_TOP);
+            viewport.set_size(max(1, width - 2 * SCREEN_FRAME_LEFT),
+                              max(1, height - SCREEN_FRAME_TOP - SCREEN_FRAME_BOTTOM));
+        }
+
         var _panel_x = 0;
         var _panel_y = height;
 

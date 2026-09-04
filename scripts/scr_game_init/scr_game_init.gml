@@ -311,6 +311,16 @@ function GameInitBox(_interface) : GuiObject() constructor {
     static internal_draw = function() {
         draw_bg();
 
+        /* Wooden surround, same pieces the map view uses. */
+        for (var _fx = 0; _fx < width; _fx += 312) {
+            gfx_draw_sprite(_fx, 0, Asset.frame_top, 2);
+            gfx_draw_sprite(_fx, height - 8, Asset.frame_top, 2);
+        }
+        for (var _fy = 0; _fy < height; _fy += 233) {
+            gfx_draw_sprite(0, _fy, Asset.frame_top, 0);
+            gfx_draw_sprite(width - 16, _fy, Asset.frame_top, 1);
+        }
+
         /* Plain labels rather than icons: the original has no LOAD button to
            borrow art from, and this is scaffolding until the real start/end
            screens land. */
