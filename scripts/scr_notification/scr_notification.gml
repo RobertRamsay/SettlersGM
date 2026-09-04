@@ -132,9 +132,14 @@ function NotificationBox(_interface) : GuiObject() constructor {
     };
 
     static draw_bg = function(_bwidth, _bheight, _sprite) {   // C++ draw_background (legacy GM built-in name)
+        // The tile is 16x16 and the box is not a multiple of 16, so the last
+        // row and column get clipped. Without that they overhang the frame and
+        // the border reads as falling short of the background.
         for (var _sy = 0; _sy < _bheight; _sy += 16) {
             for (var _sx = 0; _sx < _bwidth; _sx += 16) {
-                gfx_draw_sprite(_sx, _sy, Asset.icon, _sprite);
+                gfx_draw_sprite_part(_sx, _sy, Asset.icon, _sprite,
+                                     min(16, _bwidth - _sx),
+                                     min(16, _bheight - _sy));
             }
         }
     };

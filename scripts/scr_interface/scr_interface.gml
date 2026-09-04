@@ -221,6 +221,9 @@ function interface_can_build_road(_game, _road, _player) {
 // class Interface
 // ---------------------------------------------------------------------------
 
+// Clear space between the message box and the top of the panel.
+#macro NOTIFICATION_BOX_GAP 12
+
 function Interface(_game = undefined) : GuiObject() constructor {
     interface_init_tables();
 
@@ -1044,7 +1047,10 @@ function Interface(_game = undefined) : GuiObject() constructor {
             var _notification_box_width = 200;
             var _notification_box_height = 88;
             var _notification_box_x = _panel_x + 40;
-            var _notification_box_y = _panel_y - _notification_box_height;
+            // Freeserf butts this straight onto the panel; leave a gap so the
+            // two wooden frames do not read as one overlapping block.
+            var _notification_box_y = _panel_y - _notification_box_height
+                                      - NOTIFICATION_BOX_GAP;
             notification_box.move_to(_notification_box_x, _notification_box_y);
             notification_box.set_size(_notification_box_width, _notification_box_height);
         }
