@@ -10,14 +10,14 @@
 // The 700 ms blink Timer of the C++ is emulated with current_time inside
 // internal_draw() (see on_timer_fired).
 
-#macro PANEL_WIDTH 496
+#macro PANEL_WIDTH 400
 #macro PANEL_HEIGHT 40
 
 /// PanelBar::Button
 // PANEL_WIDTH above was 352 in the original: five buttons plus the two round
-// end pieces. Widened by three 48px slots for the time-advance buttons.
-#macro PANEL_BUTTON_COUNT 8
-#macro TIME_BUTTON_FIRST 5
+// end pieces. Widened by one 48px slot for the game-speed button.
+#macro PANEL_BUTTON_COUNT 6
+#macro SPEED_BUTTON 5
 
 
 enum PanelButton {
@@ -78,28 +78,17 @@ function panel_init_tables() {
         16, 256, 36,
         25, 288, 0,
 
-        // Three extra slots for the time-advance buttons. Not in the original;
-        // the strip pairs are reused because there are only five distinct ones.
+        // One extra slot for the game-speed button. Not in the original; the
+        // strip pair is reused because there are only five distinct ones.
         7, 304, 0,
         8, 304, 36,
         21, 336, 0,
 
-        9, 352, 0,
-        10, 352, 36,
-        22, 384, 0,
-
-        11, 400, 0,
-        12, 400, 36,
-        23, 432, 0,
-
-        1, 448, 0,
-        6, 456, 0,
+        1, 352, 0,
+        6, 360, 0,
         -1
     ];
     // const int inactive_buttons[] (PanelBar::draw_panel_buttons)
-    // Game seconds each of >, >> and >>> jumps the world forward.
-    global.panel_time_skip_seconds = [30, 120, 300];
-
     global.panel_inactive_buttons = [
         PanelButton.build_inactive,
         PanelButton.destroy_inactive,
@@ -181,14 +170,27 @@ function PanelBar(_interface) : GuiObject() constructor {
             gfx_draw_sprite(_sx, _sy, Asset.panel_button, _button);
         }
 
-        for (var _i = 0; _i < 3; _i++) {
-            draw_time_button(64 + (TIME_BUTTON_FIRST + _i) * 48, 4, _i + 1);
+        draw_speed_button(64 + SPEED_BUTTON * 48, 4, speed_chevrons());
+    };
+
+    /// 1, 2 or 3 chevrons for normal, double and quadruple speed.
+    static speed_chevrons = function() {
+        var _game = interface.get_game();
+        if (_game == undefined) {
+            return 1;
         }
+        if (_game.game_speed >= DEFAULT_GAME_SPEED * 4) {
+            return 3;
+        }
+        if (_game.game_speed >= DEFAULT_GAME_SPEED * 2) {
+            return 2;
+        }
+        return 1;
     };
 
     /// A panel button face with `_chevrons` >'s stamped on it, drawn in the
     /// panel's own palette so it sits with the rest of the bar.
-    static draw_time_button = function(_sx, _sy, _chevrons) {
+    static draw_speed_button = function(_sx, _sy, _chevrons) {
         gfx_draw_sprite(_sx, _sy, Asset.panel_button, PanelButton.build_inactive);
 
         var _ox = global.gfx_ox + _sx;
@@ -223,9 +225,17 @@ function PanelBar(_interface) : GuiObject() constructor {
 
     /* Handle a click on the panel buttons. */
     static button_click = function(_button) {
-        if (_button >= TIME_BUTTON_FIRST) {
-            var _seconds = global.panel_time_skip_seconds[_button - TIME_BUTTON_FIRST];
-            global.fast_forward_ticks += _seconds * TICKS_PER_SEC;
+        if (_button == SPEED_BUTTON) {
+            var _game = interface.get_game();
+            if (_game != undefined) {
+                var _next = DEFAULT_GAME_SPEED;
+                if (_game.game_speed == DEFAULT_GAME_SPEED) {
+                    _next = DEFAULT_GAME_SPEED * 2;
+                } else if (_game.game_speed == DEFAULT_GAME_SPEED * 2) {
+                    _next = DEFAULT_GAME_SPEED * 4;
+                }
+                _game.set_speed(_next);
+            }
             play_sound(Sfx.click);
             set_redraw();
             return;

@@ -7,7 +7,6 @@
 // event loop fires its update timer every TICK_LENGTH_MS (20 ms) = 50 ticks per
 // second, independently of the render rate (see src/event_loop-sdl.cc).
 #macro MAX_CATCHUP_TICKS 5
-#macro FAST_FORWARD_TICKS_PER_FRAME 200
 #macro MOUSE_TIME_SENSITIVITY 600
 #macro MOUSE_MOVE_SENSITIVITY 8
 
@@ -67,10 +66,6 @@ suppress_click = array_create(4, false);
 global.fast_map_click = true;       // dbl-click own flag -> start a road there
 global.fast_building_click = true;  // dbl-click a build spot -> that build popup
 
-// Game ticks still owed by the >, >> and >>> panel buttons. Drained a bounded
-// number per frame so a five minute skip costs about a second of animation
-// rather than locking the window while 15000 updates run.
-global.fast_forward_ticks = 0;
 
 // Slot the next F5 writes to / the last one loaded. 0..SAVEGAME_SLOTS-1.
 global.save_slot = 0;

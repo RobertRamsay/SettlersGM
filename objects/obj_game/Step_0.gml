@@ -41,15 +41,6 @@ if (keyboard_check_pressed(vk_f11)) {
     savegame_self_test(interface.get_game());
 }
 
-// ---- time-advance buttons: burn through the owed ticks a slice at a time
-if (global.fast_forward_ticks > 0) {
-    var _burst = min(global.fast_forward_ticks, FAST_FORWARD_TICKS_PER_FRAME);
-    for (var _f = 0; _f < _burst; _f++) {
-        interface.handle_event(gui_make_event(EventType.update, 0, 0, 0, 0, 0));
-    }
-    global.fast_forward_ticks -= _burst;
-}
-
 // ---- mouse wheel: integer pixel zoom, 1x to 4x
 if (mouse_wheel_up() || mouse_wheel_down()) {
     var _viewport = interface.get_viewport();

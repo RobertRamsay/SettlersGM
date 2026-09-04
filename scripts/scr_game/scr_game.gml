@@ -841,6 +841,11 @@ function Game() constructor {
         }
     };
 
+    static set_speed = function(_speed) {
+        game_speed = _speed;
+        show_debug_message("game: Game speed: " + string(game_speed));
+    };
+
     static speed_reset = function() {
         game_speed = DEFAULT_GAME_SPEED;
         show_debug_message("game: Game speed: " + string(game_speed));
