@@ -2191,6 +2191,10 @@ function TextInput() : GuiObject() constructor {
 
 /// STUB of ListSavedFiles : GuiObject
 function ListSavedFiles() : GuiObject() constructor {
+    // The start screen builds one of these before any PopupBox exists, so the
+    // popup colour globals may not have been created yet.
+    popup_init_tables();
+
     items = [];
     first_item = 0;
     selected_item = -1;
