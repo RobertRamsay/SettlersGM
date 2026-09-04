@@ -165,6 +165,37 @@ function gfx_draw_sprite(_x, _y, _asset, _index) {
     gfx_draw_sprite_full(_x, _y, _asset, _index, false, -1, 1);
 }
 
+/// Draw an arbitrary sub-rect of a sprite. Lets a tiled run take its last
+/// piece from the END of the art, so the carved cap lands on the corner
+/// instead of a stud appearing partway along.
+function gfx_draw_sprite_region(_x, _y, _asset, _index, _rx, _ry, _w, _h) {
+    var _a = global.gfx_assets[_asset];
+    if (_a == undefined) {
+        return;
+    }
+    var _m = gfx_meta(_asset, _index);
+    if (_m[0] == 0) {
+        return;
+    }
+
+    var _cw = min(_w, _m[5] - _rx);
+    var _ch = min(_h, _m[6] - _ry);
+    if (_cw <= 0 || _ch <= 0) {
+        return;
+    }
+
+    var _spr = _a[0];
+    if (_spr == -1) {
+        return;
+    }
+
+    draw_sprite_part(_spr, _index,
+                     sprite_get_xoffset(_spr) + _m[1] + _rx,
+                     sprite_get_yoffset(_spr) + _m[2] + _ry,
+                     _cw, _ch,
+                     global.gfx_ox + _x, global.gfx_oy + _y);
+}
+
 /// Draw only the top-left _w x _h of a sprite. Used to tile the wooden frame
 /// without the last piece overhanging the corner it is running into.
 function gfx_draw_sprite_part(_x, _y, _asset, _index, _w, _h) {

@@ -78,7 +78,7 @@ function game_init_init_tables() {
     global.game_init_clickmap_mission = [
         GameInitAction.start_game,        20,  16, 32, 32,
         GameInitAction.toggle_game_type,  60,  16, 32, 32,
-        GameInitAction.show_load,        100,  16, 40, 16,
+        GameInitAction.show_load,        200, 222, 40, 16,
         GameInitAction.show_options,     308,  16, 32, 32,
         GameInitAction.increment,        284,  16, 16, 16,
         GameInitAction.decrement,        284,  32, 16, 16,
@@ -89,7 +89,7 @@ function game_init_init_tables() {
     global.game_init_clickmap_custom = [
         GameInitAction.start_game,        20,  16, 32, 32,
         GameInitAction.toggle_game_type,  60,  16, 32, 32,
-        GameInitAction.show_load,        100,  16, 40, 16,
+        GameInitAction.show_load,        200, 222, 40, 16,
         GameInitAction.show_options,     308,  16, 32, 32,
         GameInitAction.increment,        220,  24, 24, 24,
         GameInitAction.decrement,        220,  16,  8,  8,
@@ -102,7 +102,7 @@ function game_init_init_tables() {
     global.game_init_clickmap_load = [
         GameInitAction.start_game,        20,  16, 32, 32,
         GameInitAction.toggle_game_type,  60,  16, 32, 32,
-        GameInitAction.show_load,        100,  16, 40, 16,
+        GameInitAction.show_load,        200, 222, 40, 16,
         GameInitAction.show_options,     308,  16, 32, 32,
         GameInitAction.close,            324, 216, 16, 16,
         -1
@@ -277,6 +277,40 @@ function GameInitBox(_interface) : GuiObject() constructor {
     minimap = new Minimap(undefined);
     file_list = new ListSavedFiles();
 
+    /// Tile a frame piece for _len px, taking the final piece from the end of
+    /// the art so both caps land on the corners.
+    static draw_frame_run_h = function(_x0, _y, _index, _len, _sw, _sh) {
+        var _done = 0;
+        while (_done < _len) {
+            var _left = _len - _done;
+            if (_left >= _sw) {
+                gfx_draw_sprite_region(_x0 + _done, _y, Asset.frame_popup, _index,
+                                       0, 0, _sw, _sh);
+                _done += _sw;
+            } else {
+                gfx_draw_sprite_region(_x0 + _done, _y, Asset.frame_popup, _index,
+                                       _sw - _left, 0, _left, _sh);
+                _done += _left;
+            }
+        }
+    };
+
+    static draw_frame_run_v = function(_x, _y0, _index, _len, _sw, _sh) {
+        var _done = 0;
+        while (_done < _len) {
+            var _left = _len - _done;
+            if (_left >= _sh) {
+                gfx_draw_sprite_region(_x, _y0 + _done, Asset.frame_popup, _index,
+                                       0, 0, _sw, _sh);
+                _done += _sh;
+            } else {
+                gfx_draw_sprite_region(_x, _y0 + _done, Asset.frame_popup, _index,
+                                       0, _sh - _left, _sw, _left);
+                _done += _left;
+            }
+        }
+    };
+
     static draw_box_icon = function(_ix, _iy, _sprite) {
         gfx_draw_sprite(8 * _ix + 20, _iy + 16, Asset.icon, _sprite);
     };
@@ -311,23 +345,20 @@ function GameInitBox(_interface) : GuiObject() constructor {
     static internal_draw = function() {
         draw_bg();
 
-        /* Wooden surround, same pieces the map view uses, clipped to the box. */
-        for (var _fx = 0; _fx < width; _fx += 312) {
-            var _rw = min(312, width - _fx);
-            gfx_draw_sprite_part(_fx, 0, Asset.frame_top, 2, _rw, 8);
-            gfx_draw_sprite_part(_fx, height - 8, Asset.frame_top, 2, _rw, 8);
-        }
-        for (var _fy = 0; _fy < height; _fy += 233) {
-            var _uh = min(233, height - _fy);
-            gfx_draw_sprite_part(0, _fy, Asset.frame_top, 0, 16, _uh);
-            gfx_draw_sprite_part(width - 16, _fy, Asset.frame_top, 1, 16, _uh);
-        }
+        /* Popup frame art rather than frame_top: plain planks with a cap at
+           each end, no studs partway along, and only 8px thick. */
+        /* Piece 1 top and bottom: piece 0 carries a crest that would repeat
+           two and a half times across a 360 wide box. */
+        draw_frame_run_h(0, 0, 1, width, 144, 7);
+        draw_frame_run_h(0, height - 7, 1, width, 144, 7);
+        draw_frame_run_v(0, 0, 2, height, 8, 144);
+        draw_frame_run_v(width - 8, 0, 3, height, 8, 144);
 
-        /* Plain labels rather than icons: the original has no LOAD button to
+        /* Plain label rather than an icon: the original has no LOAD button to
            borrow art from, and this is scaffolding until the real start/end
-           screens land. */
-        gfx_fill_rect(100, 16, 40, 16, make_colour_rgb(0x00, 0x00, 0x00));
-        gfx_draw_string(104, 20, "LOAD", make_colour_rgb(0xff, 0xff, 0xff), -1);
+           screens land. Sits on the bottom row, clear of the info panel. */
+        gfx_fill_rect(200, 222, 40, 16, make_colour_rgb(0x00, 0x00, 0x00));
+        gfx_draw_string(204, 226, "LOAD", make_colour_rgb(0xff, 0xff, 0xff), -1);
 
         var _layout = global.game_init_layout;
         var _i = 0;
