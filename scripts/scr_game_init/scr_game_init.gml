@@ -321,6 +321,11 @@ function GameInitBox(_interface) : GuiObject() constructor {
         gfx_fill_rect(200, 222, 40, 16, make_colour_rgb(0x00, 0x00, 0x00));
         gfx_draw_string(204, 226, "LOAD", make_colour_rgb(0xff, 0xff, 0xff), -1);
 
+        if (load_status != "") {
+            gfx_draw_string(20, 206, load_status,
+                            make_colour_rgb(0xff, 0xff, 0x99), -1);
+        }
+
         var _layout = global.game_init_layout;
         var _i = 0;
         while (_layout[_i] >= 0) {
@@ -474,20 +479,43 @@ function GameInitBox(_interface) : GuiObject() constructor {
         generate_map_preview();
     };
 
+    /// Load whatever the list has highlighted. Failures are reported in the
+    /// box rather than only to the debug log, which is easy to miss.
+    static load_selected_save = function() {
+        if (file_list.get_selected_slot() < 0) {
+            load_status = "No save selected";
+            set_redraw();
+            return;
+        }
+
+        var _path = file_list.get_selected();
+        if (!file_exists(_path)) {
+            load_status = "That slot is empty";
+            set_redraw();
+            return;
+        }
+
+        var _loaded = game_store_load(_path);
+        if (_loaded == undefined) {
+            load_status = "Save could not be read";
+            set_redraw();
+            show_debug_message("GameInitBox: could not load " + string(_path));
+            return;
+        }
+
+        if (interface == undefined) {
+            return;
+        }
+
+        interface.set_game(_loaded);
+        interface.close_game_init();
+    };
+
     static handle_action = function(_action) {
         switch (_action) {
             case GameInitAction.start_game: {
                 if (game_type == GameType.load) {
-                    var _path = file_list.get_selected();
-                    var _loaded = game_store_load(_path);
-                    if (_loaded == undefined) {
-                        show_debug_message("GameInitBox: could not load " + string(_path));
-                        return;
-                    }
-                    if (interface != undefined) {
-                        interface.set_game(_loaded);
-                        interface.close_game_init();
-                    }
+                    load_selected_save();
                     return;
                 } else {
                     // GameManager::start_game(mission)
@@ -510,8 +538,16 @@ function GameInitBox(_interface) : GuiObject() constructor {
                 break;
             }
             case GameInitAction.show_load: {
-                set_game_type(GameType.load);
-                file_list.update();
+                if (game_type != GameType.load) {
+                    set_game_type(GameType.load);
+                    file_list.update();
+                    load_status = "Pick a save, then LOAD";
+                    set_redraw();
+                    break;
+                }
+                /* Already listing saves: this press loads the highlighted one,
+                   so LOAD works on its own rather than needing START after. */
+                load_selected_save();
                 break;
             }
             case GameInitAction.show_options: {
@@ -715,6 +751,8 @@ function GameInitBox(_interface) : GuiObject() constructor {
 
     // Constructor body: GameInitBox(Interface *interface)
     set_size(360, 254);
+
+    load_status = "";
 
     custom_mission = new GameInfo(game_init_random_default());
     custom_mission.remove_all_players();

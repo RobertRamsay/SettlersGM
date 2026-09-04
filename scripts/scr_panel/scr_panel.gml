@@ -19,6 +19,12 @@
 #macro PANEL_BUTTON_COUNT 6
 #macro SPEED_BUTTON 5
 
+// Multiples of DEFAULT_GAME_SPEED the button cycles through: >, >>, >>>.
+// game_speed is what Game.update adds to tick each step, and speed_increase
+// caps at 40, so 15x (= 30) is the most that stays in range.
+#macro SPEED_STEP_2 5
+#macro SPEED_STEP_3 15
+
 
 enum PanelButton {
     build_inactive = 0,
@@ -179,10 +185,10 @@ function PanelBar(_interface) : GuiObject() constructor {
         if (_game == undefined) {
             return 1;
         }
-        if (_game.game_speed >= DEFAULT_GAME_SPEED * 4) {
+        if (_game.game_speed >= DEFAULT_GAME_SPEED * SPEED_STEP_3) {
             return 3;
         }
-        if (_game.game_speed >= DEFAULT_GAME_SPEED * 2) {
+        if (_game.game_speed >= DEFAULT_GAME_SPEED * SPEED_STEP_2) {
             return 2;
         }
         return 1;
@@ -230,9 +236,9 @@ function PanelBar(_interface) : GuiObject() constructor {
             if (_game != undefined) {
                 var _next = DEFAULT_GAME_SPEED;
                 if (_game.game_speed == DEFAULT_GAME_SPEED) {
-                    _next = DEFAULT_GAME_SPEED * 2;
-                } else if (_game.game_speed == DEFAULT_GAME_SPEED * 2) {
-                    _next = DEFAULT_GAME_SPEED * 4;
+                    _next = DEFAULT_GAME_SPEED * SPEED_STEP_2;
+                } else if (_game.game_speed == DEFAULT_GAME_SPEED * SPEED_STEP_2) {
+                    _next = DEFAULT_GAME_SPEED * SPEED_STEP_3;
                 }
                 _game.set_speed(_next);
             }
