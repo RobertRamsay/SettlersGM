@@ -840,6 +840,10 @@ function PopupBox(_interface) : GuiObject() constructor {
     // redraw leaked them.
     flag_view = undefined;
 
+    /// Shown under the slot list after a save, so pressing SAVE visibly does
+    /// something rather than silently writing a file.
+    save_status = "";
+
     /* Initialize minimap */
     minimap.set_displayed(false);
     minimap.set_parent(self);
@@ -2066,6 +2070,7 @@ function PopupBox(_interface) : GuiObject() constructor {
 
     static set_box = function(_box) {
         box = _box;
+        save_status = "";
         if (box == PopupType.map) {
             minimap.set_displayed(true);
         } else {

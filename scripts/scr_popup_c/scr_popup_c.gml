@@ -1192,8 +1192,11 @@ function popup_handle_action(_popup, _action, _x, _y) {
       if (savegame_save_slot(_slot, _interface.get_game(),
                              _popup.file_list.get_edit_text())) {
         _popup.file_list.stop_editing();
-        _popup.set_redraw();
+        _popup.save_status = "Saved to slot " + string(_slot + 1);
+      } else {
+        _popup.save_status = "Save failed";
       }
+      _popup.set_redraw();
       break;
     }
 

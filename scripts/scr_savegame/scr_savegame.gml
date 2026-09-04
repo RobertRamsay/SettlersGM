@@ -34,10 +34,25 @@
 /// Fields of Game written separately rather than inline.
 #macro SAVEGAME_GAME_SKIP ["players", "flags", "inventories", "buildings", "serfs", "map"]
 
+/// Why the last load failed, for the UI to display. "" means it succeeded.
+function savegame_fail(_reason) {
+    global.savegame_last_error = _reason;
+    show_debug_message("savegame: " + _reason);
+    return undefined;
+}
+
+function savegame_last_error() {
+    if (!variable_global_exists("savegame_last_error")) {
+        return "";
+    }
+    return global.savegame_last_error;
+}
+
 function savegame_init_tables() {
     if (variable_global_exists("savegame_ref_kinds")) {
         return;
     }
+    global.savegame_last_error = "";
     // instanceof() name -> the Game collection it belongs to.
     global.savegame_ref_kinds = {
         Player: "players",
@@ -255,15 +270,14 @@ function savegame_apply_struct(_target, _source, _game) {
 }
 
 function savegame_decode_game(_data) {
+    savegame_init_tables();
+
     if (!is_struct(_data) || !variable_struct_exists(_data, "version")) {
-        return undefined;
+        return savegame_fail("file has no version field");
     }
     if (_data.version != SAVEGAME_VERSION) {
-        show_debug_message("savegame: this file is version " + string(_data.version) +
-                           " but this build writes version " + string(SAVEGAME_VERSION) +
-                           ". Older files were written with a broken map layout " +
-                           "and cannot be loaded - start a game and save again.");
-        return undefined;
+        return savegame_fail("file is version " + string(_data.version) + ", need " +
+                             string(SAVEGAME_VERSION) + " - save again");
     }
 
     var _game = new Game();
@@ -315,7 +329,7 @@ function savegame_decode_game(_data) {
 function savegame_check_map(_game) {
     var _map = _game.map;
     if (_map == undefined || !is_struct(_map) || !variable_struct_exists(_map, "geom")) {
-        show_debug_message("savegame: loaded game has no map geometry");
+        savegame_fail("loaded game has no map geometry");
         return false;
     }
 
@@ -326,27 +340,25 @@ function savegame_check_map(_game) {
         var _name = SAVEGAME_MAP_ARRAYS[_i];
 
         if (!variable_struct_exists(_map, _name)) {
-            show_debug_message("savegame: map." + _name + " is missing");
+            savegame_fail("map." + _name + " is missing");
             return false;
         }
 
         var _array = variable_struct_get(_map, _name);
         if (!is_array(_array)) {
-            show_debug_message("savegame: map." + _name + " is not an array");
+            savegame_fail("map." + _name + " is not an array");
             return false;
         }
 
         if (array_length(_array) != _expected) {
-            show_debug_message("savegame: map." + _name + " has " +
-                               string(array_length(_array)) + " entries, expected " +
-                               string(_expected));
+            savegame_fail("map." + _name + " has " + string(array_length(_array)) +
+                          " entries, expected " + string(_expected));
             return false;
         }
 
         for (var _j = 0; _j < _expected; _j++) {
             if (is_undefined(_array[_j])) {
-                show_debug_message("savegame: map." + _name + "[" + string(_j) +
-                                   "] is undefined");
+                savegame_fail("map." + _name + "[" + string(_j) + "] is undefined");
                 return false;
             }
         }
@@ -397,14 +409,16 @@ function savegame_save_path(_path, _game, _label = "") {
 
 /// Read a snapshot back. Returns a Game, or undefined.
 function savegame_load_path(_path) {
+    savegame_init_tables();
+    global.savegame_last_error = "";
+
     if (!file_exists(_path)) {
-        show_debug_message("savegame: " + string(_path) + " does not exist");
-        return undefined;
+        return savegame_fail("no file at " + string(_path));
     }
 
     var _buffer = buffer_load(_path);
     if (_buffer < 0) {
-        return undefined;
+        return savegame_fail("could not open " + string(_path));
     }
     var _text = buffer_read(_buffer, buffer_text);
     buffer_delete(_buffer);
@@ -413,8 +427,7 @@ function savegame_load_path(_path) {
     try {
         _data = json_parse(_text);
     } catch (_e) {
-        show_debug_message("savegame: " + string(_path) + " is not valid JSON");
-        return undefined;
+        return savegame_fail("file is not valid JSON");
     }
 
     return savegame_decode_game(_data);

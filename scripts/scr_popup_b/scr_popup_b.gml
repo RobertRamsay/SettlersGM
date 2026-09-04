@@ -1235,5 +1235,9 @@ function popup_draw_save_box(_popup) {
     /* Rows are drawn by the file_list float; drawing them here too was what
        produced the doubled row under the list. */
 
+    if (_popup.save_status != "") {
+        _popup.draw_green_string(1, 116, _popup.save_status);
+    }
+
     _popup.draw_popup_icon(14, 128, 60); /* Exit */
 }

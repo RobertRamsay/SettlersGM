@@ -497,9 +497,19 @@ function GameInitBox(_interface) : GuiObject() constructor {
 
         var _loaded = game_store_load(_path);
         if (_loaded == undefined) {
-            load_status = "Save could not be read";
+            load_status = savegame_last_error();
+            if (load_status == "") {
+                load_status = "Save could not be read";
+            }
             set_redraw();
-            show_debug_message("GameInitBox: could not load " + string(_path));
+            return;
+        }
+
+        var _loaded_map = _loaded.get_map();
+        if (_loaded_map == undefined || !is_struct(_loaded_map) ||
+            !variable_struct_exists(_loaded_map, "geom")) {
+            load_status = "Save has no usable map";
+            set_redraw();
             return;
         }
 
@@ -772,23 +782,11 @@ function GameInitBox(_interface) : GuiObject() constructor {
 
     file_list.set_size(160, 160);
     file_list.set_displayed(false);
+    /* Clicking a save loads it straight away. Previewing first meant reading
+       the whole file only to read it again on LOAD, and it was not obvious that
+       a second button press was needed. */
     file_list.set_selection_handler(method(self, function(_item) {
-        /* Show the saved world in the preview pane, as picking a mission does.
-           A save that decodes to something without a map geometry is no use to
-           the minimap, so check before handing it over. */
-        var _loaded = game_store_load(_item);
-        if (_loaded == undefined) {
-            return;
-        }
-        var _loaded_map = _loaded.get_map();
-        if (_loaded_map == undefined || !is_struct(_loaded_map) ||
-            !variable_struct_exists(_loaded_map, "geom")) {
-            show_debug_message("GameInitBox: " + string(_item) + " has no usable map");
-            return;
-        }
-        map = _loaded_map;
-        minimap.set_map(map);
-        set_redraw();
+        load_selected_save();
     }));
     add_float(file_list, 20, 55);
 }
