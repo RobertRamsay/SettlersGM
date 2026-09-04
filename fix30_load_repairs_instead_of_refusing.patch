@@ -1,0 +1,63 @@
+diff --git a/scripts/scr_savegame/scr_savegame.gml b/scripts/scr_savegame/scr_savegame.gml
+index 18f7d94..d3bcc92 100644
+--- a/scripts/scr_savegame/scr_savegame.gml
++++ b/scripts/scr_savegame/scr_savegame.gml
+@@ -108,6 +108,9 @@ function savegame_encode_value(_value, _depth) {
+         }
+         return _out;
+     }
++    if (is_int32(_value) || is_int64(_value)) {
++        return real(_value);
++    }
+     if (is_struct(_value)) {
+         var _kind = savegame_ref_kind(_value);
+         if (_kind != undefined) {
+@@ -393,20 +396,42 @@ function savegame_check_map(_game, _data) {
+             return false;
+         }
+ 
+-        if (array_length(_array) != _expected) {
+-            savegame_fail("map." + _name + " has " + string(array_length(_array)) +
+-                          " entries, expected " + string(_expected));
++        // idle_serf is the only non-numeric one.
++        var _default = 0;
++        if (_name == "idle_serf") {
++            _default = false;
++        }
++
++        if (array_length(_array) == 0) {
++            savegame_fail("map." + _name + " is empty, expected " + string(_expected));
+             savegame_report_array(_name, _array, _data);
+             return false;
+         }
+ 
++        if (array_length(_array) != _expected) {
++            show_debug_message("savegame: map." + _name + " had " +
++                               string(array_length(_array)) + " entries, padding to " +
++                               string(_expected));
++            savegame_report_array(_name, _array, _data);
++            array_resize(_array, _expected);
++        }
++
++        var _repaired = 0;
+         for (var _j = 0; _j < _expected; _j++) {
+             if (is_undefined(_array[_j])) {
+-                savegame_fail("map." + _name + "[" + string(_j) + "] is undefined");
+-                savegame_report_array(_name, _array, _data);
+-                return false;
++                _array[_j] = _default;
++                _repaired += 1;
+             }
+         }
++
++        if (_repaired > 0) {
++            show_debug_message("savegame: map." + _name + " filled " + string(_repaired) +
++                               " of " + string(_expected) + " missing entries with " +
++                               string(_default));
++            savegame_report_array(_name, _array, _data);
++        }
++
++        variable_struct_set(_map, _name, _array);
+     }
+ 
+     return true;
