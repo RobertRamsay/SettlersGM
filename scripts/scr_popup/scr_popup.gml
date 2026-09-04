@@ -2322,6 +2322,11 @@ function ListSavedFiles() : GuiObject() constructor {
                 _number = " " + _number;
             }
 
+            /* Trimmed: the full label is shown above the list, so a long date
+               does not run into the panel edge. */
+            if (string_length(_name) > 17) {
+                _name = string_copy(_name, 1, 17);
+            }
             gfx_draw_string(1, _y + 1, _number + ". " + _name,
                             global.popup_color_green, -1);
         }

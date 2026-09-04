@@ -317,7 +317,7 @@ function savegame_decode_game(_data) {
     savegame_apply_struct(_game.map, _data.map, _game);
     savegame_apply_struct(_game, _data.game, _game);
 
-    if (!savegame_check_map(_game)) {
+    if (!savegame_check_map(_game, _data)) {
         return undefined;
     }
 
@@ -326,7 +326,50 @@ function savegame_decode_game(_data) {
 
 /// Every per-tile array must be present and the right length. Reporting here
 /// turns a crash somewhere far away into one line naming the field.
-function savegame_check_map(_game) {
+/// Print what an array looks like as saved and as applied, so a bad entry can
+/// be pinned on the encoder or the decoder rather than guessed at.
+function savegame_report_array(_name, _applied, _data) {
+    show_debug_message("  applied: length " + string(array_length(_applied)));
+
+    var _shown = "";
+    var _limit = min(8, array_length(_applied));
+    for (var _i = 0; _i < _limit; _i++) {
+        _shown += string(_applied[_i]) + " ";
+    }
+    show_debug_message("  applied first " + string(_limit) + ": " + _shown);
+
+    var _saved = undefined;
+    if (is_struct(_data) && variable_struct_exists(_data, "map")) {
+        if (variable_struct_exists(_data.map, _name)) {
+            _saved = variable_struct_get(_data.map, _name);
+        }
+    }
+
+    if (!is_array(_saved)) {
+        show_debug_message("  saved: not an array (" + string(_saved) + ")");
+        return;
+    }
+
+    var _undefined_count = 0;
+    var _n = array_length(_saved);
+    for (var _j = 0; _j < _n; _j++) {
+        if (is_undefined(_saved[_j])) {
+            _undefined_count += 1;
+        }
+    }
+
+    var _saved_shown = "";
+    var _saved_limit = min(8, _n);
+    for (var _k = 0; _k < _saved_limit; _k++) {
+        _saved_shown += string(_saved[_k]) + " ";
+    }
+
+    show_debug_message("  saved: length " + string(_n) + ", " +
+                       string(_undefined_count) + " undefined");
+    show_debug_message("  saved first " + string(_saved_limit) + ": " + _saved_shown);
+}
+
+function savegame_check_map(_game, _data) {
     var _map = _game.map;
     if (_map == undefined || !is_struct(_map) || !variable_struct_exists(_map, "geom")) {
         savegame_fail("loaded game has no map geometry");
@@ -353,12 +396,14 @@ function savegame_check_map(_game) {
         if (array_length(_array) != _expected) {
             savegame_fail("map." + _name + " has " + string(array_length(_array)) +
                           " entries, expected " + string(_expected));
+            savegame_report_array(_name, _array, _data);
             return false;
         }
 
         for (var _j = 0; _j < _expected; _j++) {
             if (is_undefined(_array[_j])) {
                 savegame_fail("map." + _name + "[" + string(_j) + "] is undefined");
+                savegame_report_array(_name, _array, _data);
                 return false;
             }
         }

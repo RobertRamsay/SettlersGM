@@ -321,6 +321,16 @@ function GameInitBox(_interface) : GuiObject() constructor {
         gfx_fill_rect(200, 222, 40, 16, make_colour_rgb(0x00, 0x00, 0x00));
         gfx_draw_string(204, 226, "LOAD", make_colour_rgb(0xff, 0xff, 0xff), -1);
 
+        /* Full label of the highlighted save, in one fixed place above the
+           list so the rows stay short and the date does not jump about. */
+        if (game_type == GameType.load) {
+            var _sel = file_list.get_selected_slot();
+            if (_sel >= 0 && savegame_slot_exists(_sel)) {
+                gfx_draw_string(20, 44, savegame_slot_label(_sel),
+                                make_colour_rgb(0xff, 0xff, 0xff), -1);
+            }
+        }
+
         /* Below the list, not under it: file_list is 160x160 at (20,55) and
            paints a black background over everything from y=55 to y=215, so a
            status drawn inside that range was never visible. */
@@ -545,9 +555,12 @@ function GameInitBox(_interface) : GuiObject() constructor {
                 break;
             }
             case GameInitAction.toggle_game_type: {
-                var _next_type = game_type + 1;
-                if (_next_type > GameType.load) {
-                    _next_type = GameType.custom;
+                /* Custom and mission only. Load has its own button now, and
+                   leaving it in the cycle meant the icon at (60,16) reads
+                   "LOAD" while actually switching back to New Game. */
+                var _next_type = GameType.custom;
+                if (game_type == GameType.custom) {
+                    _next_type = GameType.mission;
                 }
                 set_game_type(_next_type);
                 break;
