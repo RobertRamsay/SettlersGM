@@ -71,5 +71,8 @@ global.fast_building_click = true;  // dbl-click a build spot -> that build popu
 // number per frame so a five minute skip costs about a second of animation
 // rather than locking the window while 15000 updates run.
 global.fast_forward_ticks = 0;
+
+// Slot the next F5 writes to / the last one loaded. 0..SAVEGAME_SLOTS-1.
+global.save_slot = 0;
 show_debug = false;
 settlers_play_music();

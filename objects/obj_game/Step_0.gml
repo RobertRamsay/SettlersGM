@@ -13,6 +13,34 @@ for (var _t = 0; _t < _ticks; _t++) {
     interface.handle_event(gui_make_event(EventType.update, 0, 0, 0, 0, 0));
 }
 
+// ---- save / load, until the slot UI lands
+// F1..F10 pick the slot, F5 saves to it, F9 loads it, F11 runs the round-trip
+// self test and reports to the output log.
+for (var _s = 0; _s < SAVEGAME_SLOTS; _s++) {
+    if (keyboard_check_pressed(vk_f1 + _s) && _s != 4 && _s != 8) {
+        global.save_slot = _s;
+        show_debug_message("savegame: slot " + string(_s) + " selected");
+    }
+}
+
+if (keyboard_check_pressed(vk_f5)) {
+    savegame_save_slot(global.save_slot, interface.get_game());
+}
+
+if (keyboard_check_pressed(vk_f9)) {
+    var _loaded = savegame_load_slot(global.save_slot);
+    if (_loaded == undefined) {
+        show_debug_message("savegame: slot " + string(global.save_slot) + " did not load");
+    } else {
+        interface.set_game(_loaded);
+        show_debug_message("savegame: loaded slot " + string(global.save_slot));
+    }
+}
+
+if (keyboard_check_pressed(vk_f11)) {
+    savegame_self_test(interface.get_game());
+}
+
 // ---- time-advance buttons: burn through the owed ticks a slice at a time
 if (global.fast_forward_ticks > 0) {
     var _burst = min(global.fast_forward_ticks, FAST_FORWARD_TICKS_PER_FRAME);

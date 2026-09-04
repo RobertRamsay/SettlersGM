@@ -53,6 +53,7 @@
     {"id":{"name":"scr_serf_b","path":"scripts/scr_serf_b/scr_serf_b.yy",},},
     {"id":{"name":"scr_serf_c","path":"scripts/scr_serf_c/scr_serf_c.yy",},},
     {"id":{"name":"scr_serf","path":"scripts/scr_serf/scr_serf.yy",},},
+    {"id":{"name":"scr_savegame","path":"scripts/scr_savegame/scr_savegame.yy",},},
     {"id":{"name":"scr_sprite_meta","path":"scripts/scr_sprite_meta/scr_sprite_meta.yy",},},
     {"id":{"name":"scr_viewport","path":"scripts/scr_viewport/scr_viewport.yy",},},
     {"id":{"name":"mus_settlers","path":"sounds/mus_settlers/mus_settlers.yy",},},
