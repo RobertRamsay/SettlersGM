@@ -1,0 +1,28 @@
+diff --git a/scripts/scr_serf_b/scr_serf_b.gml b/scripts/scr_serf_b/scr_serf_b.gml
+index 8f197478..716e5b6c 100644
+--- a/scripts/scr_serf_b/scr_serf_b.gml
++++ b/scripts/scr_serf_b/scr_serf_b.gml
+@@ -672,13 +672,18 @@ function serf_handle_free_walking_common(_serf) {
+             return;
+         }
+ 
++        /* Looked up before the test rather than inside it. A tile can still name
++           a serf that is gone, and this block is not a loop, so there is nothing
++           to skip to - treating it as "nobody in the way" and falling through is
++           exactly what already happens when the tile is genuinely empty. */
++        var _other_serf = undefined;
++        if (_map.has_serf(_new_pos2)) {
++            _other_serf = _serf.game.get_serf_at_pos(_new_pos2);
++        }
++
+         if (_serf.state == SerfState.knight_free_walking &&
+             _serf.s.free_walking_neg_dist1 != -128 &&
+-            _map.has_serf(_new_pos2)) {
+-            var _other_serf = _serf.game.get_serf_at_pos(_new_pos2);
+-            if (_other_serf == undefined) {
+-                continue;   /* tile pointed at a serf that is gone */
+-            }
++            _other_serf != undefined) {
+             var _other_dir = Direction.none;
+ 
+             /* is_waiting returns { result, dir } (C++ out-param) */
