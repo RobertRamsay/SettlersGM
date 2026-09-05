@@ -40,7 +40,15 @@ def q(s):
 def write_sprite(name, src_dir, origin_x, origin_y):
     files = sorted(f for f in os.listdir(src_dir) if f.endswith(".png"))
     dst = os.path.join(REPO, "sprites", name)
-    os.makedirs(dst, exist_ok=True)
+
+    # Frame ids are fresh GUIDs on every run, so anything already here is a
+    # previous run's orphans. The .yy would ignore them, but they bloat the repo
+    # and confuse anyone reading the folder - clear the directory instead.
+    if os.path.isdir(dst):
+        shutil.rmtree(dst)
+    os.makedirs(dst)
+
+    layer_id = guid()
 
     w, h = Image.open(os.path.join(src_dir, files[0])).size
     bl, bt, br, bb = w, h, 0, 0
@@ -55,9 +63,18 @@ def write_sprite(name, src_dir, origin_x, origin_y):
             bb = max(bb, bb_[3] - 1)
         fid = guid()
         frame_ids.append(fid)
-        shutil.copyfile(os.path.join(src_dir, f), os.path.join(dst, fid + ".png"))
+        src = os.path.join(src_dir, f)
 
-    layer_id = guid()
+        # GameMaker keeps TWO copies of every frame on disk and the IDE checks
+        # for both: the flattened composite at <frame>.png, and the source image
+        # for each layer at layers/<frame>/<layer>.png. Writing only the
+        # composite makes the IDE report "File missing for GMSprite" once per
+        # frame and refuse to build. These sprites have a single layer, so the
+        # two copies are identical.
+        shutil.copyfile(src, os.path.join(dst, fid + ".png"))
+        layer_dir = os.path.join(dst, "layers", fid)
+        os.makedirs(layer_dir, exist_ok=True)
+        shutil.copyfile(src, os.path.join(layer_dir, layer_id + ".png"))
     frames = "\n".join(
         "    " + entry({
             "$GMSpriteFrame": q("v1"),
