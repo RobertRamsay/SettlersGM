@@ -869,6 +869,10 @@ function PopupBox(_interface) : GuiObject() constructor {
         var _file_name = string_copy(_item, _p + 1, _len - _p);
         file_field.set_text(_file_name);
     }));
+    /* Enter in the name field does the same thing as the SAVE button. */
+    file_list.set_commit_handler(method(self, function() {
+        handle_action(Action.save, 0, 0);
+    }));
     add_float(file_list, 12, 22);
 
     file_field.set_size(120, 10);
@@ -2216,6 +2220,10 @@ function ListSavedFiles() : GuiObject() constructor {
     first_item = 0;
     selected_item = -1;
     selection_handler = undefined;
+    /// Called when Enter is pressed on a name that has been typed. The save box
+    /// wires this to its own SAVE action, so Enter and the button do the same
+    /// thing and there is only one place that decides what saving means.
+    commit_handler = undefined;
     folder_path = "";
     row_height = 11;
     color_background = make_colour_rgb(0x00, 0x00, 0x00);
@@ -2244,6 +2252,17 @@ function ListSavedFiles() : GuiObject() constructor {
         selection_handler = _handler;
     };
 
+    static set_commit_handler = function(_handler) {
+        commit_handler = _handler;
+    };
+
+    /// Has the player actually typed a name? Spaces alone do not count. Saving
+    /// is refused until this is true, so a slot can never be written under an
+    /// auto-generated "Tick 1234 ..." label by accident.
+    static has_name = function() {
+        return string_trim(edit_text) != "";
+    };
+
     static get_selected = function() {
         if (selected_item >= 0 && selected_item < array_length(items)) {
             return items[selected_item];
@@ -2270,14 +2289,34 @@ function ListSavedFiles() : GuiObject() constructor {
         set_redraw();
     };
 
-    /// Click a row then type. Backspace deletes, Enter saves nothing by itself -
-    /// the SAVE button commits, so a mistyped name can still be abandoned.
+    /// Click a row then type.
+    ///   Enter           commits the save, exactly as the SAVE button does -
+    ///                   but only once a name has been typed.
+    ///   Backspace       deletes the last character.
+    ///   Ctrl+Backspace  clears the whole name.
+    ///   Escape          is deliberately NOT handled, so it falls through to the
+    ///                   interface and closes the popup: that is how a save is
+    ///                   abandoned.
     static handle_key_pressed = function(_key, _modifier) {
         if (!allow_rename || !editing || selected_item < 0) {
             return false;
         }
 
+        if (_key == 13) {
+            /* Nothing typed yet: swallow the key and do nothing at all, rather
+               than writing the slot under a generated label. */
+            if (has_name() && commit_handler != undefined) {
+                commit_handler();
+            }
+            return true;
+        }
+
         if (_key == 8) {
+            if ((_modifier & 1) != 0) {
+                edit_text = "";
+                set_redraw();
+                return true;
+            }
             if (string_length(edit_text) > 0) {
                 edit_text = string_delete(edit_text, string_length(edit_text), 1);
                 set_redraw();
@@ -2361,6 +2400,35 @@ function ListSavedFiles() : GuiObject() constructor {
                "Tick ..." labels start blank - there is nothing to preserve. */
             edit_text = savegame_slot_name(_index);
         }
+        set_redraw();
+
+        if (selection_handler != undefined) {
+            selection_handler(items[_index]);
+        }
+
+        return true;
+    };
+
+    /// Double click a row to wipe the name on it and start typing fresh, rather
+    /// than holding backspace down. The row is selected the same way a single
+    /// click selects it, so double clicking a different row moves to it and
+    /// clears that one.
+    static handle_dbl_click = function(_cx, _cy, _button) {
+        if (!allow_rename) {
+            return false;
+        }
+        if (array_length(items) == 0) {
+            update();
+        }
+
+        var _index = first_item + (_cy div row_height);
+        if (_index < 0 || _index >= array_length(items)) {
+            return false;
+        }
+
+        selected_item = _index;
+        editing = true;
+        edit_text = "";
         set_redraw();
 
         if (selection_handler != undefined) {

@@ -1,0 +1,200 @@
+diff --git a/objects/obj_game/Step_0.gml b/objects/obj_game/Step_0.gml
+index 3dd03572..d6080b46 100644
+--- a/objects/obj_game/Step_0.gml
++++ b/objects/obj_game/Step_0.gml
+@@ -202,13 +202,25 @@ if (keyboard_check_pressed(vk_anykey)) {
+     var _key = keyboard_key;
+     var _chr = -1;
+     if (_key >= ord("A") && _key <= ord("Z")) {
+-        _chr = _key + 32;      // lower case letters like SDL keysyms
++        // Lower case letters like SDL keysyms, which is what the interface
++        // shortcuts below are written against - but pass the capital through
++        // when shift is held, so a save name can actually be capitalised.
++        // Shift+letter therefore no longer triggers a shortcut, which is right.
++        if ((_modifier & 2) != 0) {
++            _chr = _key;
++        } else {
++            _chr = _key + 32;
++        }
+     } else if (_key >= ord("0") && _key <= ord("9")) {
+         _chr = _key;
+     } else if (_key == vk_add || _key == 187) {
+         _chr = ord("+");
+     } else if (_key == vk_subtract || _key == 189) {
+-        _chr = ord("-");
++        if ((_modifier & 2) != 0) {
++            _chr = ord("_");   // shift+minus, for save names
++        } else {
++            _chr = ord("-");
++        }
+     } else if (_key == vk_escape || _key == vk_enter || _key == vk_backspace || _key == vk_space || _key == vk_tab) {
+         _chr = _key;
+     }
+diff --git a/scripts/scr_gui/scr_gui.gml b/scripts/scr_gui/scr_gui.gml
+index aee871c5..a01ad05c 100644
+--- a/scripts/scr_gui/scr_gui.gml
++++ b/scripts/scr_gui/scr_gui.gml
+@@ -192,7 +192,11 @@ function GuiObject() constructor {
+                 _result = handle_drag(_event.dx, _event.dy);
+                 break;
+             case EventType.dbl_click:
+-                _result = handle_dbl_click(_event.x, _event.y, _event.button);
++                /* _event_x/_event_y, not _event.x/_event.y: a double click has
++                   to arrive in the object's own coordinates exactly like a
++                   single click above, or every handler that works out which row
++                   or button was hit is off by the object's own position. */
++                _result = handle_dbl_click(_event_x, _event_y, _event.button);
+                 break;
+             case EventType.key_pressed:
+                 _result = handle_key_pressed(_event.dx, _event.dy);
+diff --git a/scripts/scr_popup/scr_popup.gml b/scripts/scr_popup/scr_popup.gml
+index 83c3fb39..9d4ae1d0 100644
+--- a/scripts/scr_popup/scr_popup.gml
++++ b/scripts/scr_popup/scr_popup.gml
+@@ -869,6 +869,10 @@ function PopupBox(_interface) : GuiObject() constructor {
+         var _file_name = string_copy(_item, _p + 1, _len - _p);
+         file_field.set_text(_file_name);
+     }));
++    /* Enter in the name field does the same thing as the SAVE button. */
++    file_list.set_commit_handler(method(self, function() {
++        handle_action(Action.save, 0, 0);
++    }));
+     add_float(file_list, 12, 22);
+ 
+     file_field.set_size(120, 10);
+@@ -2216,6 +2220,10 @@ function ListSavedFiles() : GuiObject() constructor {
+     first_item = 0;
+     selected_item = -1;
+     selection_handler = undefined;
++    /// Called when Enter is pressed on a name that has been typed. The save box
++    /// wires this to its own SAVE action, so Enter and the button do the same
++    /// thing and there is only one place that decides what saving means.
++    commit_handler = undefined;
+     folder_path = "";
+     row_height = 11;
+     color_background = make_colour_rgb(0x00, 0x00, 0x00);
+@@ -2244,6 +2252,17 @@ function ListSavedFiles() : GuiObject() constructor {
+         selection_handler = _handler;
+     };
+ 
++    static set_commit_handler = function(_handler) {
++        commit_handler = _handler;
++    };
++
++    /// Has the player actually typed a name? Spaces alone do not count. Saving
++    /// is refused until this is true, so a slot can never be written under an
++    /// auto-generated "Tick 1234 ..." label by accident.
++    static has_name = function() {
++        return string_trim(edit_text) != "";
++    };
++
+     static get_selected = function() {
+         if (selected_item >= 0 && selected_item < array_length(items)) {
+             return items[selected_item];
+@@ -2270,14 +2289,34 @@ function ListSavedFiles() : GuiObject() constructor {
+         set_redraw();
+     };
+ 
+-    /// Click a row then type. Backspace deletes, Enter saves nothing by itself -
+-    /// the SAVE button commits, so a mistyped name can still be abandoned.
++    /// Click a row then type.
++    ///   Enter           commits the save, exactly as the SAVE button does -
++    ///                   but only once a name has been typed.
++    ///   Backspace       deletes the last character.
++    ///   Ctrl+Backspace  clears the whole name.
++    ///   Escape          is deliberately NOT handled, so it falls through to the
++    ///                   interface and closes the popup: that is how a save is
++    ///                   abandoned.
+     static handle_key_pressed = function(_key, _modifier) {
+         if (!allow_rename || !editing || selected_item < 0) {
+             return false;
+         }
+ 
++        if (_key == 13) {
++            /* Nothing typed yet: swallow the key and do nothing at all, rather
++               than writing the slot under a generated label. */
++            if (has_name() && commit_handler != undefined) {
++                commit_handler();
++            }
++            return true;
++        }
++
+         if (_key == 8) {
++            if ((_modifier & 1) != 0) {
++                edit_text = "";
++                set_redraw();
++                return true;
++            }
+             if (string_length(edit_text) > 0) {
+                 edit_text = string_delete(edit_text, string_length(edit_text), 1);
+                 set_redraw();
+@@ -2369,5 +2408,34 @@ function ListSavedFiles() : GuiObject() constructor {
+ 
+         return true;
+     };
++
++    /// Double click a row to wipe the name on it and start typing fresh, rather
++    /// than holding backspace down. The row is selected the same way a single
++    /// click selects it, so double clicking a different row moves to it and
++    /// clears that one.
++    static handle_dbl_click = function(_cx, _cy, _button) {
++        if (!allow_rename) {
++            return false;
++        }
++        if (array_length(items) == 0) {
++            update();
++        }
++
++        var _index = first_item + (_cy div row_height);
++        if (_index < 0 || _index >= array_length(items)) {
++            return false;
++        }
++
++        selected_item = _index;
++        editing = true;
++        edit_text = "";
++        set_redraw();
++
++        if (selection_handler != undefined) {
++            selection_handler(items[_index]);
++        }
++
++        return true;
++    };
+ }
+ 
+diff --git a/scripts/scr_popup_c/scr_popup_c.gml b/scripts/scr_popup_c/scr_popup_c.gml
+index 006a550f..925bdc05 100644
+--- a/scripts/scr_popup_c/scr_popup_c.gml
++++ b/scripts/scr_popup_c/scr_popup_c.gml
+@@ -1213,6 +1213,14 @@ function popup_handle_action(_popup, _action, _x, _y) {
+   case Action.save: {
+     var _slot = _popup.file_list.get_selected_slot();
+     if (_slot >= 0) {
++      /* No name typed: do nothing at all. Saving here would write the slot
++         under a generated "Tick 1234 ..." label, which is not what anyone
++         pressing SAVE meant. The popup's close button abandons the save. */
++      if (!_popup.file_list.has_name()) {
++        _popup.save_status = "Type a name first";
++        _popup.set_redraw();
++        break;
++      }
+       if (savegame_save_slot(_slot, _interface.get_game(),
+                              _popup.file_list.get_edit_text())) {
+         _popup.file_list.stop_editing();
+@@ -1224,7 +1232,14 @@ function popup_handle_action(_popup, _action, _x, _y) {
+       break;
+     }
+ 
+-    var _file_name = _popup.file_field.get_text();
++    var _file_name = string_trim(_popup.file_field.get_text());
++    /* Same rule as the slot branch above: with nothing typed this would write a
++       file called ".save". Do nothing instead. */
++    if (_file_name == "") {
++      _popup.save_status = "Type a name first";
++      _popup.set_redraw();
++      break;
++    }
+     /* file_name.find_last_of('.') -> 1-based position or 0 if none */
+     var _p = string_last_pos(".", _file_name);
+     var _file_ext = "";

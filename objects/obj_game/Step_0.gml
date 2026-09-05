@@ -202,13 +202,25 @@ if (keyboard_check_pressed(vk_anykey)) {
     var _key = keyboard_key;
     var _chr = -1;
     if (_key >= ord("A") && _key <= ord("Z")) {
-        _chr = _key + 32;      // lower case letters like SDL keysyms
+        // Lower case letters like SDL keysyms, which is what the interface
+        // shortcuts below are written against - but pass the capital through
+        // when shift is held, so a save name can actually be capitalised.
+        // Shift+letter therefore no longer triggers a shortcut, which is right.
+        if ((_modifier & 2) != 0) {
+            _chr = _key;
+        } else {
+            _chr = _key + 32;
+        }
     } else if (_key >= ord("0") && _key <= ord("9")) {
         _chr = _key;
     } else if (_key == vk_add || _key == 187) {
         _chr = ord("+");
     } else if (_key == vk_subtract || _key == 189) {
-        _chr = ord("-");
+        if ((_modifier & 2) != 0) {
+            _chr = ord("_");   // shift+minus, for save names
+        } else {
+            _chr = ord("-");
+        }
     } else if (_key == vk_escape || _key == vk_enter || _key == vk_backspace || _key == vk_space || _key == vk_tab) {
         _chr = _key;
     }

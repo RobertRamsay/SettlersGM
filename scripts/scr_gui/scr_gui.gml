@@ -192,7 +192,11 @@ function GuiObject() constructor {
                 _result = handle_drag(_event.dx, _event.dy);
                 break;
             case EventType.dbl_click:
-                _result = handle_dbl_click(_event.x, _event.y, _event.button);
+                /* _event_x/_event_y, not _event.x/_event.y: a double click has
+                   to arrive in the object's own coordinates exactly like a
+                   single click above, or every handler that works out which row
+                   or button was hit is off by the object's own position. */
+                _result = handle_dbl_click(_event_x, _event_y, _event.button);
                 break;
             case EventType.key_pressed:
                 _result = handle_key_pressed(_event.dx, _event.dy);
