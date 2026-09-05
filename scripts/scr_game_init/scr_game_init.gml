@@ -562,15 +562,14 @@ function GameInitBox(_interface) : GuiObject() constructor {
                        -1, because there is no entry to tick. */
                     if (game_type == GameType.mission) {
                         _game.mission_index = game_mission;
-                        progress_set_current_mission(game_mission);
                         show_debug_message("game init: starting mission " +
                                            string(game_mission + 1) +
                                            " (index " + string(game_mission) + ")");
-                    } else {
-                        /* A custom game is not a numbered mission, so nothing
-                           it does should tick one off. */
-                        progress_set_current_mission(-1);
                     }
+                    /* Nothing records the current mission here: Interface.set_game
+                       does it for every game that becomes current, this one
+                       included. A custom game keeps the constructor's -1 and so
+                       cannot tick a mission off. */
                     interface.on_new_game(_game);
                 }
 

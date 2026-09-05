@@ -1,0 +1,86 @@
+From 188ded0044e962816dcd37ce3c798aa785c239db Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 5 Sep 2026 15:47:54 +0000
+Subject: [PATCH] Adopt the mission index whenever a game becomes current, not
+ only at launch
+
+The log settled it. Bob's run reported:
+
+    game: won, but nothing identifies this as a numbered mission
+    start screen last launched index: -1
+    this game: mission_index=-1  game_over=1
+
+Both -1, so the game he won never came through GameInitBox's mission branch: he
+LOADED it. load_selected_save and the F9 quick load hand a game straight to
+set_game and return before any of the mission-start code, so a mission resumed
+from a save had nothing identifying it and winning it recorded nothing. Every
+patch so far has been guarding the launch path, which was never the path in use.
+
+set_game is now the single place that decides what mission is in play: whatever
+the incoming game says it is, however it arrived. The two calls in the launcher
+are gone - set_game runs for the same game moments later, and two places setting
+one thing is how it drifts apart.
+
+mission_index serialises, so a save written from now on carries its mission and
+resuming it works. A save written before the field existed comes back as -1 and
+genuinely cannot say which mission it was; nothing is guessed from the mission
+the list happens to be showing, because that is not evidence.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DFktm5o1kLnS2Pgvyp8tD4
+---
+ scripts/scr_game_init/scr_game_init.gml |  9 ++++-----
+ scripts/scr_interface/scr_interface.gml | 13 +++++++++++++
+ 2 files changed, 17 insertions(+), 5 deletions(-)
+
+diff --git a/scripts/scr_game_init/scr_game_init.gml b/scripts/scr_game_init/scr_game_init.gml
+index 63fc3640..2f4df065 100644
+--- a/scripts/scr_game_init/scr_game_init.gml
++++ b/scripts/scr_game_init/scr_game_init.gml
+@@ -562,15 +562,14 @@ function GameInitBox(_interface) : GuiObject() constructor {
+                        -1, because there is no entry to tick. */
+                     if (game_type == GameType.mission) {
+                         _game.mission_index = game_mission;
+-                        progress_set_current_mission(game_mission);
+                         show_debug_message("game init: starting mission " +
+                                            string(game_mission + 1) +
+                                            " (index " + string(game_mission) + ")");
+-                    } else {
+-                        /* A custom game is not a numbered mission, so nothing
+-                           it does should tick one off. */
+-                        progress_set_current_mission(-1);
+                     }
++                    /* Nothing records the current mission here: Interface.set_game
++                       does it for every game that becomes current, this one
++                       included. A custom game keeps the constructor's -1 and so
++                       cannot tick a mission off. */
+                     interface.on_new_game(_game);
+                 }
+ 
+diff --git a/scripts/scr_interface/scr_interface.gml b/scripts/scr_interface/scr_interface.gml
+index e9b97745..ad2df456 100644
+--- a/scripts/scr_interface/scr_interface.gml
++++ b/scripts/scr_interface/scr_interface.gml
+@@ -759,6 +759,19 @@ function Interface(_game = undefined) : GuiObject() constructor {
+ 
+         game = _new_game;
+ 
++        /* Adopt whatever mission the incoming game says it is - which covers
++           EVERY way a game becomes current, not just starting one from the
++           mission list. A game loaded from a save is the case that was missing:
++           load_selected_save and the F9 quick load both hand a game straight to
++           set_game, so a mission resumed from a save had nothing identifying it
++           and winning it recorded nothing. mission_index serialises, so a save
++           written from now on carries it; a save written before the field
++           existed comes back as -1 and genuinely cannot say which mission it
++           was, so that one stays untickable. */
++        if (game != undefined) {
++            progress_set_current_mission(game.mission_index);
++        }
++
+         // The old player struct belongs to the previous Game, so it must not be
+         // carried over. It also unblocks set_player() below: that deletes the
+         // panel first and then returns early when the index is unchanged, so
+-- 
+2.43.0
+

@@ -759,6 +759,19 @@ function Interface(_game = undefined) : GuiObject() constructor {
 
         game = _new_game;
 
+        /* Adopt whatever mission the incoming game says it is - which covers
+           EVERY way a game becomes current, not just starting one from the
+           mission list. A game loaded from a save is the case that was missing:
+           load_selected_save and the F9 quick load both hand a game straight to
+           set_game, so a mission resumed from a save had nothing identifying it
+           and winning it recorded nothing. mission_index serialises, so a save
+           written from now on carries it; a save written before the field
+           existed comes back as -1 and genuinely cannot say which mission it
+           was, so that one stays untickable. */
+        if (game != undefined) {
+            progress_set_current_mission(game.mission_index);
+        }
+
         // The old player struct belongs to the previous Game, so it must not be
         // carried over. It also unblocks set_player() below: that deletes the
         // panel first and then returns early when the index is unchanged, so
