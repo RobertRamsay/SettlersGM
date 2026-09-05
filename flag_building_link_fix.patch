@@ -1,0 +1,54 @@
+diff --git a/scripts/scr_game/scr_game.gml b/scripts/scr_game/scr_game.gml
+index 920f2f69..99f08d31 100644
+--- a/scripts/scr_game/scr_game.gml
++++ b/scripts/scr_game/scr_game.gml
+@@ -1951,7 +1951,22 @@ function Game() constructor {
+ 
+         var _flag = flags.get(map.get_obj_index(_pos));
+         if (_flag.has_building()) {
+-            throw ("Failed to demolish flag with building.");
++            /* This should now be unreachable: surrender_land() demolishes the
++               building at every one of the six neighbours before it gets here,
++               and delete_building() detaches the flag when a burn finishes. If
++               a link ever survives both, take the building down properly if it
++               is still on the map, and failing that just detach the flag. A
++               ported assert is not worth a crash to desktop mid-game. */
++            var _bpos = map.move_up_left(_pos);
++            if (map.get_obj(_bpos) >= MapObject.small_building &&
++                map.get_obj(_bpos) <= MapObject.castle) {
++                demolish_building_(_bpos);
++            }
++            if (_flag.has_building()) {
++                show_debug_message("game: flag at " + string(_pos) +
++                                   " claimed a building that is not on the map - detached");
++                _flag.unlink_building();
++            }
+         }
+ 
+         flag_remove_player_refs(_flag);
+@@ -2502,6 +2517,25 @@ function Game() constructor {
+     };
+ 
+     static delete_building = function(_building) {
++        /* Detach the flag first, because nothing else does it on this path.
++           demolish_building_() unlinks when IT burns a building down, but a
++           building that simply reaches the end of its own burn arrives here
++           still linked - and then the flag outlives it, holding a pointer to a
++           building that no longer exists and answering has_building() == true.
++           The map object is cleared just below, so surrender_land's neighbour
++           sweep finds nothing to demolish there and demolish_flag_() throws
++           "Failed to demolish flag with building.". Burning a building and
++           waiting out its 2047-tick burn was enough to arm that. */
++        var _flag_index = _building.get_flag_index();
++        if (_flag_index > 0) {
++            var _flag = flags.get(_flag_index);
++            if (_flag != undefined && _flag.has_building()) {
++                _flag.unlink_building();
++                _building.unlink_flag();
++                flag_reset_transport(_flag);
++            }
++        }
++
+         map.set_object(_building.get_position(), MapObject.none, 0);
+         buildings.erase(_building.get_index());
+     };
