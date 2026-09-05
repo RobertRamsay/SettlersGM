@@ -64,7 +64,9 @@ enum NetMsg {
 /// first cut - it is the smallest command that changes the world in a way both
 /// machines must agree on, which is exactly what needs proving.
 enum NetCmd {
-    build_flag = 1
+    build_flag = 1,
+    build_castle = 2,
+    build_building = 3    // b carries the BuildingType
 }
 
 // ---------------------------------------------------------------- state
@@ -474,22 +476,46 @@ function net_schedule_local(_turn, _cmds) {
     ds_map_set(global.net_turns, "L" + string(_turn), _cmds);
 }
 
+/// Run a turn's commands, ALWAYS IN PLAYER INDEX ORDER.
+///
+/// This used to be local-then-peer, which is a different order on the two
+/// machines: the host ran player 0 then player 1, the client ran player 1 then
+/// player 0. For independent commands that does not matter, but the moment two
+/// commands on the same turn compete for the same ground - both players placing
+/// a castle on the same tile - each machine hands it to a different player, and
+/// the worlds part company. A desync manufactured by the ordering rule itself,
+/// which no amount of determinism elsewhere could save.
+///
+/// Player index is the one ordering both machines already agree on.
 function net_execute_turn(_game, _turn) {
-    var _local = ds_map_find_value(global.net_turns, "L" + string(_turn));
-    if (is_array(_local)) {
-        net_run_commands(_game, _local, global.net_local_player);
-        ds_map_delete(global.net_turns, "L" + string(_turn));
+    var _local_key = "L" + string(_turn);
+    var _peer_key  = string(_turn);
+
+    for (var _p = 0; _p < GAME_MAX_PLAYER_COUNT; _p++) {
+        var _cmds = undefined;
+
+        if (_p == global.net_local_player) {
+            _cmds = ds_map_find_value(global.net_turns, _local_key);
+        } else if (_p == net_peer_player()) {
+            _cmds = ds_map_find_value(global.net_turns, _peer_key);
+        }
+
+        if (is_array(_cmds)) {
+            net_run_commands(_game, _cmds, _p);
+        }
     }
 
-    var _peer = ds_map_find_value(global.net_turns, string(_turn));
-    if (is_array(_peer)) {
-        var _peer_player = 1;
-        if (global.net_local_player == 1) {
-            _peer_player = 0;
-        }
-        net_run_commands(_game, _peer, _peer_player);
-        ds_map_delete(global.net_turns, string(_turn));
+    ds_map_delete(global.net_turns, _local_key);
+    ds_map_delete(global.net_turns, _peer_key);
+}
+
+/// The other machine's player index. Two players for now, so it is simply the
+/// one this machine is not.
+function net_peer_player() {
+    if (global.net_local_player == 0) {
+        return 1;
     }
+    return 0;
 }
 
 function net_run_commands(_game, _cmds, _player_index) {
@@ -505,12 +531,20 @@ function net_run_commands(_game, _cmds, _player_index) {
     for (var _i = 0; _i < array_length(_cmds); _i++) {
         var _c = _cmds[_i];
         switch (_c.kind) {
+        /* Every return value here is deliberately ignored. A command that fails
+           must fail on BOTH machines - it will, because they are the same
+           simulation reaching the same answer - and reacting to the failure
+           locally is exactly what would pull them apart. Two players placing a
+           castle on the same tile is the case that matters: the lower player
+           index gets it and the other's command fails, identically on both. */
         case NetCmd.build_flag:
-            /* The return value is deliberately ignored. A command that fails
-               must fail on BOTH machines - it will, because they are the same
-               simulation - and reacting to the failure locally is what would
-               pull them apart. */
             _game.build_flag(_c.a, _player);
+            break;
+        case NetCmd.build_castle:
+            _game.build_castle(_c.a, _player);
+            break;
+        case NetCmd.build_building:
+            _game.build_building(_c.a, _c.b, _player);
             break;
         default:
             show_debug_message("net: unknown command " + string(_c.kind));

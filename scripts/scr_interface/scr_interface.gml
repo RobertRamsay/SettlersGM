@@ -1053,6 +1053,13 @@ function Interface(_game = undefined) : GuiObject() constructor {
 
     /* Build a new building. */
     static build_building = function(_type) {
+        if (net_is_running()) {
+            net_queue_command(NetCmd.build_building, map_cursor_pos, _type);
+            play_sound(Sfx.click);
+            close_popup();
+            return;
+        }
+
         if (!game.build_building(map_cursor_pos, _type, player)) {
             play_sound(Sfx.not_accepted);
             return;
@@ -1068,6 +1075,16 @@ function Interface(_game = undefined) : GuiObject() constructor {
 
     /* Build castle. */
     static build_castle = function() {
+        /* Networked: goes on the wire like every other world change. Without
+           this the castle was built on the machine that clicked and nowhere
+           else, which is why it appeared to do nothing - and would have parted
+           the two worlds at the first hash check if it had worked. */
+        if (net_is_running()) {
+            net_queue_command(NetCmd.build_castle, map_cursor_pos, 0);
+            play_sound(Sfx.click);
+            return;
+        }
+
         if (!game.build_castle(map_cursor_pos, player)) {
             play_sound(Sfx.not_accepted);
             return;
