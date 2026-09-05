@@ -437,6 +437,39 @@ function PanelBar(_interface) : GuiObject() constructor {
         return true;
     };
 
+    /// Both mouse buttons together on the map icon jumps to your castle.
+    ///
+    /// An Amiga mouse has two buttons, so left+right held together is its own
+    /// input in The Settlers, and obj_game already reports it as a middle click
+    /// with the left and right clicks that follow swallowed - so this cannot
+    /// also open the minimap by accident.
+    ///
+    /// Returning true whatever was hit is deliberate, and the same reason
+    /// handle_dbl_click does: a float that answers false hands the event down to
+    /// the viewport behind the panel.
+    static handle_click_middle = function(_cx, _cy) {
+        set_redraw();
+
+        var _button = hit_test_button(_cx, _cy);
+        if (_button >= 0) {
+            var _kind = panel_btns[_button];
+            /* Any of the map button's three states - it is the icon's position
+               that is being aimed at, and which state it happens to be in is
+               not something worth making the player think about. */
+            if (_kind == PanelButton.map ||
+                _kind == PanelButton.map_starred ||
+                _kind == PanelButton.map_inactive) {
+                if (interface.move_to_castle()) {
+                    play_sound(Sfx.accepted);
+                } else {
+                    play_sound(Sfx.not_accepted);
+                }
+            }
+        }
+
+        return true;
+    };
+
     static handle_click_left = function(_cx, _cy) {
         set_redraw();
 

@@ -1,0 +1,167 @@
+From 34fd998dea823665e5703c375a3a3dd3e9520cc7 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 5 Sep 2026 16:07:46 +0000
+Subject: [PATCH] Knight buttons honour their number; both buttons on the map
+ icon go to the castle
+
+The 1 / 5 / 20 / 100 buttons all promoted everybody. The dispatch was passing
+the right number all along - Player.promote_serfs_to_knights decrements it on
+every promotion and then never reads it, so the loop ran to the end of the serf
+list whatever you asked for.
+
+That is Freeserf's own bug, ported faithfully: its version has the same dead
+decrement and no loop exit. Kept deliberately unfaithful here, because four
+buttons that all do the same thing are not a behaviour worth preserving; the
+comment says so and names the line to take back out if fidelity ever wins.
+Asking for more than are idle promotes what there is, and none at all still
+answers with Sfx.not_accepted. A nil guard on the inventory lookup goes in at
+the same time - the serf names an inventory by index and nothing guarantees it
+is still there, which is the trap this codebase sets everywhere else.
+
+Both mouse buttons on the map icon now centre the view on your castle. An Amiga
+mouse has two buttons, so left+right together is its own input in The Settlers,
+and obj_game already reports it as a middle click with the following left and
+right clicks swallowed - so this cannot also open the minimap by accident. Any
+of the map button's three states counts: it is the icon's position being aimed
+at, and which state it is in is not worth making the player think about.
+
+Interface.move_to_castle returns false when there is no castle to go to - not
+placed yet, or destroyed - so the panel can answer with the refusal sound rather
+than silently doing nothing. PanelBar.handle_click_middle returns true whatever
+was hit, for the same reason handle_dbl_click does: a float that answers false
+hands the event down to the viewport behind the panel.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DFktm5o1kLnS2Pgvyp8tD4
+---
+ scripts/scr_interface/scr_interface.gml | 23 +++++++++++++++++
+ scripts/scr_panel/scr_panel.gml         | 33 +++++++++++++++++++++++++
+ scripts/scr_player/scr_player.gml       | 23 +++++++++++++++--
+ 3 files changed, 77 insertions(+), 2 deletions(-)
+
+diff --git a/scripts/scr_interface/scr_interface.gml b/scripts/scr_interface/scr_interface.gml
+index ad2df456..86a1a3e5 100644
+--- a/scripts/scr_interface/scr_interface.gml
++++ b/scripts/scr_interface/scr_interface.gml
+@@ -791,6 +791,29 @@ function Interface(_game = undefined) : GuiObject() constructor {
+         set_player(0);
+     };
+ 
++    /// Centre the view on this player's castle. Returns false when there is not
++    /// one to go to - before it is placed, or after it has been destroyed - so
++    /// the caller can say so rather than silently doing nothing.
++    static move_to_castle = function() {
++        if (game == undefined || player == undefined || viewport == undefined) {
++            return false;
++        }
++
++        var _buildings = game.get_player_buildings(player);
++        var _n = array_length(_buildings);
++        for (var _i = 0; _i < _n; _i++) {
++            var _building = _buildings[_i];
++            if (_building.get_type() == BuildingType.castle) {
++                var _pos = _building.get_position();
++                viewport.move_to_map_pos(_pos);
++                update_map_cursor_pos(_pos);
++                return true;
++            }
++        }
++
++        return false;
++    };
++
+     static set_player = function(_player_index) {
+         if (panel != undefined) {
+             del_float(panel);
+diff --git a/scripts/scr_panel/scr_panel.gml b/scripts/scr_panel/scr_panel.gml
+index 94e60d2a..4a4a66ca 100644
+--- a/scripts/scr_panel/scr_panel.gml
++++ b/scripts/scr_panel/scr_panel.gml
+@@ -437,6 +437,39 @@ function PanelBar(_interface) : GuiObject() constructor {
+         return true;
+     };
+ 
++    /// Both mouse buttons together on the map icon jumps to your castle.
++    ///
++    /// An Amiga mouse has two buttons, so left+right held together is its own
++    /// input in The Settlers, and obj_game already reports it as a middle click
++    /// with the left and right clicks that follow swallowed - so this cannot
++    /// also open the minimap by accident.
++    ///
++    /// Returning true whatever was hit is deliberate, and the same reason
++    /// handle_dbl_click does: a float that answers false hands the event down to
++    /// the viewport behind the panel.
++    static handle_click_middle = function(_cx, _cy) {
++        set_redraw();
++
++        var _button = hit_test_button(_cx, _cy);
++        if (_button >= 0) {
++            var _kind = panel_btns[_button];
++            /* Any of the map button's three states - it is the icon's position
++               that is being aimed at, and which state it happens to be in is
++               not something worth making the player think about. */
++            if (_kind == PanelButton.map ||
++                _kind == PanelButton.map_starred ||
++                _kind == PanelButton.map_inactive) {
++                if (interface.move_to_castle()) {
++                    play_sound(Sfx.accepted);
++                } else {
++                    play_sound(Sfx.not_accepted);
++                }
++            }
++        }
++
++        return true;
++    };
++
+     static handle_click_left = function(_cx, _cy) {
+         set_redraw();
+ 
+diff --git a/scripts/scr_player/scr_player.gml b/scripts/scr_player/scr_player.gml
+index 59a8f912..1d02a803 100644
+--- a/scripts/scr_player/scr_player.gml
++++ b/scripts/scr_player/scr_player.gml
+@@ -493,19 +493,38 @@ function Player(_game, _index) : GameObject(_game, _index) constructor {
+     };
+ 
+     /* Turn a number of serfs into knight for the given player. */
++    /// Promote up to _number idle generic serfs into knights.
++    ///
++    /// DELIBERATELY NOT FAITHFUL. Freeserf decrements `number` on every
++    /// promotion and then never reads it, so its loop runs to the end of the
++    /// serf list whatever you asked for: the 1, 5, 20 and 100 buttons in the
++    /// knight panel all promote everybody available. The count is plainly meant
++    /// to be a limit - there is no other reason for four buttons - so it is one
++    /// here. If matching the original bug ever matters more than the buttons
++    /// working, this is the line to take back out.
+     static promote_serfs_to_knights = function(_number) {
+         var _promoted = 0;
+ 
++        if (_number <= 0) {
++            return 0;
++        }
++
+         var _serfs = game.get_player_serfs(self);
+         var _n = array_length(_serfs);
+         for (var _i = 0; _i < _n; _i++) {
++            if (_promoted >= _number) {
++                break;
++            }
++
+             var _serf = _serfs[_i];
+             if (_serf.get_state() == SerfState.idle_in_stock &&
+                 _serf.get_type() == SerfType.generic) {
++                /* Same shape as every other stale-index trap in this port: the
++                   serf names an inventory and nothing guarantees it is still
++                   there. */
+                 var _inv = game.get_inventory(_serf.get_idle_in_stock_inv_index());
+-                if (_inv.promote_serf_to_knight(_serf)) {
++                if (_inv != undefined && _inv.promote_serf_to_knight(_serf)) {
+                     _promoted += 1;
+-                    _number -= 1;
+                 }
+             }
+         }
+-- 
+2.43.0
+

@@ -791,6 +791,29 @@ function Interface(_game = undefined) : GuiObject() constructor {
         set_player(0);
     };
 
+    /// Centre the view on this player's castle. Returns false when there is not
+    /// one to go to - before it is placed, or after it has been destroyed - so
+    /// the caller can say so rather than silently doing nothing.
+    static move_to_castle = function() {
+        if (game == undefined || player == undefined || viewport == undefined) {
+            return false;
+        }
+
+        var _buildings = game.get_player_buildings(player);
+        var _n = array_length(_buildings);
+        for (var _i = 0; _i < _n; _i++) {
+            var _building = _buildings[_i];
+            if (_building.get_type() == BuildingType.castle) {
+                var _pos = _building.get_position();
+                viewport.move_to_map_pos(_pos);
+                update_map_cursor_pos(_pos);
+                return true;
+            }
+        }
+
+        return false;
+    };
+
     static set_player = function(_player_index) {
         if (panel != undefined) {
             del_float(panel);

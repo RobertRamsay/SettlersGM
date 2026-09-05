@@ -493,19 +493,38 @@ function Player(_game, _index) : GameObject(_game, _index) constructor {
     };
 
     /* Turn a number of serfs into knight for the given player. */
+    /// Promote up to _number idle generic serfs into knights.
+    ///
+    /// DELIBERATELY NOT FAITHFUL. Freeserf decrements `number` on every
+    /// promotion and then never reads it, so its loop runs to the end of the
+    /// serf list whatever you asked for: the 1, 5, 20 and 100 buttons in the
+    /// knight panel all promote everybody available. The count is plainly meant
+    /// to be a limit - there is no other reason for four buttons - so it is one
+    /// here. If matching the original bug ever matters more than the buttons
+    /// working, this is the line to take back out.
     static promote_serfs_to_knights = function(_number) {
         var _promoted = 0;
+
+        if (_number <= 0) {
+            return 0;
+        }
 
         var _serfs = game.get_player_serfs(self);
         var _n = array_length(_serfs);
         for (var _i = 0; _i < _n; _i++) {
+            if (_promoted >= _number) {
+                break;
+            }
+
             var _serf = _serfs[_i];
             if (_serf.get_state() == SerfState.idle_in_stock &&
                 _serf.get_type() == SerfType.generic) {
+                /* Same shape as every other stale-index trap in this port: the
+                   serf names an inventory and nothing guarantees it is still
+                   there. */
                 var _inv = game.get_inventory(_serf.get_idle_in_stock_inv_index());
-                if (_inv.promote_serf_to_knight(_serf)) {
+                if (_inv != undefined && _inv.promote_serf_to_knight(_serf)) {
                     _promoted += 1;
-                    _number -= 1;
                 }
             }
         }
