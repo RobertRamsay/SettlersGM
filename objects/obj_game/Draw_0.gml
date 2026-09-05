@@ -20,7 +20,11 @@ if (show_debug) {
 
 // ---- networking status, drawn last so nothing covers it.
 // Only while networked: offline this is not a thing the player should see.
-if (net_is_active()) {
+// Shown whenever there is anything to say, NOT only while connected: a join
+// that fails leaves the role back at off, so gating this on net_is_active()
+// hid the one message that mattered - which is how a failed connection came to
+// look like a key that did nothing.
+if (net_status_line() != "") {
     var _msg = "NET: " + net_status_line();
     if (net_is_running() && net_ticks_available() <= 0) {
         _msg += "  [waiting for the other player]";

@@ -63,12 +63,14 @@ if (keyboard_check_pressed(vk_f12)) {
 // Deliberately keys and not a lobby yet: two instances on one PC is how the
 // lockstep gets tested, and 127.0.0.1 needs no network at all to try.
 if (keyboard_check_pressed(vk_f7)) {
+    show_debug_message("net: F7 pressed");
     if (net_host()) {
         show_debug_message("net: waiting for a joiner, then mission 1 starts");
     }
 }
 
 if (keyboard_check_pressed(vk_f8)) {
+    show_debug_message("net: F8 pressed");
     net_join("127.0.0.1");
 }
 

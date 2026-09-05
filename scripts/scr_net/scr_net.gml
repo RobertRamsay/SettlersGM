@@ -118,8 +118,10 @@ function net_host() {
     }
 
     global.net_server = network_create_server(network_socket_tcp, NET_PORT, 1);
+    show_debug_message("net: network_create_server -> " + string(global.net_server));
     if (global.net_server < 0) {
-        global.net_status = "could not listen on port " + string(NET_PORT);
+        global.net_status = "could not listen on port " + string(NET_PORT) +
+                            " (already in use?)";
         show_debug_message("net: " + global.net_status);
         return false;
     }
@@ -140,19 +142,27 @@ function net_join(_ip) {
         return false;
     }
 
+    show_debug_message("net: joining " + string(_ip) + ":" + string(NET_PORT));
+
     global.net_socket = network_create_socket(network_socket_tcp);
+    show_debug_message("net: network_create_socket -> " + string(global.net_socket));
     if (global.net_socket < 0) {
         global.net_status = "could not open a socket";
         show_debug_message("net: " + global.net_status);
         return false;
     }
 
-    /* network_connect blocks until it succeeds or times out. Fine for a first
-       cut on a LAN; a lobby would want network_connect_async. */
-    if (network_connect(global.net_socket, _ip, NET_PORT) < 0) {
+    /* Bound the wait. network_connect blocks until it succeeds or gives up, and
+       the default give-up is long enough that the game looks hung rather than
+       refused - which is not the impression a wrong IP should leave. */
+    network_set_config(network_config_connect_timeout, 2000);
+
+    var _r = network_connect(global.net_socket, _ip, NET_PORT);
+    show_debug_message("net: network_connect -> " + string(_r));
+    if (_r < 0) {
         network_destroy(global.net_socket);
         global.net_socket = -1;
-        global.net_status = "no answer from " + string(_ip);
+        global.net_status = "no answer from " + string(_ip) + ":" + string(NET_PORT);
         show_debug_message("net: " + global.net_status);
         return false;
     }
@@ -249,6 +259,7 @@ function net_handle_async(_async) {
     var _type = _async[? "type"];
 
     if (_type == network_type_connect) {
+        show_debug_message("net: connect event, socket " + string(_async[? "socket"]));
         if (global.net_role == NetRole.host && global.net_phase == NetPhase.listening) {
             global.net_socket = _async[? "socket"];
             global.net_status = "player 2 joined";
