@@ -270,6 +270,23 @@ function Game() constructor {
         return flags.get(map.get_obj_index(_pos));
     };
 
+    /// Read-only lookup, for anything that is NOT the simulation.
+    ///
+    /// get_serf_at_pos below HEALS a stale tile, which means it writes to the
+    /// map - and the map's serf index gates serf movement. That is fine when the
+    /// simulation calls it, because both machines run the same code in the same
+    /// order on the same tick. It is not fine from the DRAW path: the viewport
+    /// only touches tiles that are on screen, the two players are looking at
+    /// different parts of the map, so each machine healed different tiles at
+    /// different moments and their serfs then walked different routes.
+    ///
+    /// That was the multiplayer desync whose signature was every serf field
+    /// differing while serf_count and rnd matched exactly: the same serfs, the
+    /// same decisions, different ground.
+    static peek_serf_at_pos = function(_pos) {
+        return serfs.get(map.get_serf_index(_pos));
+    };
+
     static get_serf_at_pos = function(_pos) {
         var _index = map.get_serf_index(_pos);
         var _serf = serfs.get(_index);

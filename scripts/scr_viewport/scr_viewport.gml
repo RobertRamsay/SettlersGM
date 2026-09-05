@@ -2113,10 +2113,14 @@ function Viewport(_interface, _map) : GuiObject() constructor {
         for (var _i = 0; _i < _cols; _i++) {
             /* Active serf */
             if (map.has_serf(_pos)) {
-                var _serf = interface.get_game().get_serf_at_pos(_pos);
+                var _serf = interface.get_game().peek_serf_at_pos(_pos);
 
-                /* get_serf_at_pos heals a tile that points at a serf which is
-                   gone, but it still hands back undefined for this frame. */
+                /* peek_serf_at_pos deliberately does NOT heal a tile that
+                   points at a serf which is gone: healing writes to the map, and
+                   doing that from the draw path is machine dependent, because
+                   only what is on screen gets drawn. See Game.peek_serf_at_pos.
+                   It still returns undefined for such a tile, so the nil check
+                   below is exactly as necessary as it always was. */
                 if (_serf != undefined &&
                    (_serf.get_state() != SerfState.mining ||
                     (_serf.get_mining_substate() != 3 &&
@@ -2159,7 +2163,7 @@ function Viewport(_interface, _map) : GuiObject() constructor {
         for (var _i = 0; _i < _cols; _i++) {
             /* Active serf */
             if (map.has_serf(_pos)) {
-                var _serf = interface.get_game().get_serf_at_pos(_pos);
+                var _serf = interface.get_game().peek_serf_at_pos(_pos);
 
                 if (_serf != undefined &&
                     _serf.get_state() == SerfState.mining &&
