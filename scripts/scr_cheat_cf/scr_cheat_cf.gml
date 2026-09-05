@@ -169,6 +169,38 @@ function cf_check_name(_name) {
     return false;
 }
 
+/// Stand the lads down, called when a save under a different name switches the
+/// cheat off.
+///
+/// Without this they are left parked in SerfState.knight_engaging_building with
+/// cf_siege_tick no longer answering for them. The ported handler does cope -
+/// it finds no building in front, tries to occupy one that is not there, and
+/// drops through its "something is wrong" branch to SerfState.lost - but that is
+/// arriving at the right answer by accident. Doing it deliberately gets the same
+/// outcome, clears the cheat state off the serfs so nothing carries over if it
+/// is switched back on, and drops effects belonging to a fight that is over.
+function cf_stand_down(_game) {
+    if (_game == undefined) {
+        return;
+    }
+
+    var _serfs = _game.serfs.to_array();
+    var _n = 0;
+    for (var _i = 0; _i < array_length(_serfs); _i++) {
+        var _serf = _serfs[_i];
+        if (_serf.cf_mode == CfMode.none) {
+            continue;
+        }
+        cf_send_home(_serf);
+        _n += 1;
+    }
+
+    global.cf_fx = [];
+    global.cf_fx_count = 0;
+
+    show_debug_message("cheat: stood down " + string(_n) + " soldier(s)");
+}
+
 /// Randomness for cosmetics only. This deliberately uses GameMaker's own
 /// generator rather than the game's random_int(): that one is part of the
 /// simulation and its call sequence has to stay identical for a reloaded save

@@ -1,0 +1,291 @@
+diff --git a/objects/obj_game/Create_0.gml b/objects/obj_game/Create_0.gml
+index a0409987..dde49df1 100644
+--- a/objects/obj_game/Create_0.gml
++++ b/objects/obj_game/Create_0.gml
+@@ -80,7 +80,10 @@ global.fast_building_click = true;  // dbl-click a build spot -> that build popu
+ //         when the button went down stays under it.
+ // Both are pixel-exact; the setting only changes which way the map goes. The
+ // minimap always drags 1:1 whatever this is set to.
+-global.map_drag_1to1 = false;
++global.map_drag_1to1 = true;
++
++// Flips whichever drag direction is selected above. Off by default.
++global.map_drag_invert = false;
+ 
+ 
+ // Slot the next F5 writes to / the last one loaded. 0..SAVEGAME_SLOTS-1.
+diff --git a/objects/obj_game/Step_0.gml b/objects/obj_game/Step_0.gml
+index d6080b46..830b18a7 100644
+--- a/objects/obj_game/Step_0.gml
++++ b/objects/obj_game/Step_0.gml
+@@ -175,6 +175,9 @@ var _scroll_sign = 1;
+ if (global.map_drag_1to1) {
+     _scroll_sign = -1;
+ }
++if (global.map_drag_invert) {
++    _scroll_sign = -_scroll_sign;
++}
+ if (keyboard_check_pressed(vk_up)) {
+     interface.handle_event(gui_make_event(EventType.drag, 0, 0, 0, -32 * _scroll_sign, EventButton.left));
+ }
+diff --git a/scripts/scr_building/scr_building.gml b/scripts/scr_building/scr_building.gml
+index 3eaaa6aa..c3f4e465 100644
+--- a/scripts/scr_building/scr_building.gml
++++ b/scripts/scr_building/scr_building.gml
+@@ -1063,7 +1063,7 @@ function Building(_game, _index) : GameObject(_game, _index) constructor {
+                         _flag_pos = _map.move_down_right(pos);
+                         if (_map.has_serf(_flag_pos)) {
+                             _serf = game.get_serf_at_pos(_flag_pos);
+-                            if (_serf.get_pos() != _flag_pos) {
++                            if (_serf == undefined || _serf.get_pos() != _flag_pos) {
+                                 _map.set_serf_index(_flag_pos, 0);
+                             }
+                         }
+@@ -1427,7 +1427,7 @@ function Building(_game, _index) : GameObject(_game, _index) constructor {
+         var _flag_pos = _map.move_down_right(pos);
+         if (_map.has_serf(_flag_pos)) {
+             var _serf5 = game.get_serf_at_pos(_flag_pos);
+-            if (_serf5.get_pos() != _flag_pos) {
++            if (_serf5 == undefined || _serf5.get_pos() != _flag_pos) {
+                 _map.set_serf_index(_flag_pos, 0);
+             }
+         }
+diff --git a/scripts/scr_flag/scr_flag.gml b/scripts/scr_flag/scr_flag.gml
+index ccd7c79c..c40137a2 100644
+--- a/scripts/scr_flag/scr_flag.gml
++++ b/scripts/scr_flag/scr_flag.gml
+@@ -134,7 +134,8 @@ function flag_fill_path_serf_info(_game, _pos, _dir, _data) {
+     /* Handle first position. */
+     if (_map.has_serf(_pos_)) {
+         var _serf = _game.get_serf_at_pos(_pos_);
+-        if (_serf.get_state() == SerfState.transporting &&
++        if (_serf != undefined &&
++            _serf.get_state() == SerfState.transporting &&
+             _serf.get_walking_wait_counter() != -1) {
+             var _d = _serf.get_walking_dir();
+             if (_d < 0) {
+@@ -181,7 +182,8 @@ function flag_fill_path_serf_info(_game, _pos, _dir, _data) {
+         /* Check if there is a serf occupying this space. */
+         if (_map.has_serf(_pos_)) {
+             var _serf2 = _game.get_serf_at_pos(_pos_);
+-            if (_serf2.get_state() == SerfState.transporting &&
++            if (_serf2 != undefined &&
++                _serf2.get_state() == SerfState.transporting &&
+                 _serf2.get_walking_wait_counter() != -1) {
+                 _serf2.set_walking_wait_counter(0);
+                 _data.serfs[_serf_count] = _serf2.get_index();
+@@ -193,9 +195,10 @@ function flag_fill_path_serf_info(_game, _pos, _dir, _data) {
+     /* Handle last position. */
+     if (_map.has_serf(_pos_)) {
+         var _serf3 = _game.get_serf_at_pos(_pos_);
+-        if ((_serf3.get_state() == SerfState.transporting &&
++        if (_serf3 != undefined &&
++           ((_serf3.get_state() == SerfState.transporting &&
+              _serf3.get_walking_wait_counter() != -1) ||
+-            _serf3.get_state() == SerfState.delivering) {
++            _serf3.get_state() == SerfState.delivering)) {
+             var _d2 = _serf3.get_walking_dir();
+             if (_d2 < 0) {
+                 _d2 += 6;
+diff --git a/scripts/scr_game/scr_game.gml b/scripts/scr_game/scr_game.gml
+index 99f08d31..7047c103 100644
+--- a/scripts/scr_game/scr_game.gml
++++ b/scripts/scr_game/scr_game.gml
+@@ -1239,7 +1239,9 @@ function Game() constructor {
+ 
+             if (map.has_serf(_pos)) {
+                 var _serf = get_serf_at_pos(_pos);
+-                if (!map.has_flag(_pos)) {
++                if (_serf == undefined) {
++                    /* tile pointed at a serf that is gone */
++                } else if (!map.has_flag(_pos)) {
+                     _serf.set_lost_state();
+                 } else {
+                     /* Handle serf close to flag, where
+@@ -1946,7 +1948,9 @@ function Game() constructor {
+         /* Handle any serf at pos. */
+         if (map.has_serf(_pos)) {
+             var _serf = get_serf_at_pos(_pos);
+-            _serf.flag_deleted(_pos);
++            if (_serf != undefined) {
++                _serf.flag_deleted(_pos);
++            }
+         }
+ 
+         var _flag = flags.get(map.get_obj_index(_pos));
+diff --git a/scripts/scr_player/scr_player.gml b/scripts/scr_player/scr_player.gml
+index e1691d8c..59a8f912 100644
+--- a/scripts/scr_player/scr_player.gml
++++ b/scripts/scr_player/scr_player.gml
+@@ -627,7 +627,7 @@ function Player(_game, _index) : GameObject(_game, _index) constructor {
+             if (_map.has_serf(_flag_pos)) {
+                 /* Check if building is under siege. */
+                 var _s = game.get_serf_at_pos(_flag_pos);
+-                if (_s.get_owner() != index) {
++                if (_s != undefined && _s.get_owner() != index) {
+                     continue;
+                 }
+             }
+diff --git a/scripts/scr_popup/scr_popup.gml b/scripts/scr_popup/scr_popup.gml
+index 9d4ae1d0..8b8ff0f5 100644
+--- a/scripts/scr_popup/scr_popup.gml
++++ b/scripts/scr_popup/scr_popup.gml
+@@ -368,7 +368,8 @@ enum Action {
+     options_sfx,
+     save,
+     new_name,
+-    options_map_drag
++    options_map_drag,
++    options_map_invert
+ }
+ 
+ /// Static tables for popup.cc (the local `const int layout[]` arrays of the
+diff --git a/scripts/scr_popup_b/scr_popup_b.gml b/scripts/scr_popup_b/scr_popup_b.gml
+index 8f0fc228..aab5b13c 100644
+--- a/scripts/scr_popup_b/scr_popup_b.gml
++++ b/scripts/scr_popup_b/scr_popup_b.gml
+@@ -679,6 +679,16 @@ function popup_draw_options_box(_popup) {
+     _popup.draw_green_string(1, 110, "Map drag");
+     _popup.draw_green_string(11, 110, _drag_value);
+ 
++    // Not in the original either. Flips whichever drag direction is selected,
++    // for anyone who wants the opposite of both. Drawn on the bottom band, to
++    // the left of the exit icon at x 120.
++    var _invert_value = "No";
++    if (global.map_drag_invert) {
++        _invert_value = "Yes";
++    }
++    _popup.draw_green_string(1, 119, "Invert");
++    _popup.draw_green_string(9, 119, _invert_value);
++
+     _popup.draw_popup_icon(14, 128, 60); /* exit */
+ }
+ 
+diff --git a/scripts/scr_popup_c/scr_popup_c.gml b/scripts/scr_popup_c/scr_popup_c.gml
+index 925bdc05..e515935f 100644
+--- a/scripts/scr_popup_c/scr_popup_c.gml
++++ b/scripts/scr_popup_c/scr_popup_c.gml
+@@ -27,6 +27,9 @@ function popup_c_init_tables() {
+     Action.options_fullscreen, 106, 70, 16, 16,
+     Action.options_message_count_1, 90, 90, 32, 16,
+     Action.options_map_drag, 88, 106, 40, 16,
++    /* The invert row sits on the bottom band, left of the exit icon (which is
++       drawn at x 120 and clicked from x 112), so the two never overlap. */
++    Action.options_map_invert, 8, 123, 100, 19,
+     Action.close_options, 112, 126, 16, 16,
+     -1
+   ];
+@@ -1189,6 +1192,10 @@ function popup_handle_action(_popup, _action, _x, _y) {
+     global.map_drag_1to1 = !global.map_drag_1to1;
+     _popup.play_sound(Sfx.click);
+     break;
++  case Action.options_map_invert:
++    global.map_drag_invert = !global.map_drag_invert;
++    _popup.play_sound(Sfx.click);
++    break;
+   case Action.options_volume_minus: {
+     /* Audio::get_instance().get_volume_controller()->volume_down() */
+     audio_volume_down();
+diff --git a/scripts/scr_serf/scr_serf.gml b/scripts/scr_serf/scr_serf.gml
+index 939dafa8..638bf015 100644
+--- a/scripts/scr_serf/scr_serf.gml
++++ b/scripts/scr_serf/scr_serf.gml
+@@ -1350,6 +1350,9 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
+         } else {
+             /* Direction is occupied. */
+             var _other_serf = game.get_serf_at_pos(_new_pos);
++            if (_other_serf == undefined) {
++                return;     /* tile pointed at a serf that is gone */
++            }
+             var _w = _other_serf.is_waiting();
+             var _other_dir = _w.dir;
+ 
+@@ -1563,6 +1566,9 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
+ 
+                 /* Get next serf and follow the chain */
+                 var _other_serf = game.get_serf_at_pos(pos);
++                if (_other_serf == undefined) {
++                    break;  /* tile pointed at a serf that is gone */
++                }
+                 if (_other_serf.state != SerfState.walking &&
+                     _other_serf.state != SerfState.transporting) {
+                     break;
+@@ -2297,6 +2303,9 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
+ 
+                 if (_map.has_serf(_new_pos)) {
+                     var _other_serf = game.get_serf_at_pos(_new_pos);
++                    if (_other_serf == undefined) {
++                        break;  /* tile pointed at a serf that is gone */
++                    }
+                     var _w = _other_serf.is_waiting();
+                     var _other_dir = _w.dir;
+ 
+diff --git a/scripts/scr_serf_b/scr_serf_b.gml b/scripts/scr_serf_b/scr_serf_b.gml
+index f18fd7c1..8f197478 100644
+--- a/scripts/scr_serf_b/scr_serf_b.gml
++++ b/scripts/scr_serf_b/scr_serf_b.gml
+@@ -381,6 +381,9 @@ function serf_handle_serf_free_walking_switch_with_other(_serf) {
+         _new_pos = _map.move(_serf.pos, _i);
+         if (_map.has_serf(_new_pos)) {
+             _other_serf = _serf.game.get_serf_at_pos(_new_pos);
++            if (_other_serf == undefined) {
++                continue;   /* tile pointed at a serf that is gone */
++            }
+             var _other_dir = Direction.none;
+ 
+             /* is_waiting returns { result, dir } (C++ out-param) */
+@@ -673,6 +676,9 @@ function serf_handle_free_walking_common(_serf) {
+             _serf.s.free_walking_neg_dist1 != -128 &&
+             _map.has_serf(_new_pos2)) {
+             var _other_serf = _serf.game.get_serf_at_pos(_new_pos2);
++            if (_other_serf == undefined) {
++                continue;   /* tile pointed at a serf that is gone */
++            }
+             var _other_dir = Direction.none;
+ 
+             /* is_waiting returns { result, dir } (C++ out-param) */
+diff --git a/scripts/scr_serf_c/scr_serf_c.gml b/scripts/scr_serf_c/scr_serf_c.gml
+index 1b6edaa2..ce242fec 100644
+--- a/scripts/scr_serf_c/scr_serf_c.gml
++++ b/scripts/scr_serf_c/scr_serf_c.gml
+@@ -683,7 +683,9 @@ function serf_handle_serf_state_knight_leave_for_walk_to_fight(_serf) {
+     _serf.s.leaving_building_next_state = next_state;
+   } else {
+     var _other = _serf.game.get_serf_at_pos(new_pos);
+-    if (_serf.get_owner() == _other.get_owner()) {
++    /* undefined = the tile is not really occupied; wait a tick and let
++       get_serf_at_pos's healing clear it, then take the free path above. */
++    if (_other == undefined || _serf.get_owner() == _other.get_owner()) {
+       _serf.animation = 82;
+       _serf.counter = 0;
+     } else {
+diff --git a/scripts/scr_viewport/scr_viewport.gml b/scripts/scr_viewport/scr_viewport.gml
+index e07ef09d..4c5e3caa 100644
+--- a/scripts/scr_viewport/scr_viewport.gml
++++ b/scripts/scr_viewport/scr_viewport.gml
+@@ -2788,15 +2788,18 @@ function Viewport(_interface, _map) : GuiObject() constructor {
+     /// bool handle_drag(int lx, int ly)
+     static handle_drag = function(_dx, _dy) {
+         if (_dx != 0 || _dy != 0) {
++            // 1:1 grabs the ground - the map travels with the pointer, so the
++            // pixel under the cursor stays under it. "Orig" is Freeserf's, where
++            // the drag pushes the view and the map slides against the hand.
++            // Invert flips whichever of the two is selected.
++            var _sign = 1;
+             if (global.map_drag_1to1) {
+-                // Grab the ground: the map travels with the pointer, so the
+-                // pixel that was under the cursor stays under it.
+-                move_by_pixels(-_dx, -_dy);
+-            } else {
+-                // Freeserf/original: the drag pushes the view, so the map
+-                // slides against the hand.
+-                move_by_pixels(_dx, _dy);
++                _sign = -1;
++            }
++            if (global.map_drag_invert) {
++                _sign = -_sign;
+             }
++            move_by_pixels(_sign * _dx, _sign * _dy);
+         }
+ 
+         return true;

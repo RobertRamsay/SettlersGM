@@ -471,10 +471,48 @@ function savegame_slot_path(_slot) {
 }
 
 /// Write a snapshot to an arbitrary path. Returns true on success.
+/// Is this one of the numbered slot files, rather than a name the player typed?
+/// Used to tell a deliberate "save it as this" from the F5 quicksave.
+function savegame_is_slot_path(_path) {
+    var _name = filename_name(_path);
+    for (var _i = 0; _i < SAVEGAME_SLOTS; _i++) {
+        if (_name == filename_name(savegame_slot_path(_i))) {
+            return true;
+        }
+    }
+    return false;
+}
+
 function savegame_save_path(_path, _game, _label = "") {
     if (_game == undefined) {
         show_debug_message("savegame: no game to save");
         return false;
+    }
+
+    /* "borntodie": the save NAME is the switch, and it works both ways. A save
+       called borntodie arms the cheat; saving under any other name turns it off
+       again and hands the game back to ordinary knights.
+
+       Only a name the player actually CHOSE counts. Both deliberate routes are
+       covered - the label typed into the save popup's slot row, and the file
+       name typed into its name field - but the F5 quicksave supplies neither: it
+       writes a numbered slot under a generated "Tick 1234 ..." label. Nobody
+       named that, so a quicksave leaves the cheat exactly as it is rather than
+       silently disarming it mid-assault.
+
+       This runs BEFORE the snapshot is taken, on purpose. Standing the lads down
+       changes serf state, and a save written from a snapshot taken beforehand
+       would come back with cf_active off but soldiers still flagged mid-siege. */
+    var _typed_name = _label;
+    if (_typed_name == "" && !savegame_is_slot_path(_path)) {
+        _typed_name = filename_name(_path);
+    }
+    if (_typed_name != "") {
+        var _armed = cf_name_is_cheat(_typed_name);
+        if (!_armed && cf_is_active()) {
+            cf_stand_down(_game);
+        }
+        cf_set_active(_armed);
     }
 
     var _data = savegame_encode_game(_game);
@@ -484,14 +522,6 @@ function savegame_save_path(_path, _game, _label = "") {
     } else {
         _data.label = _label;
     }
-
-    /* "borntodie": naming a save with the cheat word arms it. Both routes into
-       this function are checked - the label typed into the save popup's slot
-       row, and the file name typed into its name field - so it does not matter
-       which one the player used. The flag is stored in the snapshot so the save
-       comes back armed. */
-    cf_check_name(_data.label);
-    cf_check_name(filename_name(_path));
     _data.cf_active = cf_is_active();
 
     var _text = json_stringify(_data);
@@ -536,16 +566,22 @@ function savegame_load_path(_path) {
         return savegame_fail("file is not valid JSON");
     }
 
-    /* "borntodie": a save made while the cheat was on comes back with it on.
-       The label is checked too, so a save renamed on disk still arms it.
-       variable_struct_get returns undefined for a key an older save does not
-       have, so no existence test is needed. */
+    /* "borntodie": a save comes back exactly as it was written - on if the cheat
+       was on when it was saved, off if it was not. variable_struct_get returns
+       undefined for a key an older save does not have; those predate the flag,
+       so fall back to reading the name the same way saving does.
+
+       Effects in flight belong to the game being replaced, and their map
+       positions mean nothing in the one coming in. */
     var _cf_flag = variable_struct_get(_data, "cf_active");
     if (_cf_flag != undefined) {
         cf_set_active(_cf_flag == true);
+    } else {
+        cf_set_active(cf_name_is_cheat(variable_struct_get(_data, "label")) ||
+                      cf_name_is_cheat(filename_name(_path)));
     }
-    cf_check_name(variable_struct_get(_data, "label"));
-    cf_check_name(filename_name(_path));
+    global.cf_fx = [];
+    global.cf_fx_count = 0;
 
     return savegame_decode_game(_data);
 }
