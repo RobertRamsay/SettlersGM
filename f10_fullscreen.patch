@@ -1,0 +1,55 @@
+From ebeef9c0ab4eb2ec12201becd5aeeebb5de86166 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 5 Sep 2026 15:05:32 +0000
+Subject: [PATCH] F10 toggles fullscreen
+
+The same switch the options popup's row throws. That row reads
+window_get_fullscreen() when it draws rather than keeping its own copy, so its
+label stays right whichever way the state was changed - no syncing needed.
+
+F10 was previously "select save slot 9", one of the F1..F10 stopgap keys from
+before the slot UI existed. Slot 9 therefore loses its function key; it is still
+reachable in the save box, which is where slots are chosen now anyway. The
+skipped indices in that loop are commented rather than left as bare numbers,
+since there are three of them now.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DFktm5o1kLnS2Pgvyp8tD4
+---
+ objects/obj_game/Step_0.gml | 17 +++++++++++++++--
+ 1 file changed, 15 insertions(+), 2 deletions(-)
+
+diff --git a/objects/obj_game/Step_0.gml b/objects/obj_game/Step_0.gml
+index b3bbe3e9..c5fafd81 100644
+--- a/objects/obj_game/Step_0.gml
++++ b/objects/obj_game/Step_0.gml
+@@ -35,11 +35,24 @@ if (keyboard_check_pressed(vk_f12)) {
+     }
+ }
+ 
++// ---- F10 toggles fullscreen, the same switch the options popup's row throws.
++// The popup reads window_get_fullscreen() when it draws rather than keeping its
++// own copy, so the label is right whichever way the state was changed.
++if (keyboard_check_pressed(vk_f10)) {
++    window_set_fullscreen(!window_get_fullscreen());
++    play_sfx(Sfx.click);
++}
++
+ // ---- save / load, until the slot UI lands
+-// F1..F10 pick the slot, F5 saves to it, F9 loads it, F11 runs the round-trip
++// F1..F9 pick the slot, F5 saves to it, F9 loads it, F11 runs the round-trip
+ // self test and reports to the output log.
++//
++// The skips: 4 is F5 and 8 is F9, which do the saving and loading rather than
++// choosing where. 9 is F10, which now toggles fullscreen above - so slot 9 has
++// no function key any more. It is still reachable in the save box, and these
++// keys were only ever a stopgap for the slot UI, which has since landed.
+ for (var _s = 0; _s < SAVEGAME_SLOTS; _s++) {
+-    if (keyboard_check_pressed(vk_f1 + _s) && _s != 4 && _s != 8) {
++    if (keyboard_check_pressed(vk_f1 + _s) && _s != 4 && _s != 8 && _s != 9) {
+         global.save_slot = _s;
+         show_debug_message("savegame: slot " + string(_s) + " selected");
+     }
+-- 
+2.43.0
+

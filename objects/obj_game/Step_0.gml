@@ -35,11 +35,24 @@ if (keyboard_check_pressed(vk_f12)) {
     }
 }
 
+// ---- F10 toggles fullscreen, the same switch the options popup's row throws.
+// The popup reads window_get_fullscreen() when it draws rather than keeping its
+// own copy, so the label is right whichever way the state was changed.
+if (keyboard_check_pressed(vk_f10)) {
+    window_set_fullscreen(!window_get_fullscreen());
+    play_sfx(Sfx.click);
+}
+
 // ---- save / load, until the slot UI lands
-// F1..F10 pick the slot, F5 saves to it, F9 loads it, F11 runs the round-trip
+// F1..F9 pick the slot, F5 saves to it, F9 loads it, F11 runs the round-trip
 // self test and reports to the output log.
+//
+// The skips: 4 is F5 and 8 is F9, which do the saving and loading rather than
+// choosing where. 9 is F10, which now toggles fullscreen above - so slot 9 has
+// no function key any more. It is still reachable in the save box, and these
+// keys were only ever a stopgap for the slot UI, which has since landed.
 for (var _s = 0; _s < SAVEGAME_SLOTS; _s++) {
-    if (keyboard_check_pressed(vk_f1 + _s) && _s != 4 && _s != 8) {
+    if (keyboard_check_pressed(vk_f1 + _s) && _s != 4 && _s != 8 && _s != 9) {
         global.save_slot = _s;
         show_debug_message("savegame: slot " + string(_s) + " selected");
     }
