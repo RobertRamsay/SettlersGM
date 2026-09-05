@@ -35,8 +35,11 @@ if (global.net_ip_prompt) {
     draw_set_colour(c_white);
 } else if (net_status_line() != "") {
     var _msg = "NET: " + net_status_line();
-    if (net_is_running() && net_ticks_available() <= 0) {
-        _msg += "  [waiting for the other player]";
+    if (net_is_running()) {
+        _msg += net_placing_status(interface.get_game());
+        if (net_ticks_available() <= 0) {
+            _msg += "  [waiting for the other player]";
+        }
     }
     draw_set_colour(c_black);
     draw_text(5, 5, _msg);

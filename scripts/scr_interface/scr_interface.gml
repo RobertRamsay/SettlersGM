@@ -1080,6 +1080,12 @@ function Interface(_game = undefined) : GuiObject() constructor {
            else, which is why it appeared to do nothing - and would have parted
            the two worlds at the first hash check if it had worked. */
         if (net_is_running()) {
+            /* Courtesy check only - the rule that decides is in the command
+               handler, where both machines run it. */
+            if (!net_may_place_castle(game)) {
+                play_sound(Sfx.not_accepted);
+                return;
+            }
             net_queue_command(NetCmd.build_castle, map_cursor_pos, 0);
             play_sound(Sfx.click);
             return;

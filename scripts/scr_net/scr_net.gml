@@ -541,7 +541,14 @@ function net_run_commands(_game, _cmds, _player_index) {
             _game.build_flag(_c.a, _player);
             break;
         case NetCmd.build_castle:
-            _game.build_castle(_c.a, _player);
+            /* Enforced HERE, not at the click, because this is the copy of the
+               rule both machines run. The UI check is only a courtesy so the
+               click does not feel dead; if it were the only check, a command
+               that slipped through on one machine would build a castle there
+               and nowhere else. */
+            if (net_placing_player(_game) == _player_index) {
+                _game.build_castle(_c.a, _player);
+            }
             break;
         case NetCmd.build_building:
             _game.build_building(_c.a, _c.b, _player);
@@ -718,6 +725,59 @@ function net_client_start_game(_interface, _start) {
     net_begin(_interface, _game, 1);
 }
 
+/// Castle placement is sequenced: player 0 chooses, then player 1 - who can
+/// then see where player 0 went and answer it. Play proper begins once both
+/// have one.
+///
+/// This costs no traffic and needs no extra message. It is a rule read off the
+/// simulation, and both machines are running the same simulation, so both reach
+/// the same answer on the same tick without being told.
+function net_placing_phase(_game) {
+    if (_game == undefined) {
+        return false;
+    }
+
+    for (var _p = 0; _p < 2; _p++) {
+        var _player = _game.get_player(_p);
+        if (_player != undefined && !_player.has_castle()) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/// Whose castle it is to place, or -1 when placement is over.
+function net_placing_player(_game) {
+    if (_game == undefined) {
+        return -1;
+    }
+
+    for (var _p = 0; _p < 2; _p++) {
+        var _player = _game.get_player(_p);
+        if (_player != undefined && !_player.has_castle()) {
+            return _p;
+        }
+    }
+    return -1;
+}
+
+/// May this machine's player place a castle right now?
+function net_may_place_castle(_game) {
+    return (net_placing_player(_game) == global.net_local_player);
+}
+
+/// What the status line should say about the placement phase.
+function net_placing_status(_game) {
+    var _who = net_placing_player(_game);
+    if (_who < 0) {
+        return "";
+    }
+    if (_who == global.net_local_player) {
+        return "  YOUR TURN: place your castle";
+    }
+    return "  waiting for player " + string(_who + 1) + " to place their castle";
+}
+
 function net_begin(_interface, _game, _local_player) {
     global.net_local_player = _local_player;
     global.net_sim_tick = 0;
@@ -729,6 +789,20 @@ function net_begin(_interface, _game, _local_player) {
        its own game - clearing at this point would throw them away and the
        client would then wait forever for a turn 0 that is never sent again.
        They are cleared where nothing can have arrived yet: net_host/net_join. */
+
+    /* Take players 0 and 1 off the AI. A mission's second player is an AI
+       opponent by default, and mission 1's is: it would place player 1's castle
+       itself within moments of the start, so has_castle() went true and the
+       human's own placement was refused for ever after - which is why placing a
+       castle appeared to do nothing at all, wherever you clicked.
+       Both machines do this identically before a single tick runs, so the
+       simulations still match. */
+    for (var _p = 0; _p < 2; _p++) {
+        var _player = _game.get_player(_p);
+        if (_player != undefined) {
+            _player.flags &= ~(1 << 7);   /* the AI bit */
+        }
+    }
 
     _game.set_speed(DEFAULT_GAME_SPEED);
     _interface.set_game(_game);
