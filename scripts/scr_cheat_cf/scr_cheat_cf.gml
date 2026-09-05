@@ -61,11 +61,11 @@
 #macro CF_DMG_GRENADE     5
 #macro CF_SHOT_CYCLE      5      // every 5th shot is a grenade
 
-#macro CF_HP_HUT          80
-#macro CF_HP_TOWER        140
-#macro CF_HP_FORTRESS     220
-#macro CF_HP_CASTLE       300
-#macro CF_HP_DEFAULT      80     // anything else the lads decide to shoot at
+#macro CF_HP_HUT          100
+#macro CF_HP_TOWER        200
+#macro CF_HP_FORTRESS     400
+#macro CF_HP_CASTLE       1000
+#macro CF_HP_DEFAULT      100    // anything else the lads decide to shoot at
 #macro CF_FIRE_INTERVAL   25     // ticks between shots (50 ticks = 1 second)
 #macro CF_GRENADE_FLIGHT  22     // ticks a grenade spends in the air
 

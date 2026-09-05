@@ -19,15 +19,19 @@
 #macro PANEL_BUTTON_COUNT 6
 #macro SPEED_BUTTON 5
 
-// Multiples of DEFAULT_GAME_SPEED the button cycles through: >, >>, >>>.
+// Multiples of DEFAULT_GAME_SPEED the button cycles through: >, >>, >>>, >>>>.
 // game_speed is what Game.update adds to tick each step.
-// Halved from 20 / 50 / 100 - the old steps ran away from the eye and there was
-// nothing usable between normal pace and a blur. Normal play is deliberately
-// NOT touched: step 1 stays at DEFAULT_GAME_SPEED, which is Freeserf's own
-// value and therefore the Amiga's pace.
+//
+// Tuned by play, not by arithmetic. > is normal and >> was already right after
+// the earlier halving; the top two were the ones with nothing useful in them,
+// so they take 10 and 30 more than they had: 25 -> 35 and 50 -> 80.
+//
+// Normal play is deliberately NOT touched: step 1 stays at DEFAULT_GAME_SPEED,
+// which is Freeserf's own value and therefore the Amiga's pace. Game.set_speed
+// does not clamp, so these are used exactly as written.
 #macro SPEED_STEP_2 10
-#macro SPEED_STEP_3 25
-#macro SPEED_STEP_4 50
+#macro SPEED_STEP_3 35
+#macro SPEED_STEP_4 80
 
 
 enum PanelButton {
