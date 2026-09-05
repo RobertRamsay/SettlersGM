@@ -437,39 +437,6 @@ function PanelBar(_interface) : GuiObject() constructor {
         return true;
     };
 
-    /// Both mouse buttons together on the map icon jumps to your castle.
-    ///
-    /// An Amiga mouse has two buttons, so left+right held together is its own
-    /// input in The Settlers, and obj_game already reports it as a middle click
-    /// with the left and right clicks that follow swallowed - so this cannot
-    /// also open the minimap by accident.
-    ///
-    /// Returning true whatever was hit is deliberate, and the same reason
-    /// handle_dbl_click does: a float that answers false hands the event down to
-    /// the viewport behind the panel.
-    static handle_click_middle = function(_cx, _cy) {
-        set_redraw();
-
-        var _button = hit_test_button(_cx, _cy);
-        if (_button >= 0) {
-            var _kind = panel_btns[_button];
-            /* Any of the map button's three states - it is the icon's position
-               that is being aimed at, and which state it happens to be in is
-               not something worth making the player think about. */
-            if (_kind == PanelButton.map ||
-                _kind == PanelButton.map_starred ||
-                _kind == PanelButton.map_inactive) {
-                if (interface.move_to_castle()) {
-                    play_sound(Sfx.accepted);
-                } else {
-                    play_sound(Sfx.not_accepted);
-                }
-            }
-        }
-
-        return true;
-    };
-
     static handle_click_left = function(_cx, _cy) {
         set_redraw();
 
@@ -550,17 +517,55 @@ function PanelBar(_interface) : GuiObject() constructor {
 
     /* Both mouse buttons on the build button toggles the build-possibility
        icons over the map - the same overlay the "b" key switches. */
+    /// Both mouse buttons together. An Amiga mouse has two buttons, so
+    /// left+right held together is its own input in The Settlers; obj_game
+    /// reports it as a middle click and swallows the left and right clicks that
+    /// follow, so none of this can also trigger the ordinary button.
+    ///
+    /// The build button toggles the builds overlay, which is Freeserf's. The map
+    /// button jumps to your castle, which is not - but it is the same gesture on
+    /// the icon that is already about finding your way around.
+    ///
+    /// NOTE: there must be exactly one handle_click_middle in this constructor.
+    /// A second `static` of the same name silently replaces the first, whichever
+    /// is written later - which is how the castle jump came to do nothing at all
+    /// on the first attempt.
     static handle_click_middle = function(_cx, _cy) {
-        if (hit_test_button(_cx, _cy) != 0) {
-            return false;
+        var _button = hit_test_button(_cx, _cy);
+        if (_button < 0 || _button >= array_length(panel_btns)) {
+            /* Below zero is the message and timer bars and the gaps between
+               buttons. At or past the end is the speed button, which is ours and
+               sits beyond panel_btns - reading it would be out of range.
+               Swallowed either way: a float that answers false hands the event
+               down to the viewport behind the panel. */
+            return true;
         }
 
-        set_redraw();
-        play_sound(Sfx.click);
+        if (_button == 0) {
+            set_redraw();
+            play_sound(Sfx.click);
 
-        var _viewport = interface.get_viewport();
-        if (_viewport != undefined) {
-            _viewport.switch_layer(ViewportLayer.builds);
+            var _viewport = interface.get_viewport();
+            if (_viewport != undefined) {
+                _viewport.switch_layer(ViewportLayer.builds);
+            }
+
+            return true;
+        }
+
+        /* Any of the map button's three states - it is the icon's position being
+           aimed at, and which state it happens to be in is not worth making the
+           player think about. */
+        var _kind = panel_btns[_button];
+        if (_kind == PanelButton.map ||
+            _kind == PanelButton.map_starred ||
+            _kind == PanelButton.map_inactive) {
+            set_redraw();
+            if (interface.move_to_castle()) {
+                play_sound(Sfx.accepted);
+            } else {
+                play_sound(Sfx.not_accepted);
+            }
         }
 
         return true;
