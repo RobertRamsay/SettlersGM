@@ -2025,8 +2025,7 @@ function Viewport(_interface, _map) : GuiObject() constructor {
                overlapping. The offset is applied to the drawn position only -
                the serf's map position is untouched. */
             if (cf_is_soldier(_serf)) {
-                var _off = cf_standoff(_serf);
-                cf_draw_soldier(_lx + _off[0], _ly + _off[1], _color, _serf);
+                cf_draw_soldier(_lx, _ly, _color, _serf);
             } else {
                 draw_row_serf(_lx, _ly, true, _color, _body);
             }
@@ -2064,8 +2063,7 @@ function Viewport(_interface, _map) : GuiObject() constructor {
                 if (_dbody > -1) {
                     var _dcolor = get_player_colour(_def_serf.get_owner());
                     if (cf_is_soldier(_def_serf)) {
-                        var _doff = cf_standoff(_def_serf);
-                        cf_draw_soldier(_dlx + _doff[0], _dly + _doff[1], _dcolor, _def_serf);
+                        cf_draw_soldier(_dlx, _dly, _dcolor, _def_serf);
                     } else {
                         draw_row_serf(_dlx, _dly, true, _dcolor, _dbody);
                     }
@@ -2117,11 +2115,14 @@ function Viewport(_interface, _map) : GuiObject() constructor {
             if (map.has_serf(_pos)) {
                 var _serf = interface.get_game().get_serf_at_pos(_pos);
 
-                if (_serf.get_state() != SerfState.mining ||
+                /* get_serf_at_pos heals a tile that points at a serf which is
+                   gone, but it still hands back undefined for this frame. */
+                if (_serf != undefined &&
+                   (_serf.get_state() != SerfState.mining ||
                     (_serf.get_mining_substate() != 3 &&
                      _serf.get_mining_substate() != 4 &&
                      _serf.get_mining_substate() != 9 &&
-                     _serf.get_mining_substate() != 10)) {
+                     _serf.get_mining_substate() != 10))) {
                     draw_active_serf(_serf, _pos, _x_base, _y_base);
                 }
             }
@@ -2160,7 +2161,8 @@ function Viewport(_interface, _map) : GuiObject() constructor {
             if (map.has_serf(_pos)) {
                 var _serf = interface.get_game().get_serf_at_pos(_pos);
 
-                if (_serf.get_state() == SerfState.mining &&
+                if (_serf != undefined &&
+                    _serf.get_state() == SerfState.mining &&
                     (_serf.get_mining_substate() == 3 ||
                      _serf.get_mining_substate() == 4 ||
                      _serf.get_mining_substate() == 9 ||

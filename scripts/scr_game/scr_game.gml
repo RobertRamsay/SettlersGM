@@ -258,7 +258,19 @@ function Game() constructor {
     };
 
     static get_serf_at_pos = function(_pos) {
-        return serfs.get(map.get_serf_index(_pos));
+        var _index = map.get_serf_index(_pos);
+        var _serf = serfs.get(_index);
+        if (_serf == undefined && _index != 0) {
+            /* The tile is pointing at a serf that no longer exists. Every known
+               way of producing that is fixed, but callers all over the port -
+               and the viewport's draw rows - go straight from has_serf() to
+               this without a nil check, so heal the tile rather than hand back
+               a hole that crashes the next reader. */
+            show_debug_message("game: tile " + string(_pos) + " pointed at serf #" +
+                               string(_index) + ", which is gone - cleared");
+            map.set_serf_index(_pos, 0);
+        }
+        return _serf;
     };
 
     /* ---------------------------------------------------------------- */
@@ -2430,9 +2442,23 @@ function Game() constructor {
            A serf that was never placed has pos = -1, which is not a tile. */
         var _index = _serf.get_index();
         var _pos = _serf.pos;
-        if (map != undefined && _pos >= 0 &&
-            map.get_serf_index(_pos) == _index) {
-            map.set_serf_index(_pos, 0);
+        if (map != undefined && _pos >= 0) {
+            if (map.get_serf_index(_pos) == _index) {
+                map.set_serf_index(_pos, 0);
+            }
+
+            /* pos and the map do not always agree. start_walking(dir, slope,
+               false) advances pos while deliberately leaving the map alone -
+               leave_building() and the knight free-fight join both do it - so a
+               serf can be listed on the tile he just stepped off. That is
+               always exactly one step away, so sweeping the six neighbours
+               catches it without walking the whole map. */
+            for (var _d = Direction.right; _d <= Direction.up; _d++) {
+                var _n = map.move(_pos, _d);
+                if (map.get_serf_index(_n) == _index) {
+                    map.set_serf_index(_n, 0);
+                }
+            }
         }
         serfs.erase(_index);
     };

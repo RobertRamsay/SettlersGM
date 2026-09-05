@@ -6,8 +6,8 @@
 /// besiege enemy buildings instead of duelling for them.
 ///
 /// The assault, in order:
-///   1. The soldier walks to the target exactly as a knight would, and stops
-///      one tile short of the door.
+///   1. The soldier sets off exactly as a knight would, and stops as soon as his
+///      target is within CF_SIEGE_RANGE tiles - he does not walk to the door.
 ///   2. He shoots it. Four rifle rounds, then a lobbed grenade, repeating.
 ///      Twenty rounds and five grenades bring a building down.
 ///   3. The building burns. Its garrison is turned out into the open by the
@@ -87,9 +87,14 @@
 /// they are visibly shooting at the place rather than standing in the doorway.
 #macro CF_SIEGE_RANGE 3
 
-/// Cosmetic pull-back, in screen pixels, on top of whatever tile he stopped on.
-#macro CF_STANDOFF_X 11
-#macro CF_STANDOFF_Y 6
+/// Muzzle height above the tile origin, in screen pixels, and how far along the
+/// soldier-to-target line the muzzle flash sits. Both flash and tracer are given
+/// the soldier's tile and the target's tile and resolved to the screen at draw
+/// time, so the flash lands on the barrel line whichever way he is facing -
+/// there is no way to get that right from the hex direction alone, because a
+/// hex step is not a fixed screen vector.
+#macro CF_MUZZLE_Y -10
+#macro CF_FLASH_T  0.16
 
 #macro CF_FX_LIMIT 192
 
@@ -311,11 +316,22 @@ function cf_try_open_siege(_serf) {
 
     var _map = _serf.game.get_map();
     var _geom = _map.geom;
-    var _tc = (_geom.pos_col(_serf.pos) + _dc) & _geom.col_mask;
-    var _tr = (_geom.pos_row(_serf.pos) + _dr) & _geom.row_mask;
-    var _target_pos = _geom.pos(_tc, _tr);
+    var _dc2 = (_geom.pos_col(_serf.pos) + _dc) & _geom.col_mask;
+    var _dr2 = (_geom.pos_row(_serf.pos) + _dr) & _geom.row_mask;
+    var _dest = _geom.pos(_dc2, _dr2);
 
-    var _bld = _serf.game.get_building_at_pos(_target_pos);
+    /* Where dist runs out is NOT the building - it is the attack tile, one step
+       down-right of it. start_attack measures dist from the knight while he is
+       still inside his own hut, then leave_building() walks him one step
+       down-right without decrementing it, so the whole walk is offset by that
+       step. Landing on the tile down-right of the target is exactly what the
+       ported code wants, because knight_engaging_building looks for its
+       building at move_up_left(pos).
+       Both tiles are tried rather than trusting the derivation alone. */
+    var _bld = _serf.game.get_building_at_pos(_map.move_up_left(_dest));
+    if (!cf_building_is_target(_bld, _serf)) {
+        _bld = _serf.game.get_building_at_pos(_dest);
+    }
     if (!cf_building_is_target(_bld, _serf)) {
         return false;               /* not walking at a building we can besiege */
     }
@@ -468,18 +484,6 @@ function cf_frame_for(_serf) {
     return CF_STAND + _dir;
 }
 
-/// Cosmetic pull-back so a soldier is not drawn on the doorstep of what he is
-/// shooting. Returns [dx, dy] in screen pixels, away from the target.
-function cf_standoff(_serf) {
-    if (_serf.cf_mode != CfMode.siege && _serf.cf_mode != CfMode.mopping) {
-        return [0, 0];
-    }
-    // the six hex directions in rough screen terms, x then y
-    var _sx = [1, 1, 0, -1, -1, 0];
-    var _sy = [0, 1, 1, 0, -1, -1];
-    var _d = _serf.cf_facing;
-    return [-CF_STANDOFF_X * _sx[_d], -CF_STANDOFF_Y * _sy[_d]];
-}
 
 /// Draw a soldier where draw_row_serf would have drawn the knight.
 /// `_colour` is the player colour the knight would have been masked with. It is
@@ -600,7 +604,10 @@ function cf_fx_draw(_view, _ox, _oy) {
 
         switch (_fx.kind) {
         case CfFx.flash:
-            draw_sprite(spr_cf_fx, CF_FX_FLASH + min(2, floor(_t * 3)), _ax, _ay);
+            /* A short way along the line to the target, so it sits on the
+               barrel rather than on the soldier's chest. */
+            draw_sprite(spr_cf_fx, CF_FX_FLASH + min(2, floor(_t * 3)),
+                        lerp(_ax, _bx, CF_FLASH_T), lerp(_ay, _by, CF_FLASH_T));
             break;
 
         case CfFx.tracer: {
@@ -665,18 +672,18 @@ function cf_play_rifle() {
 /// One rifle round from _serf at _target_pos, with a muzzle flash, a tracer and
 /// an impact where it lands.
 function cf_shoot_at(_serf, _target_pos, _aim_y) {
-    var _d = _serf.cf_facing;
-    var _sx = [1, 1, 0, -1, -1, 0];
-    var _sy = [0, 1, 1, 0, -1, -1];
-    var _mx = -CF_STANDOFF_X * _sx[_d] + 5 * _sx[_d];
-    var _my = -CF_STANDOFF_Y * _sy[_d] - 9;
     var _spread = cf_rand(5) - 2;
 
-    cf_fx_at(CfFx.flash, _serf.pos, _mx, _my, 3, 0);
-    var _tr = cf_fx_add(CfFx.tracer, _serf.pos, _mx, _my,
-                        _target_pos, _spread, _aim_y, 5, 0);
-    cf_fx_add(CfFx.impact, _target_pos, _spread, _aim_y,
-              _target_pos, _spread, _aim_y, 6, 4);
+    /* Flash and tracer are both given the soldier's tile AND the target's, so
+       the line between them is worked out from two real map positions at draw
+       time. The flash then sits a short way along that line and is on the
+       barrel whichever way he is facing - which cannot be done from the hex
+       direction alone, because a hex step is not a fixed screen vector. */
+    cf_fx_add(CfFx.flash, _serf.pos, 0, CF_MUZZLE_Y,
+              _target_pos, _spread, _aim_y, 3, 0);
+    cf_fx_add(CfFx.tracer, _serf.pos, 0, CF_MUZZLE_Y,
+              _target_pos, _spread, _aim_y, 5, 0);
+    cf_fx_at(CfFx.impact, _target_pos, _spread, _aim_y, 6, 4);
     cf_play_rifle();
     _serf.cf_throwing = false;
     _serf.cf_last_shot = 0;
@@ -684,13 +691,7 @@ function cf_shoot_at(_serf, _target_pos, _aim_y) {
 
 /// One grenade from _serf at _target_pos. It arcs over, then detonates.
 function cf_throw_at(_serf, _target_pos, _aim_y) {
-    var _d = _serf.cf_facing;
-    var _sx = [1, 1, 0, -1, -1, 0];
-    var _sy = [0, 1, 1, 0, -1, -1];
-    var _mx = -CF_STANDOFF_X * _sx[_d] + 3 * _sx[_d];
-    var _my = -CF_STANDOFF_Y * _sy[_d] - 11;
-
-    var _g = cf_fx_add(CfFx.grenade, _serf.pos, _mx, _my,
+    var _g = cf_fx_add(CfFx.grenade, _serf.pos, 0, CF_MUZZLE_Y - 2,
                        _target_pos, cf_rand(7) - 3, _aim_y,
                        CF_GRENADE_FLIGHT, 6);
     if (_g != undefined) {
