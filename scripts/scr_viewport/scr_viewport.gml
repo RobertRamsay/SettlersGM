@@ -2788,16 +2788,15 @@ function Viewport(_interface, _map) : GuiObject() constructor {
     /// bool handle_drag(int lx, int ly)
     static handle_drag = function(_dx, _dy) {
         if (_dx != 0 || _dy != 0) {
-            // 1:1 grabs the ground - the map travels with the pointer, so the
-            // pixel under the cursor stays under it. "Orig" is Freeserf's, where
-            // the drag pushes the view and the map slides against the hand.
-            // Invert flips whichever of the two is selected.
-            var _sign = 1;
-            if (global.map_drag_1to1) {
-                _sign = -1;
-            }
+            // Default (Invert = No) grabs the ground: the map travels with the
+            // pointer, so the pixel under the cursor stays under it. Inverted is
+            // Freeserf's original, where the drag pushes the view and the map
+            // slides against the hand. That is the whole difference - the two
+            // are the same movement with opposite signs, which is why one
+            // setting covers it.
+            var _sign = -1;
             if (global.map_drag_invert) {
-                _sign = -_sign;
+                _sign = 1;
             }
             move_by_pixels(_sign * _dx, _sign * _dy);
         }

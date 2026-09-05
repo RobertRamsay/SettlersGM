@@ -168,15 +168,13 @@ for (var _b = 1; _b <= 3; _b++) {
 }
 
 // ---- keyboard: map scroll (arrow keys = drag by 32) and key presses
-// The arrows scroll the view the way they point. In 1:1 mode the viewport's
-// drag handler moves the map with the pointer, which is the opposite sign, so
-// the synthetic delta flips to keep the arrows doing the same thing either way.
-var _scroll_sign = 1;
-if (global.map_drag_1to1) {
-    _scroll_sign = -1;
-}
+// The arrows scroll the view the way they point, whichever way dragging is set
+// to. By default the viewport's drag handler moves the map with the pointer,
+// which is the opposite sign to the arrows, so the synthetic delta flips - and
+// flips back when Invert is on, so the arrows never change meaning.
+var _scroll_sign = -1;
 if (global.map_drag_invert) {
-    _scroll_sign = -_scroll_sign;
+    _scroll_sign = 1;
 }
 if (keyboard_check_pressed(vk_up)) {
     interface.handle_event(gui_make_event(EventType.drag, 0, 0, 0, -32 * _scroll_sign, EventButton.left));
