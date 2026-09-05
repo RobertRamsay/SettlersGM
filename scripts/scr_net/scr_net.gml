@@ -132,37 +132,68 @@ function net_host() {
     ds_map_clear(global.net_turns);
     ds_map_clear(global.net_checks);
     global.net_outbox = [];
-    global.net_status = "hosting on port " + string(NET_PORT) + " - waiting";
+    global.net_status = "hosting on port " + string(NET_PORT) +
+                        " (server " + string(global.net_server) + ") - waiting";
     show_debug_message("net: " + global.net_status);
     return true;
 }
 
+/// Join a host. When _ip is the loopback name, more than one spelling of "this
+/// machine" is tried before giving up.
+///
+/// 127.0.0.1 is IPv4 and localhost usually resolves to ::1 first. If the
+/// runtime's listening socket ends up bound to only one family, the other
+/// spelling is refused instantly while the host sits there apparently waiting -
+/// which is exactly what "hosting on 6510" and "no answer from 127.0.0.1" look
+/// like together. Trying both costs nothing and tells us which it was.
 function net_join(_ip) {
     if (net_is_active()) {
         return false;
     }
 
-    show_debug_message("net: joining " + string(_ip) + ":" + string(NET_PORT));
-
-    global.net_socket = network_create_socket(network_socket_tcp);
-    show_debug_message("net: network_create_socket -> " + string(global.net_socket));
-    if (global.net_socket < 0) {
-        global.net_status = "could not open a socket";
-        show_debug_message("net: " + global.net_status);
-        return false;
+    var _addresses = [_ip];
+    if (_ip == "127.0.0.1") {
+        array_push(_addresses, "localhost");
+        array_push(_addresses, "::1");
     }
 
-    /* Bound the wait. network_connect blocks until it succeeds or gives up, and
-       the default give-up is long enough that the game looks hung rather than
-       refused - which is not the impression a wrong IP should leave. */
+    /* MUST come before the socket is created - the manual is explicit that the
+       connect timeout is read when the socket is made, so setting it afterwards
+       does nothing at all. */
     network_set_config(network_config_connect_timeout, 2000);
 
-    var _r = network_connect(global.net_socket, _ip, NET_PORT);
-    show_debug_message("net: network_connect -> " + string(_r));
-    if (_r < 0) {
+    var _tried = "";
+    for (var _i = 0; _i < array_length(_addresses); _i++) {
+        var _addr = _addresses[_i];
+        show_debug_message("net: joining " + string(_addr) + ":" + string(NET_PORT));
+
+        global.net_socket = network_create_socket(network_socket_tcp);
+        show_debug_message("net: network_create_socket -> " + string(global.net_socket));
+        if (global.net_socket < 0) {
+            global.net_status = "could not open a socket";
+            show_debug_message("net: " + global.net_status);
+            return false;
+        }
+
+        var _r = network_connect(global.net_socket, _addr, NET_PORT);
+        show_debug_message("net: network_connect(" + string(_addr) + ") -> " + string(_r));
+        if (_r >= 0) {
+            _ip = _addr;
+            break;
+        }
+
         network_destroy(global.net_socket);
         global.net_socket = -1;
-        global.net_status = "no answer from " + string(_ip) + ":" + string(NET_PORT);
+        if (_tried != "") {
+            _tried += ", ";
+        }
+        _tried += string(_addr) + "=" + string(_r);
+    }
+
+    if (global.net_socket < 0) {
+        /* The return codes go on screen, not only in the log: which spelling
+           failed and with what is the whole diagnosis. */
+        global.net_status = "no answer on port " + string(NET_PORT) + " [" + _tried + "]";
         show_debug_message("net: " + global.net_status);
         return false;
     }
