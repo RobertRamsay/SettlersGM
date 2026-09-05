@@ -745,6 +745,25 @@ function Building(_game, _index) : GameObject(_game, _index) constructor {
             if (active) {
                 game.delete_inventory(inventory);
                 inventory = undefined;
+
+                /* The flag has to stop advertising an inventory at the same
+                   moment the inventory goes. bld_flags carries only
+                   has_inventory / accepts_serfs and bld2_flags only
+                   accepts_resources, so clear_flags() clears exactly those and
+                   nothing else - the same call the code already makes when a
+                   building is finished or captured.
+
+                   Without this the flag keeps claiming an inventory for the
+                   whole burn, which for a castle is 8191 ticks (over two
+                   minutes), and send_serf_to_flag_search_cb walks past its
+                   has_inventory() guard straight into
+                   building.get_inventory() == undefined. Burning a castle
+                   killed the game a second or two later, as soon as anything
+                   asked for a serf. */
+                var _burnt_flag = game.get_flag(get_flag_index());
+                if (_burnt_flag != undefined) {
+                    _burnt_flag.clear_flags();
+                }
             }
 
             /* Let some serfs escape while the building is burning. */

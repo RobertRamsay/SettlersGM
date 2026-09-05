@@ -110,6 +110,16 @@ function notification_init_tables() {
           decoration: NOTIFICATION_SHOW_MAP_OBJECT,
           icon: _mbs[BuildingType.stock],
           text: "You wanted me\nto call you\nto this stock" },
+        /* Not in Freeserf: the end-of-game result. `data` is a player index, so
+           the face shown is whoever was beaten, or whoever beat you. */
+        { type: MessageType.game_won,
+          decoration: NOTIFICATION_SHOW_OPPONENT,
+          icon: 0,
+          text: "Your enemies\nare defeated.\nThe land is yours" },
+        { type: MessageType.game_lost,
+          decoration: NOTIFICATION_SHOW_OPPONENT,
+          icon: 0,
+          text: "Your settlement\nis destroyed.\nYou have lost" },
         { type: MessageType.none, decoration: 0, icon: 0, text: undefined }
     ];
 

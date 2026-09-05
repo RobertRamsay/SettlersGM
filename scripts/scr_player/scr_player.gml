@@ -24,7 +24,12 @@ enum MessageType {
     call_to_menu = 16,
     thirty_m_since_save = 17,
     one_h_since_save = 18,
-    call_to_stock = 19
+    call_to_stock = 19,
+    /* Not in Freeserf. 1..19 is the original's own numbering and the save
+       format stores these as plain integers, so new kinds are added above that
+       range rather than inserted into it. */
+    game_won = 20,
+    game_lost = 21
 }
 
 /// Port of Message: {type, pos, data}

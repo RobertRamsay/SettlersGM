@@ -1,0 +1,180 @@
+diff --git a/scripts/scr_game/scr_game.gml b/scripts/scr_game/scr_game.gml
+index cb58aa01..9ac53f3e 100644
+--- a/scripts/scr_game/scr_game.gml
++++ b/scripts/scr_game/scr_game.gml
+@@ -151,6 +151,16 @@ function Game() constructor {
+     game_type = 0;
+     tutorial_level = 0;
+     mission_level = 0;
++
++    /* Win / loss. 0 = still playing, 1 = won, 2 = lost. The result is announced
++       once through the notification system and play carries on, so this is only
++       here to stop it being announced again every second. game_over_seen
++       records which players have ever had anything, because at the start of a
++       mission nobody has placed a castle yet and every player would otherwise
++       read as already finished. */
++    game_over = 0;
++    game_over_counter = 0;
++    game_over_seen = array_create(GAME_MAX_PLAYER_COUNT, false);
+     map_preserve_bugs = 0;
+     player_score_leader = 0;
+ 
+@@ -824,6 +834,119 @@ function Game() constructor {
+         update_buildings();
+         update_serfs();
+         update_game_stats();
++
++        /* Win / loss, once a second. Not in Freeserf; see check_game_over. */
++        game_over_counter -= tick_diff;
++        if (game_over_counter < 0) {
++            check_game_over();
++            game_over_counter += TICKS_PER_SEC;
++        }
++    };
++
++    /// Has anyone won or lost?
++    ///
++    /// A player is finished when they have neither a building that is still
++    /// standing nor a knight left alive. Buildings under construction count, and
++    /// so do knights sitting inside a hut; a building that is burning down does
++    /// not, because it is already gone.
++    ///
++    /// The result is announced through the normal notification system and the
++    /// game carries on - nothing is paused or closed - so this can never
++    /// interrupt a session.
++    ///
++    /// game_over_seen is what stops it firing at t=0: at the start of a mission
++    /// nobody has placed a castle, so every player would read as finished. A
++    /// player only becomes eligible once they have actually had something, and
++    /// an opponent who has not started yet holds the victory check off rather
++    /// than counting as beaten.
++    static check_game_over = function() {
++        if (game_over != 0) {
++            return;
++        }
++
++        var _bld = array_create(GAME_MAX_PLAYER_COUNT, 0);
++        var _knights = array_create(GAME_MAX_PLAYER_COUNT, 0);
++        var _castle_pos = array_create(GAME_MAX_PLAYER_COUNT, 0);
++
++        var _bs = buildings.to_array();
++        for (var _i = 0; _i < array_length(_bs); _i++) {
++            var _b = _bs[_i];
++            if (_b.is_burning()) {
++                continue;
++            }
++            var _o = _b.get_owner();
++            if (_o < 0 || _o >= GAME_MAX_PLAYER_COUNT) {
++                continue;
++            }
++            _bld[_o] += 1;
++            if (_b.get_type() == BuildingType.castle) {
++                _castle_pos[_o] = _b.get_position();
++            }
++        }
++
++        var _ss = serfs.to_array();
++        for (var _j = 0; _j < array_length(_ss); _j++) {
++            var _s = _ss[_j];
++            var _t = _s.get_type();
++            if (_t < SerfType.knight0 || _t > SerfType.knight4) {
++                continue;
++            }
++            var _so = _s.get_owner();
++            if (_so < 0 || _so >= GAME_MAX_PLAYER_COUNT) {
++                continue;
++            }
++            _knights[_so] += 1;
++        }
++
++        for (var _p = 0; _p < GAME_MAX_PLAYER_COUNT; _p++) {
++            if (_bld[_p] > 0 || _knights[_p] > 0) {
++                game_over_seen[_p] = true;
++            }
++        }
++
++        /* Player 0 is the human, the same assumption the mission setup and the
++           panel already make. */
++        var _me = 0;
++        var _human = get_player(_me);
++        if (_human == undefined) {
++            return;
++        }
++
++        if (game_over_seen[_me] && _bld[_me] == 0 && _knights[_me] == 0) {
++            var _victor = _me;
++            for (var _v = 0; _v < GAME_MAX_PLAYER_COUNT; _v++) {
++                if (_v != _me && (_bld[_v] > 0 || _knights[_v] > 0)) {
++                    _victor = _v;
++                    break;
++                }
++            }
++            game_over = 2;
++            _human.add_notification(MessageType.game_lost, _castle_pos[_me], _victor);
++            show_debug_message("game: player 0 has nothing left - defeat");
++            return;
++        }
++
++        var _beaten = -1;
++        for (var _q = 0; _q < GAME_MAX_PLAYER_COUNT; _q++) {
++            if (_q == _me || !players.exists(_q)) {
++                continue;
++            }
++            if (!game_over_seen[_q]) {
++                return;      /* this one has not started yet */
++            }
++            if (_bld[_q] > 0 || _knights[_q] > 0) {
++                return;      /* still standing */
++            }
++            _beaten = _q;
++        }
++
++        if (_beaten < 0) {
++            return;          /* no opponents at all, nothing to win */
++        }
++
++        game_over = 1;
++        _human.add_notification(MessageType.game_won, _castle_pos[_me], _beaten);
++        show_debug_message("game: every opponent is finished - victory");
+     };
+ 
+     /* Pause or unpause the game. */
+diff --git a/scripts/scr_notification/scr_notification.gml b/scripts/scr_notification/scr_notification.gml
+index e293736e..d22ffc56 100644
+--- a/scripts/scr_notification/scr_notification.gml
++++ b/scripts/scr_notification/scr_notification.gml
+@@ -110,6 +110,16 @@ function notification_init_tables() {
+           decoration: NOTIFICATION_SHOW_MAP_OBJECT,
+           icon: _mbs[BuildingType.stock],
+           text: "You wanted me\nto call you\nto this stock" },
++        /* Not in Freeserf: the end-of-game result. `data` is a player index, so
++           the face shown is whoever was beaten, or whoever beat you. */
++        { type: MessageType.game_won,
++          decoration: NOTIFICATION_SHOW_OPPONENT,
++          icon: 0,
++          text: "Your enemies\nare defeated.\nThe land is yours" },
++        { type: MessageType.game_lost,
++          decoration: NOTIFICATION_SHOW_OPPONENT,
++          icon: 0,
++          text: "Your settlement\nis destroyed.\nYou have lost" },
+         { type: MessageType.none, decoration: 0, icon: 0, text: undefined }
+     ];
+ 
+diff --git a/scripts/scr_player/scr_player.gml b/scripts/scr_player/scr_player.gml
+index 7cf03c96..e1691d8c 100644
+--- a/scripts/scr_player/scr_player.gml
++++ b/scripts/scr_player/scr_player.gml
+@@ -24,7 +24,12 @@ enum MessageType {
+     call_to_menu = 16,
+     thirty_m_since_save = 17,
+     one_h_since_save = 18,
+-    call_to_stock = 19
++    call_to_stock = 19,
++    /* Not in Freeserf. 1..19 is the original's own numbering and the save
++       format stores these as plain integers, so new kinds are added above that
++       range rather than inserted into it. */
++    game_won = 20,
++    game_lost = 21
+ }
+ 
+ /// Port of Message: {type, pos, data}

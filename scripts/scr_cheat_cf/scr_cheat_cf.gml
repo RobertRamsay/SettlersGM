@@ -74,6 +74,12 @@
 #macro CF_MOP_RADIUS   61        // spiral positions searched (radius 4)
 #macro CF_MOP_INTERVAL 18        // ticks between shots at a man in the open
 
+/// Hold fire for three seconds after a building comes down. burnup() turns the
+/// garrison out, but they need a moment to actually walk clear of the rubble -
+/// without the pause the lads shoot at the doorway before anyone is standing in
+/// it, and the survivors then scatter before the first target is even acquired.
+#macro CF_MOP_DELAY    150       // 50 ticks = 1 second
+
 /// Cosmetic pull-back, in screen pixels, so a soldier is not standing on the
 /// doorstep of the thing he is shooting at.
 #macro CF_STANDOFF_X 11
@@ -784,9 +790,10 @@ function cf_siege_tick(_serf) {
     case CfMode.siege: {
         var _bld = _game.get_building(_serf.cf_target);
         if (_bld == undefined || _bld.is_burning()) {
+            /* Somebody else brought it down. Same pause as if we had. */
             _serf.cf_mode = CfMode.mopping;
             _serf.cf_target = 0;
-            _serf.cf_timer = CF_MOP_INTERVAL;
+            _serf.cf_timer = CF_MOP_DELAY;
             return true;
         }
         if (_serf.cf_timer > 0) {
@@ -809,12 +816,21 @@ function cf_siege_tick(_serf) {
             cf_torch_building(_bld);
             _serf.cf_mode = CfMode.mopping;
             _serf.cf_target = 0;
-            _serf.cf_timer = CF_MOP_INTERVAL * 2;   // let them get outside first
+            _serf.cf_timer = CF_MOP_DELAY;   // let the garrison get clear first
         }
         return true;
     }
 
     case CfMode.mopping: {
+        /* The clock is checked FIRST, before looking for anyone to shoot. Right
+           after a building falls this is the three-second hold that lets the
+           garrison walk clear - and if the search ran first, the soldier would
+           find nobody outside yet, decide the coast was clear and march home
+           before the first man had even stepped out of the rubble. */
+        if (_serf.cf_timer > 0) {
+            return true;
+        }
+
         var _target = undefined;
         if (_serf.cf_target != 0) {
             _target = _game.get_serf(_serf.cf_target);
@@ -834,10 +850,6 @@ function cf_siege_tick(_serf) {
                 _serf.cf_target = 0;
                 return true;
             }
-        }
-
-        if (_serf.cf_timer > 0) {
-            return true;
         }
 
         _serf.cf_facing = cf_dir_towards(_map, _serf.pos, _target.pos);
