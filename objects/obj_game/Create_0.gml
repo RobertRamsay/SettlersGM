@@ -23,6 +23,12 @@ net_init();     // two-player lockstep networking (idle until F7 / F8)
 // event that is walking the interface's float list.
 global.net_pending_start = undefined;
 
+// The join prompt: F8 opens it, you type the host's address, Enter connects.
+// Not a lobby - but two machines cannot find each other without somewhere to
+// put an address, and 127.0.0.1 is only ever the machine doing the typing.
+global.net_ip_prompt = false;
+global.net_ip_text = "";
+
 // Window: integer-scaled, pixel-perfect
 window_set_size(SCREEN_W * SCREEN_SCALE, SCREEN_H * SCREEN_SCALE);
 surface_resize(application_surface, SCREEN_W, SCREEN_H);

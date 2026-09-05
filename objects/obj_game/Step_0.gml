@@ -59,9 +59,14 @@ if (keyboard_check_pressed(vk_f12)) {
     }
 }
 
-// ---- F7 hosts a two-player game, F8 joins one on this machine.
-// Deliberately keys and not a lobby yet: two instances on one PC is how the
-// lockstep gets tested, and 127.0.0.1 needs no network at all to try.
+// ---- F7 hosts a two-player game, F8 asks who to join.
+// Keys rather than a lobby for now. Press either at any point - the host starts
+// mission 1 the moment somebody connects, so do it before settling into a game
+// you care about.
+//
+// The joiner types the HOST MACHINE's address. 127.0.0.1 only ever means the
+// machine doing the typing, so it works for two instances on one PC and can
+// never work between two PCs - which is what the first version got wrong.
 if (keyboard_check_pressed(vk_f7)) {
     show_debug_message("net: F7 pressed");
     if (net_host()) {
@@ -69,9 +74,30 @@ if (keyboard_check_pressed(vk_f7)) {
     }
 }
 
-if (keyboard_check_pressed(vk_f8)) {
-    show_debug_message("net: F8 pressed");
-    net_join("127.0.0.1");
+if (keyboard_check_pressed(vk_f8) && !global.net_ip_prompt && !net_is_active()) {
+    show_debug_message("net: F8 pressed - asking for the host address");
+    global.net_ip_prompt = true;
+    // keyboard_string is GameMaker's own typed-text buffer and handles
+    // backspace itself, so seeding it with the remembered address is the whole
+    // of the text editing.
+    keyboard_string = net_load_host_ip();
+    global.net_ip_text = keyboard_string;
+}
+
+if (global.net_ip_prompt) {
+    global.net_ip_text = keyboard_string;
+
+    if (keyboard_check_pressed(vk_enter)) {
+        global.net_ip_prompt = false;
+        var _ip = string_trim(global.net_ip_text);
+        if (_ip != "") {
+            net_save_host_ip(_ip);
+            net_join(_ip);
+        }
+    } else if (keyboard_check_pressed(vk_escape)) {
+        global.net_ip_prompt = false;
+        global.net_status = "";
+    }
 }
 
 // The host starts the game as soon as somebody is actually connected.
@@ -258,7 +284,7 @@ if (keyboard_check(vk_shift)) {
 if (keyboard_check(vk_alt)) {
     _modifier |= 4;
 }
-if (keyboard_check_pressed(vk_anykey)) {
+if (keyboard_check_pressed(vk_anykey) && !global.net_ip_prompt) {
     var _key = keyboard_key;
     var _chr = -1;
     if (_key >= ord("A") && _key <= ord("Z")) {

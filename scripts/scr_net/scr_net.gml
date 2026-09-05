@@ -110,6 +110,25 @@ function net_status_line() {
     return global.net_status;
 }
 
+// ---------------------------------------------------------- host address
+
+/// The address to join, kept in the same ini as mission progress so it survives
+/// a restart. Typing an IP once per session is enough of a tax.
+#macro NET_INI_SECTION "net"
+
+function net_load_host_ip() {
+    ini_open(PROGRESS_PATH);
+    var _ip = ini_read_string(NET_INI_SECTION, "host", "192.168.1.");
+    ini_close();
+    return _ip;
+}
+
+function net_save_host_ip(_ip) {
+    ini_open(PROGRESS_PATH);
+    ini_write_string(NET_INI_SECTION, "host", _ip);
+    ini_close();
+}
+
 // ---------------------------------------------------------------- connect
 
 function net_host() {
@@ -152,9 +171,11 @@ function net_join(_ip) {
     }
 
     var _addresses = [_ip];
-    if (_ip == "127.0.0.1") {
-        array_push(_addresses, "localhost");
-        array_push(_addresses, "::1");
+    if (_ip == "127.0.0.1" || _ip == "localhost") {
+        /* Loopback only. Two instances on ONE machine reach each other this
+           way; two machines never can, whichever spelling is used, because
+           loopback is the joining machine talking to itself. */
+        _addresses = ["127.0.0.1", "localhost", "::1"];
     }
 
     /* MUST come before the socket is created - the manual is explicit that the

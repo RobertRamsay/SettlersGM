@@ -24,7 +24,15 @@ if (show_debug) {
 // that fails leaves the role back at off, so gating this on net_is_active()
 // hid the one message that mattered - which is how a failed connection came to
 // look like a key that did nothing.
-if (net_status_line() != "") {
+if (global.net_ip_prompt) {
+    var _prompt = "JOIN HOST AT: " + global.net_ip_text + "_" +
+                  "   (Enter to connect, Esc to cancel)";
+    draw_set_colour(c_black);
+    draw_text(5, 5, _prompt);
+    draw_set_colour(c_yellow);
+    draw_text(4, 4, _prompt);
+    draw_set_colour(c_white);
+} else if (net_status_line() != "") {
     var _msg = "NET: " + net_status_line();
     if (net_is_running() && net_ticks_available() <= 0) {
         _msg += "  [waiting for the other player]";
