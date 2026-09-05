@@ -33,7 +33,10 @@ enum GameInitAction {
     close,
     gen_random,
     apply_random,
-    show_load
+    show_load,
+    /* Not in Freeserf: write the completed-mission list out. Appended, never
+       inserted, so nothing above it renumbers. */
+    save_progress
 }
 
 /// GameInitBox::GameType
@@ -78,6 +81,7 @@ function game_init_init_tables() {
     global.game_init_clickmap_mission = [
         GameInitAction.start_game,        20,  16, 32, 32,
         GameInitAction.toggle_game_type,  60,  16, 32, 32,
+        GameInitAction.save_progress,    212,  16, 40, 16,
         GameInitAction.show_load,        200, 222, 40, 16,
         GameInitAction.show_options,     308,  16, 32, 32,
         GameInitAction.increment,        284,  16, 16, 16,
@@ -269,6 +273,10 @@ function GameInitBox(_interface) : GuiObject() constructor {
     game_type = GameType.custom;
     game_mission = 0;
 
+    /* current_time up to which the save button reads "Saved" instead of
+       "Save". 0 means it never has been, this session. */
+    progress_saved_until = 0;
+
     custom_mission = undefined;
     mission = undefined;
 
@@ -360,9 +368,21 @@ function GameInitBox(_interface) : GuiObject() constructor {
                 /* Not in the original: mark a mission already won, so you can
                    step through the list and see where you got to rather than
                    having to remember. progress_mission_is_done reads a cached
-                   set, so asking every frame costs nothing. */
+                   array, so asking every frame costs nothing. */
                 if (progress_mission_is_done(game_mission)) {
-                    draw_box_string(23, 18, "DONE");
+                    draw_box_string(24, 18, "Complete");
+                }
+
+                /* Write the completed list out by hand. It is also written the
+                   moment a mission is won, so this is a re-save rather than the
+                   only way to keep progress - but having the button means the
+                   state is never something you just have to trust. Column 24
+                   puts it directly above "Complete" and clear of the up arrow
+                   at x 284. */
+                if (current_time < progress_saved_until) {
+                    draw_box_string(24, 2, "Saved");
+                } else {
+                    draw_box_string(24, 2, "Save");
                 }
 
                 draw_box_icon(33, 0, 237);  // Up button
@@ -621,6 +641,14 @@ function GameInitBox(_interface) : GuiObject() constructor {
                         break;
                 }
                 generate_map_preview();
+                break;
+            case GameInitAction.save_progress:
+                progress_save();
+                /* Sfx.accepted is the affirmative blip, so the click sounds
+                   like it did something - there is no other feedback until the
+                   label changes. */
+                play_sound(Sfx.accepted);
+                progress_saved_until = current_time + 1500;
                 break;
             case GameInitAction.close:
                 /* Quitting in-game returns here, so this is the way out. */

@@ -1,0 +1,168 @@
+From 35a150396ee7b8b2da602ee625de9c344d5d32cc Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 5 Sep 2026 14:39:32 +0000
+Subject: [PATCH] End box reads as one question; Complete marker and a Save on
+ the start screen
+
+End box:
+- "Play on" over the tick and "Menu" over the exit sat on the same line and read
+  as one phrase, "PLAY ON MENU". Replaced with a single centred "Play on?" - the
+  two icons below already say which is which, the tick being yes and the exit
+  the way out, as everywhere else in the game.
+- The title sat at row 4, so the bottom of the lettering (y 13..22) ran into the
+  top of the portrait block (y 19). Title to row 0 and portraits to row 16 opens
+  that to a 3px gap, and the rest moves down with it: result line at 96, the
+  question at 114, icons unchanged at 128. 153px of the 160 used.
+
+Start screen:
+- "DONE" beside the mission number is now "Complete", at column 24.
+- A Save control on the top row, in line with "Start mission" and directly above
+  Complete, writes the completed-mission list out by hand. Progress is still
+  written the moment a mission is won, so this is a re-save rather than the only
+  way to keep it - but the button means the state is never something you just
+  have to trust. It answers with Sfx.accepted and reads "Saved" for a second and
+  a half, because otherwise a click that worked and a click that missed look
+  identical.
+
+The clickmap row (x 212..252, y 16..32) matches the label's own extent exactly
+and is in the mission clickmap only, progress being a mission-mode idea. Checked
+against every other row in that map for overlap; "Complete" at x 212..276 stays
+clear of the up arrow at 284.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DFktm5o1kLnS2Pgvyp8tD4
+---
+ scripts/scr_game_init/scr_game_init.gml | 34 ++++++++++++++++++++++---
+ scripts/scr_popup_b/scr_popup_b.gml     | 25 ++++++++++--------
+ 2 files changed, 46 insertions(+), 13 deletions(-)
+
+diff --git a/scripts/scr_game_init/scr_game_init.gml b/scripts/scr_game_init/scr_game_init.gml
+index 6413f0d5..c84e2d00 100644
+--- a/scripts/scr_game_init/scr_game_init.gml
++++ b/scripts/scr_game_init/scr_game_init.gml
+@@ -33,7 +33,10 @@ enum GameInitAction {
+     close,
+     gen_random,
+     apply_random,
+-    show_load
++    show_load,
++    /* Not in Freeserf: write the completed-mission list out. Appended, never
++       inserted, so nothing above it renumbers. */
++    save_progress
+ }
+ 
+ /// GameInitBox::GameType
+@@ -78,6 +81,7 @@ function game_init_init_tables() {
+     global.game_init_clickmap_mission = [
+         GameInitAction.start_game,        20,  16, 32, 32,
+         GameInitAction.toggle_game_type,  60,  16, 32, 32,
++        GameInitAction.save_progress,    212,  16, 40, 16,
+         GameInitAction.show_load,        200, 222, 40, 16,
+         GameInitAction.show_options,     308,  16, 32, 32,
+         GameInitAction.increment,        284,  16, 16, 16,
+@@ -269,6 +273,10 @@ function GameInitBox(_interface) : GuiObject() constructor {
+     game_type = GameType.custom;
+     game_mission = 0;
+ 
++    /* current_time up to which the save button reads "Saved" instead of
++       "Save". 0 means it never has been, this session. */
++    progress_saved_until = 0;
++
+     custom_mission = undefined;
+     mission = undefined;
+ 
+@@ -360,9 +368,21 @@ function GameInitBox(_interface) : GuiObject() constructor {
+                 /* Not in the original: mark a mission already won, so you can
+                    step through the list and see where you got to rather than
+                    having to remember. progress_mission_is_done reads a cached
+-                   set, so asking every frame costs nothing. */
++                   array, so asking every frame costs nothing. */
+                 if (progress_mission_is_done(game_mission)) {
+-                    draw_box_string(23, 18, "DONE");
++                    draw_box_string(24, 18, "Complete");
++                }
++
++                /* Write the completed list out by hand. It is also written the
++                   moment a mission is won, so this is a re-save rather than the
++                   only way to keep progress - but having the button means the
++                   state is never something you just have to trust. Column 24
++                   puts it directly above "Complete" and clear of the up arrow
++                   at x 284. */
++                if (current_time < progress_saved_until) {
++                    draw_box_string(24, 2, "Saved");
++                } else {
++                    draw_box_string(24, 2, "Save");
+                 }
+ 
+                 draw_box_icon(33, 0, 237);  // Up button
+@@ -622,6 +642,14 @@ function GameInitBox(_interface) : GuiObject() constructor {
+                 }
+                 generate_map_preview();
+                 break;
++            case GameInitAction.save_progress:
++                progress_save();
++                /* Sfx.accepted is the affirmative blip, so the click sounds
++                   like it did something - there is no other feedback until the
++                   label changes. */
++                play_sound(Sfx.accepted);
++                progress_saved_until = current_time + 1500;
++                break;
+             case GameInitAction.close:
+                 /* Quitting in-game returns here, so this is the way out. */
+                 game_end();
+diff --git a/scripts/scr_popup_b/scr_popup_b.gml b/scripts/scr_popup_b/scr_popup_b.gml
+index af2ddf04..f0da8bf7 100644
+--- a/scripts/scr_popup_b/scr_popup_b.gml
++++ b/scripts/scr_popup_b/scr_popup_b.gml
+@@ -1295,14 +1295,15 @@ function popup_draw_game_end_box(_popup) {
+         _opponents = _game.game_over_opponents;
+     }
+ 
+-    /* Titles are centred by eye on a 16 column grid: 8 characters starting at
+-       column 4 lands in the middle. */
++    /* Titles are centred by eye on the 16 column content grid: 8 characters
++       starting at column 4 lands in the middle. Drawn at row 0 so the bottom of
++       the lettering clears the top of the portrait block at 21. */
+     if (_result == 1) {
+-        _popup.draw_green_string(4, 4, "VICTORY");
++        _popup.draw_green_string(4, 0, "VICTORY");
+     } else if (_result == 2) {
+-        _popup.draw_green_string(4, 4, "DEFEATED");
++        _popup.draw_green_string(4, 0, "DEFEATED");
+     } else {
+-        _popup.draw_green_string(3, 4, "IN PROGRESS");
++        _popup.draw_green_string(3, 0, "IN PROGRESS");
+     }
+ 
+     var _count = array_length(_opponents);
+@@ -1324,18 +1325,22 @@ function popup_draw_game_end_box(_popup) {
+     }
+ 
+     for (var _i = 0; _i < _count; _i++) {
+-        popup_draw_game_end_face(_popup, _first + _i * _pitch, 14,
++        popup_draw_game_end_face(_popup, _first + _i * _pitch, 16,
+                                  _opponents[_i], _block);
+     }
+ 
+     if (_result == 1) {
+-        _popup.draw_green_string(1, 94, "Land is yours");
++        _popup.draw_green_string(1, 96, "Land is yours");
+     } else if (_result == 2) {
+-        _popup.draw_green_string(1, 94, "You are beaten");
++        _popup.draw_green_string(1, 96, "You are beaten");
+     }
+ 
+-    _popup.draw_green_string(0, 112, "Play on");
+-    _popup.draw_green_string(8, 112, "Menu");
++    /* One question, not two labels. "Play on" over the tick and "Menu" over the
++       exit read as a single phrase - "PLAY ON MENU" - because they sit on the
++       same line. The two icons below already say which is which: the tick is
++       yes and the exit is the way out, exactly as they are everywhere else in
++       the game. */
++    _popup.draw_green_string(4, 114, "Play on?");
+ 
+     _popup.draw_popup_icon(3, 128, 288);  /* Checkbox: carry on playing */
+     _popup.draw_popup_icon(14, 128, 60);  /* Exit: back to the start screen */
+-- 
+2.43.0
+

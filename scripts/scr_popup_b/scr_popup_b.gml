@@ -1295,14 +1295,15 @@ function popup_draw_game_end_box(_popup) {
         _opponents = _game.game_over_opponents;
     }
 
-    /* Titles are centred by eye on a 16 column grid: 8 characters starting at
-       column 4 lands in the middle. */
+    /* Titles are centred by eye on the 16 column content grid: 8 characters
+       starting at column 4 lands in the middle. Drawn at row 0 so the bottom of
+       the lettering clears the top of the portrait block at 21. */
     if (_result == 1) {
-        _popup.draw_green_string(4, 4, "VICTORY");
+        _popup.draw_green_string(4, 0, "VICTORY");
     } else if (_result == 2) {
-        _popup.draw_green_string(4, 4, "DEFEATED");
+        _popup.draw_green_string(4, 0, "DEFEATED");
     } else {
-        _popup.draw_green_string(3, 4, "IN PROGRESS");
+        _popup.draw_green_string(3, 0, "IN PROGRESS");
     }
 
     var _count = array_length(_opponents);
@@ -1324,18 +1325,22 @@ function popup_draw_game_end_box(_popup) {
     }
 
     for (var _i = 0; _i < _count; _i++) {
-        popup_draw_game_end_face(_popup, _first + _i * _pitch, 14,
+        popup_draw_game_end_face(_popup, _first + _i * _pitch, 16,
                                  _opponents[_i], _block);
     }
 
     if (_result == 1) {
-        _popup.draw_green_string(1, 94, "Land is yours");
+        _popup.draw_green_string(1, 96, "Land is yours");
     } else if (_result == 2) {
-        _popup.draw_green_string(1, 94, "You are beaten");
+        _popup.draw_green_string(1, 96, "You are beaten");
     }
 
-    _popup.draw_green_string(0, 112, "Play on");
-    _popup.draw_green_string(8, 112, "Menu");
+    /* One question, not two labels. "Play on" over the tick and "Menu" over the
+       exit read as a single phrase - "PLAY ON MENU" - because they sit on the
+       same line. The two icons below already say which is which: the tick is
+       yes and the exit is the way out, exactly as they are everywhere else in
+       the game. */
+    _popup.draw_green_string(4, 114, "Play on?");
 
     _popup.draw_popup_icon(3, 128, 288);  /* Checkbox: carry on playing */
     _popup.draw_popup_icon(14, 128, 60);  /* Exit: back to the start screen */
