@@ -15,6 +15,7 @@ sprite_meta_init();
 gfx_init();
 gui_init_globals();
 audio_init();
+cf_init();      // "borntodie" cheat state + its effects list
 
 // Window: integer-scaled, pixel-perfect
 window_set_size(SCREEN_W * SCREEN_SCALE, SCREEN_H * SCREEN_SCALE);

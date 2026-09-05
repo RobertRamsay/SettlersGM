@@ -195,6 +195,10 @@ function serf_handle_knight_attacking(_serf) {
   while (_serf.counter < 0) {
     var move = moves[_serf.s.attacking_move];
     if (move < 0) {
+      /* "borntodie": one last cry as somebody goes down. Cosmetic only - the
+         outcome below is unchanged. */
+      cf_on_fight_end(_serf, def_serf, _serf.s.attacking_attacker_won);
+
       if (_serf.s.attacking_attacker_won == 0) {
         /* Defender won. */
         if (_serf.state == SerfState.knight_attacking_free) {
@@ -268,6 +272,10 @@ function serf_handle_knight_attacking(_serf) {
       def_serf.animation = 156 + (a & 0xf);
       _serf.counter = 72 + (_serf.game.random_int() & 0x18);
       def_serf.counter = _serf.counter;
+
+      /* "borntodie": hang muzzle flashes, tracers, grenades and sound off the
+         exchange the fight has just made. Reads the fight, never changes it. */
+      cf_on_fight_step(_serf, def_serf, move);
     }
   }
 }
@@ -327,6 +335,17 @@ function serf_handle_knight_occupy_enemy_building(_serf) {
           }
         }
       } else if (!building.has_knight()) {
+        /* "borntodie": the lads do not move in, they burn it. burnup() does the
+           whole demolition - land ownership, stock, escaping serfs - so the
+           soldier is simply left standing outside afterwards, and reverts to
+           the "lost" walk home below. */
+        if (cf_burn_enemy_building(_serf, building)) {
+          _serf.state = SerfState.lost;
+          _serf.s.lost_field_B = 0;
+          _serf.counter = 0;
+          return;
+        }
+
         /* Occupy the building. */
         _serf.game.occupy_enemy_building(building, _serf.get_owner());
 

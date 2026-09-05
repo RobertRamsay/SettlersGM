@@ -2020,7 +2020,16 @@ function Viewport(_interface, _map) : GuiObject() constructor {
 
         if (_body > -1) {
             var _color = get_player_colour(_serf.get_owner());
-            draw_row_serf(_lx, _ly, true, _color, _body);
+            /* "borntodie": the player's knights are drawn as soldiers, pulled
+               back off the door during a fight so attacker and target are not
+               overlapping. The offset is applied to the drawn position only -
+               the serf's map position is untouched. */
+            if (cf_is_soldier(_serf)) {
+                var _off = cf_standoff(_serf, false);
+                cf_draw_soldier(_lx + _off[0], _ly + _off[1], _color, _serf);
+            } else {
+                draw_row_serf(_lx, _ly, true, _color, _body);
+            }
             if ((layers & ViewportLayer.grid) != 0) {
                 gfx_draw_number(_lx - global.gfx_ox, _ly - global.gfx_oy, _serf.get_index(), make_colour_rgb(0, 0, 128), -1);
                 gfx_draw_string(_lx - global.gfx_ox, _ly - global.gfx_oy + 8, _serf.print_state(), make_colour_rgb(0, 0, 128), -1);
@@ -2048,14 +2057,22 @@ function Viewport(_interface, _map) : GuiObject() constructor {
 
                 if (_dbody > -1) {
                     var _dcolor = get_player_colour(_def_serf.get_owner());
-                    draw_row_serf(_dlx, _dly, true, _dcolor, _dbody);
+                    if (cf_is_soldier(_def_serf)) {
+                        var _doff = cf_standoff(_serf, true);
+                        cf_draw_soldier(_dlx + _doff[0], _dly + _doff[1], _dcolor, _def_serf);
+                    } else {
+                        draw_row_serf(_dlx, _dly, true, _dcolor, _dbody);
+                    }
                 }
             }
         }
 
-        /* Draw extra objects for fight */
+        /* Draw extra objects for fight. The sword-clash sparks are suppressed
+           while "borntodie" is on - the tracers and grenades from
+           scr_cheat_cf.gml stand in for them. */
         if ((_serf.get_state() == SerfState.knight_attacking ||
              _serf.get_state() == SerfState.knight_attacking_free) &&
+            !cf_is_soldier(_serf) &&
             _animation[0] >= 0x80 && _animation[0] < 0xc0) {
             var _index = _serf.get_attacking_def_index();
             if (_index != 0) {
@@ -2207,6 +2224,13 @@ function Viewport(_interface, _map) : GuiObject() constructor {
                 break;
             }
             _pos = map.geom.move_down_right(_pos);
+        }
+
+        /* "borntodie": muzzle flashes, tracers, grenades, blasts and burning
+           buildings, drawn last so they sit over everything. */
+        if (_draw_serfs) {
+            var _vp = self;
+            cf_fx_draw(_vp, _ox, _oy);
         }
     };
 

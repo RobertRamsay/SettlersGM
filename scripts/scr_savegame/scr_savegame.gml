@@ -485,6 +485,15 @@ function savegame_save_path(_path, _game, _label = "") {
         _data.label = _label;
     }
 
+    /* "borntodie": naming a save with the cheat word arms it. Both routes into
+       this function are checked - the label typed into the save popup's slot
+       row, and the file name typed into its name field - so it does not matter
+       which one the player used. The flag is stored in the snapshot so the save
+       comes back armed. */
+    cf_check_name(_data.label);
+    cf_check_name(filename_name(_path));
+    _data.cf_active = cf_is_active();
+
     var _text = json_stringify(_data);
     var _buffer = buffer_create(string_byte_length(_text) + 1, buffer_grow, 1);
     buffer_write(_buffer, buffer_text, _text);
@@ -526,6 +535,17 @@ function savegame_load_path(_path) {
     } catch (_e) {
         return savegame_fail("file is not valid JSON");
     }
+
+    /* "borntodie": a save made while the cheat was on comes back with it on.
+       The label is checked too, so a save renamed on disk still arms it.
+       variable_struct_get returns undefined for a key an older save does not
+       have, so no existence test is needed. */
+    var _cf_flag = variable_struct_get(_data, "cf_active");
+    if (_cf_flag != undefined) {
+        cf_set_active(_cf_flag == true);
+    }
+    cf_check_name(variable_struct_get(_data, "label"));
+    cf_check_name(filename_name(_path));
 
     return savegame_decode_game(_data);
 }

@@ -11,6 +11,9 @@ if (_ticks > MAX_CATCHUP_TICKS) {
 }
 for (var _t = 0; _t < _ticks; _t++) {
     interface.handle_event(gui_make_event(EventType.update, 0, 0, 0, 0, 0));
+    // "borntodie" effects age on the game tick, so tracers and flames keep
+    // pace with the fight that spawned them at every game speed.
+    cf_fx_update();
 }
 
 // ---- a queued game switch runs here, never inside event dispatch

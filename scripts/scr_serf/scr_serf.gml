@@ -433,6 +433,12 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
     pos = -1;
     tick = 0;
 
+    /* Last hex direction this serf actually walked in. Cosmetic only: the
+       "borntodie" cheat draws soldiers instead of knights, and a soldier who
+       is standing still or fighting has no direction in his animation number,
+       so he keeps facing the way he came. See scr_cheat_cf.gml. */
+    cf_facing = 2;
+
     /* The C++ union `s`, flattened: every union member's fields become
        <member>_<field>. NOTE: the C++ relies on union aliasing between some
        members (same byte offsets B..F). walking <-> transporting alias is
