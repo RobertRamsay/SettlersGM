@@ -73,6 +73,39 @@ enum NetCmd {
     build_road = 7        // dirs carries the road, one Direction per step
 }
 
+// ---------------------------------------------------------------- logging
+
+/// Everything the net layer says goes to the output log AND to a file beside
+/// the saves, so a session can be read back after the fact instead of being
+/// copied out of the console while it scrolls.
+#macro NET_LOG_PATH "settlers_net.log"
+
+function net_log(_line) {
+    show_debug_message("net: " + string(_line));
+
+    var _f = file_text_open_append(NET_LOG_PATH);
+    if (_f < 0) {
+        return;
+    }
+    file_text_write_string(_f, string(_line));
+    file_text_writeln(_f);
+    file_text_close(_f);
+}
+
+/// Start a fresh log. Called when a session begins, so the file is about this
+/// game rather than every game since the exe was built.
+function net_log_reset() {
+    var _f = file_text_open_write(NET_LOG_PATH);
+    if (_f < 0) {
+        return;
+    }
+    file_text_write_string(_f, "SettlersGM net log - " +
+                               date_datetime_string(date_current_datetime()));
+    file_text_writeln(_f);
+    file_text_close(_f);
+    show_debug_message("net: logging to " + game_save_id + NET_LOG_PATH);
+}
+
 // ---------------------------------------------------------------- state
 
 function net_init() {
@@ -168,7 +201,7 @@ function net_host() {
     global.net_status = "hosting on port " + string(NET_PORT) +
                         " - on the OTHER pc press F8 and type THIS pc's IPv4" +
                         " (ipconfig) - waiting";
-    show_debug_message("net: " + global.net_status);
+    net_log(global.net_status);
     return true;
 }
 
@@ -272,7 +305,7 @@ function net_close(_why) {
 function net_fail(_why) {
     global.net_phase  = NetPhase.dead;
     global.net_status = _why;
-    show_debug_message("net: STOPPED - " + string(_why));
+    net_log("STOPPED - " + string(_why));
 }
 
 // ---------------------------------------------------------------- sending
@@ -765,8 +798,25 @@ function net_hash_part_name(_i) {
     return "?";
 }
 
+/// MUST return a non-negative value.
+///
+/// GML's mod keeps the sign of its left operand, and plenty of what gets hashed
+/// is legitimately negative - serf.counter above all. So the accumulator could
+/// go negative, and a negative hash written to the wire as buffer_u32 comes back
+/// as its two's complement: -29791 out, 4294937505 in. The two machines then
+/// compared a signed number against the unsigned form of THE SAME NUMBER and
+/// called it a desync.
+///
+/// That was the whole of "DESYNC turn 0 in serfs (-29791 vs 4294937505)" -
+/// 2^32 - 29791 is exactly 4294937505 - and it is very likely what the turn 330
+/// and turn 400 reports were as well, since the old single hash folded serf
+/// counters in too. The simulations may never have parted at all.
 function net_hash_fold(_h, _v) {
-    return ((_h * 31) + _v) mod 2147483647;
+    var _r = ((_h * 31) + _v) mod 2147483647;
+    if (_r < 0) {
+        _r += 2147483647;
+    }
+    return _r;
 }
 
 /// Compare this turn's component hashes with the peer's, and name the first
@@ -940,6 +990,9 @@ function net_placing_status(_game) {
 }
 
 function net_begin(_interface, _game, _local_player) {
+    net_log_reset();
+    net_log("starting as player " + string(_local_player + 1) +
+            ", mission " + string(_game.mission_index + 1));
     global.net_local_player = _local_player;
     global.net_sim_tick = 0;
     global.net_executed_turn = -1;
@@ -989,5 +1042,5 @@ function net_begin(_interface, _game, _local_player) {
 
     global.net_phase = NetPhase.running;
     global.net_status = "in game as player " + string(_local_player + 1);
-    show_debug_message("net: " + global.net_status);
+    net_log(global.net_status);
 }
