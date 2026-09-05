@@ -175,6 +175,9 @@ var _scroll_sign = 1;
 if (global.map_drag_1to1) {
     _scroll_sign = -1;
 }
+if (global.map_drag_invert) {
+    _scroll_sign = -_scroll_sign;
+}
 if (keyboard_check_pressed(vk_up)) {
     interface.handle_event(gui_make_event(EventType.drag, 0, 0, 0, -32 * _scroll_sign, EventButton.left));
 }

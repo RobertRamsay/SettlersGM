@@ -368,7 +368,8 @@ enum Action {
     options_sfx,
     save,
     new_name,
-    options_map_drag
+    options_map_drag,
+    options_map_invert
 }
 
 /// Static tables for popup.cc (the local `const int layout[]` arrays of the

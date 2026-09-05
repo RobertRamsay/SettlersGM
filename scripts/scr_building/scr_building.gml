@@ -1063,7 +1063,7 @@ function Building(_game, _index) : GameObject(_game, _index) constructor {
                         _flag_pos = _map.move_down_right(pos);
                         if (_map.has_serf(_flag_pos)) {
                             _serf = game.get_serf_at_pos(_flag_pos);
-                            if (_serf.get_pos() != _flag_pos) {
+                            if (_serf == undefined || _serf.get_pos() != _flag_pos) {
                                 _map.set_serf_index(_flag_pos, 0);
                             }
                         }
@@ -1427,7 +1427,7 @@ function Building(_game, _index) : GameObject(_game, _index) constructor {
         var _flag_pos = _map.move_down_right(pos);
         if (_map.has_serf(_flag_pos)) {
             var _serf5 = game.get_serf_at_pos(_flag_pos);
-            if (_serf5.get_pos() != _flag_pos) {
+            if (_serf5 == undefined || _serf5.get_pos() != _flag_pos) {
                 _map.set_serf_index(_flag_pos, 0);
             }
         }

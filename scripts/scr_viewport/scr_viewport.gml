@@ -2788,15 +2788,18 @@ function Viewport(_interface, _map) : GuiObject() constructor {
     /// bool handle_drag(int lx, int ly)
     static handle_drag = function(_dx, _dy) {
         if (_dx != 0 || _dy != 0) {
+            // 1:1 grabs the ground - the map travels with the pointer, so the
+            // pixel under the cursor stays under it. "Orig" is Freeserf's, where
+            // the drag pushes the view and the map slides against the hand.
+            // Invert flips whichever of the two is selected.
+            var _sign = 1;
             if (global.map_drag_1to1) {
-                // Grab the ground: the map travels with the pointer, so the
-                // pixel that was under the cursor stays under it.
-                move_by_pixels(-_dx, -_dy);
-            } else {
-                // Freeserf/original: the drag pushes the view, so the map
-                // slides against the hand.
-                move_by_pixels(_dx, _dy);
+                _sign = -1;
             }
+            if (global.map_drag_invert) {
+                _sign = -_sign;
+            }
+            move_by_pixels(_sign * _dx, _sign * _dy);
         }
 
         return true;

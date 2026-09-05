@@ -679,6 +679,16 @@ function popup_draw_options_box(_popup) {
     _popup.draw_green_string(1, 110, "Map drag");
     _popup.draw_green_string(11, 110, _drag_value);
 
+    // Not in the original either. Flips whichever drag direction is selected,
+    // for anyone who wants the opposite of both. Drawn on the bottom band, to
+    // the left of the exit icon at x 120.
+    var _invert_value = "No";
+    if (global.map_drag_invert) {
+        _invert_value = "Yes";
+    }
+    _popup.draw_green_string(1, 119, "Invert");
+    _popup.draw_green_string(9, 119, _invert_value);
+
     _popup.draw_popup_icon(14, 128, 60); /* exit */
 }
 

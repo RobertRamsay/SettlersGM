@@ -134,7 +134,8 @@ function flag_fill_path_serf_info(_game, _pos, _dir, _data) {
     /* Handle first position. */
     if (_map.has_serf(_pos_)) {
         var _serf = _game.get_serf_at_pos(_pos_);
-        if (_serf.get_state() == SerfState.transporting &&
+        if (_serf != undefined &&
+            _serf.get_state() == SerfState.transporting &&
             _serf.get_walking_wait_counter() != -1) {
             var _d = _serf.get_walking_dir();
             if (_d < 0) {
@@ -181,7 +182,8 @@ function flag_fill_path_serf_info(_game, _pos, _dir, _data) {
         /* Check if there is a serf occupying this space. */
         if (_map.has_serf(_pos_)) {
             var _serf2 = _game.get_serf_at_pos(_pos_);
-            if (_serf2.get_state() == SerfState.transporting &&
+            if (_serf2 != undefined &&
+                _serf2.get_state() == SerfState.transporting &&
                 _serf2.get_walking_wait_counter() != -1) {
                 _serf2.set_walking_wait_counter(0);
                 _data.serfs[_serf_count] = _serf2.get_index();
@@ -193,9 +195,10 @@ function flag_fill_path_serf_info(_game, _pos, _dir, _data) {
     /* Handle last position. */
     if (_map.has_serf(_pos_)) {
         var _serf3 = _game.get_serf_at_pos(_pos_);
-        if ((_serf3.get_state() == SerfState.transporting &&
+        if (_serf3 != undefined &&
+           ((_serf3.get_state() == SerfState.transporting &&
              _serf3.get_walking_wait_counter() != -1) ||
-            _serf3.get_state() == SerfState.delivering) {
+            _serf3.get_state() == SerfState.delivering)) {
             var _d2 = _serf3.get_walking_dir();
             if (_d2 < 0) {
                 _d2 += 6;

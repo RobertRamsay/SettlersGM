@@ -627,7 +627,7 @@ function Player(_game, _index) : GameObject(_game, _index) constructor {
             if (_map.has_serf(_flag_pos)) {
                 /* Check if building is under siege. */
                 var _s = game.get_serf_at_pos(_flag_pos);
-                if (_s.get_owner() != index) {
+                if (_s != undefined && _s.get_owner() != index) {
                     continue;
                 }
             }

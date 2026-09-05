@@ -80,7 +80,10 @@ global.fast_building_click = true;  // dbl-click a build spot -> that build popu
 //         when the button went down stays under it.
 // Both are pixel-exact; the setting only changes which way the map goes. The
 // minimap always drags 1:1 whatever this is set to.
-global.map_drag_1to1 = false;
+global.map_drag_1to1 = true;
+
+// Flips whichever drag direction is selected above. Off by default.
+global.map_drag_invert = false;
 
 
 // Slot the next F5 writes to / the last one loaded. 0..SAVEGAME_SLOTS-1.

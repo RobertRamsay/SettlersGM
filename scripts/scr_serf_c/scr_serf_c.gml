@@ -683,7 +683,9 @@ function serf_handle_serf_state_knight_leave_for_walk_to_fight(_serf) {
     _serf.s.leaving_building_next_state = next_state;
   } else {
     var _other = _serf.game.get_serf_at_pos(new_pos);
-    if (_serf.get_owner() == _other.get_owner()) {
+    /* undefined = the tile is not really occupied; wait a tick and let
+       get_serf_at_pos's healing clear it, then take the free path above. */
+    if (_other == undefined || _serf.get_owner() == _other.get_owner()) {
       _serf.animation = 82;
       _serf.counter = 0;
     } else {

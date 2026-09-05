@@ -1350,6 +1350,9 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
         } else {
             /* Direction is occupied. */
             var _other_serf = game.get_serf_at_pos(_new_pos);
+            if (_other_serf == undefined) {
+                return;     /* tile pointed at a serf that is gone */
+            }
             var _w = _other_serf.is_waiting();
             var _other_dir = _w.dir;
 
@@ -1563,6 +1566,9 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
 
                 /* Get next serf and follow the chain */
                 var _other_serf = game.get_serf_at_pos(pos);
+                if (_other_serf == undefined) {
+                    break;  /* tile pointed at a serf that is gone */
+                }
                 if (_other_serf.state != SerfState.walking &&
                     _other_serf.state != SerfState.transporting) {
                     break;
@@ -2297,6 +2303,9 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
 
                 if (_map.has_serf(_new_pos)) {
                     var _other_serf = game.get_serf_at_pos(_new_pos);
+                    if (_other_serf == undefined) {
+                        break;  /* tile pointed at a serf that is gone */
+                    }
                     var _w = _other_serf.is_waiting();
                     var _other_dir = _w.dir;
 

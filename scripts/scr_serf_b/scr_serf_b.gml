@@ -381,6 +381,9 @@ function serf_handle_serf_free_walking_switch_with_other(_serf) {
         _new_pos = _map.move(_serf.pos, _i);
         if (_map.has_serf(_new_pos)) {
             _other_serf = _serf.game.get_serf_at_pos(_new_pos);
+            if (_other_serf == undefined) {
+                continue;   /* tile pointed at a serf that is gone */
+            }
             var _other_dir = Direction.none;
 
             /* is_waiting returns { result, dir } (C++ out-param) */
@@ -673,6 +676,9 @@ function serf_handle_free_walking_common(_serf) {
             _serf.s.free_walking_neg_dist1 != -128 &&
             _map.has_serf(_new_pos2)) {
             var _other_serf = _serf.game.get_serf_at_pos(_new_pos2);
+            if (_other_serf == undefined) {
+                continue;   /* tile pointed at a serf that is gone */
+            }
             var _other_dir = Direction.none;
 
             /* is_waiting returns { result, dir } (C++ out-param) */

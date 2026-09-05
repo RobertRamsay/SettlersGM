@@ -1239,7 +1239,9 @@ function Game() constructor {
 
             if (map.has_serf(_pos)) {
                 var _serf = get_serf_at_pos(_pos);
-                if (!map.has_flag(_pos)) {
+                if (_serf == undefined) {
+                    /* tile pointed at a serf that is gone */
+                } else if (!map.has_flag(_pos)) {
                     _serf.set_lost_state();
                 } else {
                     /* Handle serf close to flag, where
@@ -1946,7 +1948,9 @@ function Game() constructor {
         /* Handle any serf at pos. */
         if (map.has_serf(_pos)) {
             var _serf = get_serf_at_pos(_pos);
-            _serf.flag_deleted(_pos);
+            if (_serf != undefined) {
+                _serf.flag_deleted(_pos);
+            }
         }
 
         var _flag = flags.get(map.get_obj_index(_pos));
