@@ -90,7 +90,12 @@ if (global.net_ip_prompt) {
     if (keyboard_check_pressed(vk_enter)) {
         global.net_ip_prompt = false;
         var _ip = string_trim(global.net_ip_text);
-        if (_ip != "") {
+        if (_ip == "") {
+            /* Enter on an empty box used to close it silently, which is
+               indistinguishable from a prompt that did not work. */
+            global.net_status = "no address typed - press F8 and enter the HOST pc's IPv4";
+            show_debug_message("net: " + global.net_status);
+        } else {
             net_save_host_ip(_ip);
             net_join(_ip);
         }

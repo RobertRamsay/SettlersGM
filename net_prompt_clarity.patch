@@ -1,0 +1,88 @@
+From fef773fad6cf9ee67d6192c5ee48d8c86b6fb6c3 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 5 Sep 2026 20:39:10 +0000
+Subject: [PATCH] Stop guessing an address, and make an empty one say so
+
+Three things that made a failed join look like a prompt that did nothing:
+
+- The pre-fill was "192.168.1.", a guess at somebody else's network. Pressing
+  Enter on it fails instantly, which is indistinguishable from the prompt not
+  working. Empty by default now; whatever is typed is still remembered.
+- Enter on an empty box closed it silently. It now says an address is needed.
+- The host's line says what the other machine actually has to be told: press F8
+  there and type THIS pc's IPv4, from ipconfig.
+
+The prompt also names the port, so what is being connected to is on screen in
+full rather than half-remembered from a patch note.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DFktm5o1kLnS2Pgvyp8tD4
+---
+ objects/obj_game/Draw_0.gml | 5 +++--
+ objects/obj_game/Step_0.gml | 7 ++++++-
+ scripts/scr_net/scr_net.gml | 8 ++++++--
+ 3 files changed, 15 insertions(+), 5 deletions(-)
+
+diff --git a/objects/obj_game/Draw_0.gml b/objects/obj_game/Draw_0.gml
+index eed7d7e5..0269b452 100644
+--- a/objects/obj_game/Draw_0.gml
++++ b/objects/obj_game/Draw_0.gml
+@@ -25,8 +25,9 @@ if (show_debug) {
+ // hid the one message that mattered - which is how a failed connection came to
+ // look like a key that did nothing.
+ if (global.net_ip_prompt) {
+-    var _prompt = "JOIN HOST AT: " + global.net_ip_text + "_" +
+-                  "   (Enter to connect, Esc to cancel)";
++    var _prompt = "HOST PC's IP: " + global.net_ip_text + "_" +
++                  "   :" + string(NET_PORT) +
++                  "   (Enter connects, Esc cancels)";
+     draw_set_colour(c_black);
+     draw_text(5, 5, _prompt);
+     draw_set_colour(c_yellow);
+diff --git a/objects/obj_game/Step_0.gml b/objects/obj_game/Step_0.gml
+index 6d0285be..40b6fdc6 100644
+--- a/objects/obj_game/Step_0.gml
++++ b/objects/obj_game/Step_0.gml
+@@ -90,7 +90,12 @@ if (global.net_ip_prompt) {
+     if (keyboard_check_pressed(vk_enter)) {
+         global.net_ip_prompt = false;
+         var _ip = string_trim(global.net_ip_text);
+-        if (_ip != "") {
++        if (_ip == "") {
++            /* Enter on an empty box used to close it silently, which is
++               indistinguishable from a prompt that did not work. */
++            global.net_status = "no address typed - press F8 and enter the HOST pc's IPv4";
++            show_debug_message("net: " + global.net_status);
++        } else {
+             net_save_host_ip(_ip);
+             net_join(_ip);
+         }
+diff --git a/scripts/scr_net/scr_net.gml b/scripts/scr_net/scr_net.gml
+index ad4be70e..8ddc91b3 100644
+--- a/scripts/scr_net/scr_net.gml
++++ b/scripts/scr_net/scr_net.gml
+@@ -118,7 +118,10 @@ function net_status_line() {
+ 
+ function net_load_host_ip() {
+     ini_open(PROGRESS_PATH);
+-    var _ip = ini_read_string(NET_INI_SECTION, "host", "192.168.1.");
++    /* Empty by default. The old default was a plausible-looking "192.168.1."
++       which is a guess at somebody else's network, and pressing Enter on it
++       fails instantly - which reads as the prompt having done nothing. */
++    var _ip = ini_read_string(NET_INI_SECTION, "host", "");
+     ini_close();
+     return _ip;
+ }
+@@ -152,7 +155,8 @@ function net_host() {
+     ds_map_clear(global.net_checks);
+     global.net_outbox = [];
+     global.net_status = "hosting on port " + string(NET_PORT) +
+-                        " (server " + string(global.net_server) + ") - waiting";
++                        " - on the OTHER pc press F8 and type THIS pc's IPv4" +
++                        " (ipconfig) - waiting";
+     show_debug_message("net: " + global.net_status);
+     return true;
+ }
+-- 
+2.43.0
+

@@ -118,7 +118,10 @@ function net_status_line() {
 
 function net_load_host_ip() {
     ini_open(PROGRESS_PATH);
-    var _ip = ini_read_string(NET_INI_SECTION, "host", "192.168.1.");
+    /* Empty by default. The old default was a plausible-looking "192.168.1."
+       which is a guess at somebody else's network, and pressing Enter on it
+       fails instantly - which reads as the prompt having done nothing. */
+    var _ip = ini_read_string(NET_INI_SECTION, "host", "");
     ini_close();
     return _ip;
 }
@@ -152,7 +155,8 @@ function net_host() {
     ds_map_clear(global.net_checks);
     global.net_outbox = [];
     global.net_status = "hosting on port " + string(NET_PORT) +
-                        " (server " + string(global.net_server) + ") - waiting";
+                        " - on the OTHER pc press F8 and type THIS pc's IPv4" +
+                        " (ipconfig) - waiting";
     show_debug_message("net: " + global.net_status);
     return true;
 }
