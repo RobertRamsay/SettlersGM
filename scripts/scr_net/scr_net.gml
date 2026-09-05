@@ -66,7 +66,11 @@ enum NetMsg {
 enum NetCmd {
     build_flag = 1,
     build_castle = 2,
-    build_building = 3    // b carries the BuildingType
+    build_building = 3,   // b carries the BuildingType
+    demolish_flag = 4,
+    demolish_building = 5,
+    demolish_road = 6,
+    build_road = 7        // dirs carries the road, one Direction per step
 }
 
 // ---------------------------------------------------------------- state
@@ -302,6 +306,15 @@ function net_send_turn(_turn, _cmds) {
         buffer_write(_b, buffer_u8,  _c.kind);
         buffer_write(_b, buffer_u32, _c.a);
         buffer_write(_b, buffer_u32, _c.b);
+
+        /* A road is a start position and a list of hex steps, so commands carry
+           a variable-length tail. Every command writes the count, even the ones
+           that never have one, so the reader never has to know which kinds do. */
+        var _dirs = _c.dirs;
+        buffer_write(_b, buffer_u16, array_length(_dirs));
+        for (var _d = 0; _d < array_length(_dirs); _d++) {
+            buffer_write(_b, buffer_u8, _dirs[_d]);
+        }
     }
     network_send_packet(net_peer_socket(), _b, buffer_tell(_b));
 }
@@ -384,7 +397,14 @@ function net_receive_turn(_b) {
         var _kind = buffer_read(_b, buffer_u8);
         var _a    = buffer_read(_b, buffer_u32);
         var _c    = buffer_read(_b, buffer_u32);
-        array_push(_cmds, { kind: _kind, a: _a, b: _c });
+
+        var _n_dirs = buffer_read(_b, buffer_u16);
+        var _dirs = [];
+        for (var _d = 0; _d < _n_dirs; _d++) {
+            array_push(_dirs, buffer_read(_b, buffer_u8));
+        }
+
+        array_push(_cmds, { kind: _kind, a: _a, b: _c, dirs: _dirs });
     }
 
     ds_map_set(global.net_turns, string(_turn), _cmds);
@@ -428,8 +448,8 @@ function net_ticks_available() {
 
 /// Queue a command the local player just issued. It executes NET_TURN_DELAY
 /// turns from now, on both machines.
-function net_queue_command(_kind, _a, _b) {
-    array_push(global.net_outbox, { kind: _kind, a: _a, b: _b });
+function net_queue_command(_kind, _a, _b, _dirs = []) {
+    array_push(global.net_outbox, { kind: _kind, a: _a, b: _b, dirs: _dirs });
 }
 
 /// Called immediately before each simulation tick while networked. Does the
@@ -570,6 +590,27 @@ function net_run_commands(_game, _cmds, _player_index) {
         case NetCmd.build_building:
             _game.build_building(_c.a, _c.b, _player);
             break;
+        case NetCmd.demolish_flag:
+            _game.demolish_flag(_c.a, _player);
+            break;
+        case NetCmd.demolish_building:
+            _game.demolish_building(_c.a, _player);
+            break;
+        case NetCmd.demolish_road:
+            _game.demolish_road(_c.a, _player);
+            break;
+        case NetCmd.build_road: {
+            /* Rebuilt from the wire rather than sent as an object: a Road is a
+               start position and a list of hex steps, and that is all the far
+               side needs to walk out the identical road. */
+            var _road = new Road();
+            _road.start(_c.a);
+            for (var _d = 0; _d < array_length(_c.dirs); _d++) {
+                _road.extend(_c.dirs[_d]);
+            }
+            _game.build_road(_road, _player);
+            break;
+        }
         default:
             show_debug_message("net: unknown command " + string(_c.kind));
             break;
@@ -580,6 +621,14 @@ function net_run_commands(_game, _cmds, _player_index) {
 /// The speed button changes how much simulation one tick does, so the two
 /// machines must agree on it. Until it is a command in its own right it is
 /// simply pinned, and said out loud the first time it is touched.
+/// Game.update advances the world by game_speed every tick, so two machines at
+/// different speeds are simulating at different rates and have already parted.
+///
+/// This used to CORRECT the speed at the next turn boundary, which is up to five
+/// ticks late - and five ticks at speed 20 against speed 2 is ninety tick-units
+/// of divergence, more than enough to part the worlds for good. The control is
+/// refused outright now (see net_speed_locked) and this is only a backstop for
+/// anything that sets the speed without going through the button.
 function net_enforce_speed(_game) {
     if (_game == undefined) {
         return;
@@ -588,7 +637,12 @@ function net_enforce_speed(_game) {
         return;
     }
     _game.set_speed(DEFAULT_GAME_SPEED);
-    show_debug_message("net: game speed is pinned in multiplayer");
+    show_debug_message("net: game speed was changed behind the lock - pinned back");
+}
+
+/// True while the speed control must not be touched.
+function net_speed_locked() {
+    return net_is_running();
 }
 
 // ---------------------------------------------------------------- desync

@@ -275,7 +275,14 @@ function PanelBar(_interface) : GuiObject() constructor {
         if (_button == SPEED_BUTTON) {
             /* Left click steps up and stops at the fastest; right click steps
                down and stops at normal. See handle_click_right. */
-            set_speed_step(speed_step() + 1);
+            if (net_speed_locked()) {
+                /* Refused, not corrected later: game_speed decides how much
+                   world one tick advances, so even a few ticks at a different
+                   speed parts the two simulations for good. */
+                play_sound(Sfx.not_accepted);
+            } else {
+                set_speed_step(speed_step() + 1);
+            }
             return;
         }
 
@@ -405,6 +412,13 @@ function PanelBar(_interface) : GuiObject() constructor {
                 interface.build_castle();
                 break;
             case PanelButton.destroy_road: {
+                if (net_is_running()) {
+                    net_queue_command(NetCmd.demolish_road,
+                                      interface.get_map_cursor_pos(), 0);
+                    play_sound(Sfx.click);
+                    break;
+                }
+
                 var _r = interface.get_player().get_game().demolish_road(
                                                 interface.get_map_cursor_pos(),
                                                 interface.get_player());
@@ -513,6 +527,11 @@ function PanelBar(_interface) : GuiObject() constructor {
     static handle_click_right = function(_cx, _cy) {
         if (hit_test_button(_cx, _cy) != SPEED_BUTTON) {
             return false;
+        }
+
+        if (net_speed_locked()) {
+            play_sound(Sfx.not_accepted);
+            return true;
         }
 
         set_speed_step(speed_step() - 1);

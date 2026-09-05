@@ -1007,6 +1007,22 @@ function Interface(_game = undefined) : GuiObject() constructor {
     static demolish_object = function() {
         determine_map_cursor_type();
 
+        /* Networked: on the wire like every other world change. Demolishing
+           locally was one of the ways a game could still part company after the
+           castle went down, because only building was routed. */
+        if (net_is_running()) {
+            if (map_cursor_type == CursorType.removable_flag) {
+                net_queue_command(NetCmd.demolish_flag, map_cursor_pos, 0);
+                play_sound(Sfx.click);
+            } else if (map_cursor_type == CursorType.building) {
+                net_queue_command(NetCmd.demolish_building, map_cursor_pos, 0);
+                play_sound(Sfx.ahhh);
+            } else {
+                play_sound(Sfx.not_accepted);
+            }
+            return;
+        }
+
         if (map_cursor_type == CursorType.removable_flag) {
             play_sound(Sfx.click);
             game.demolish_flag(map_cursor_pos, player);
@@ -1101,6 +1117,16 @@ function Interface(_game = undefined) : GuiObject() constructor {
     };
 
     static build_road = function() {
+        if (net_is_running()) {
+            /* A road is its start and its hex steps, which is all the far side
+               needs to walk out the identical road. */
+            net_queue_command(NetCmd.build_road, building_road.get_source(), 0,
+                              building_road.get_dirs());
+            play_sound(Sfx.click);
+            build_road_end();
+            return;
+        }
+
         var _r = game.build_road(building_road, player);
         if (!_r) {
             play_sound(Sfx.not_accepted);
@@ -1283,17 +1309,26 @@ function Interface(_game = undefined) : GuiObject() constructor {
                 break;
             }
 
-            /* Game speed */
+            /* Game speed. Locked while networked: the keyboard reaches
+               Game.speed_increase without going near the panel button, so
+               locking only the button would have left the same divergence one
+               keypress away. */
             case ord("+"): {
-                game.speed_increase();
+                if (!net_speed_locked()) {
+                    game.speed_increase();
+                }
                 break;
             }
             case ord("-"): {
-                game.speed_decrease();
+                if (!net_speed_locked()) {
+                    game.speed_decrease();
+                }
                 break;
             }
             case ord("0"): {
-                game.speed_reset();
+                if (!net_speed_locked()) {
+                    game.speed_reset();
+                }
                 break;
             }
             case ord("p"): {

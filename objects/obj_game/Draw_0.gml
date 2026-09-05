@@ -24,14 +24,23 @@ if (show_debug) {
 // that fails leaves the role back at off, so gating this on net_is_active()
 // hid the one message that mattered - which is how a failed connection came to
 // look like a key that did nothing.
+// Wrapped, not clipped. These lines carry the whole diagnosis - the addresses
+// tried, the desync turn and both hashes - and a message that runs off the
+// right-hand edge is the half you cannot read.
+//
+// draw_text_ext wraps at NET_TEXT_WIDTH and breaks on spaces, so the numbers
+// stay whole; NET_TEXT_LINE is the line height it steps by.
+#macro NET_TEXT_WIDTH (SCREEN_W - 8)
+#macro NET_TEXT_LINE  12
+
 if (global.net_ip_prompt) {
     var _prompt = "HOST PC's IP: " + global.net_ip_text + "_" +
                   "   :" + string(NET_PORT) +
                   "   (Enter connects, Esc cancels)";
     draw_set_colour(c_black);
-    draw_text(5, 5, _prompt);
+    draw_text_ext(5, 5, _prompt, NET_TEXT_LINE, NET_TEXT_WIDTH);
     draw_set_colour(c_yellow);
-    draw_text(4, 4, _prompt);
+    draw_text_ext(4, 4, _prompt, NET_TEXT_LINE, NET_TEXT_WIDTH);
     draw_set_colour(c_white);
 } else if (net_status_line() != "") {
     var _msg = "NET: " + net_status_line();
@@ -42,8 +51,8 @@ if (global.net_ip_prompt) {
         }
     }
     draw_set_colour(c_black);
-    draw_text(5, 5, _msg);
+    draw_text_ext(5, 5, _msg, NET_TEXT_LINE, NET_TEXT_WIDTH);
     draw_set_colour(c_white);
-    draw_text(4, 4, _msg);
+    draw_text_ext(4, 4, _msg, NET_TEXT_LINE, NET_TEXT_WIDTH);
     draw_set_colour(c_white);
 }
