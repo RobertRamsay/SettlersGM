@@ -982,13 +982,14 @@ function Game() constructor {
            the constructor's -1. That last one is worth saying out loud, because
            from the player's seat it looks like winning simply failed to
            register. */
-        if (mission_index >= 0) {
-            progress_mark_mission_done(mission_index);
+        var _tick = progress_index_for_game(self);
+        if (_tick >= 0) {
+            progress_mark_mission_done(_tick);
         } else {
-            show_debug_message("game: won, but this game carries no mission " +
-                               "index (custom game, tutorial, or a save from " +
-                               "before the mission list was tracked) - nothing " +
-                               "to mark complete");
+            show_debug_message("game: won, but nothing identifies this as a " +
+                               "numbered mission (custom game, tutorial, or a " +
+                               "save from before the mission list was tracked) " +
+                               "- nothing to mark complete");
         }
 
         show_debug_message("game: every opponent is finished - victory");

@@ -21,6 +21,7 @@ interface.apply_pending_game();
 
 // ---- F12 dumps the save slot state to the output log
 if (keyboard_check_pressed(vk_f12)) {
+    progress_dump(interface.get_game());
     var _box = interface.get_game_init_box();
     if (_box != undefined) {
         _box.dump_save_state();

@@ -1131,8 +1131,11 @@ function Interface(_game = undefined) : GuiObject() constructor {
                that arrives here with the result already decided - would never
                reach the call in there. This runs wherever the result actually
                reaches the player, and marking is idempotent. */
-            if (game.game_over == 1 && game.mission_index >= 0) {
-                progress_mark_mission_done(game.mission_index);
+            if (game.game_over == 1) {
+                var _tick = progress_index_for_game(game);
+                if (_tick >= 0) {
+                    progress_mark_mission_done(_tick);
+                }
             }
 
             open_popup(PopupType.game_end_box);

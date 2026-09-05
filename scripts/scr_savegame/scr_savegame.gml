@@ -703,6 +703,61 @@ function progress_key(_index) {
     return "mission_" + string(_index);
 }
 
+/// Which mission is in play, recorded by GameInitBox the moment it starts one
+/// and -1 for anything that is not a numbered mission. Game.mission_index is
+/// still the primary record - it serialises, so a mission resumed from a save
+/// knows what it is - but this does not travel through the Game at all, so
+/// nothing that copies, resets or re-creates the Game can lose it.
+function progress_set_current_mission(_index) {
+    global.current_mission_index = _index;
+    show_debug_message("progress: current mission index is now " + string(_index));
+}
+
+function progress_get_current_mission() {
+    if (!variable_global_exists("current_mission_index")) {
+        return -1;
+    }
+    return global.current_mission_index;
+}
+
+/// The index a finished game should tick off: what the Game says if it knows,
+/// otherwise what the start screen last launched.
+function progress_index_for_game(_game) {
+    if (_game != undefined && _game.mission_index >= 0) {
+        return _game.mission_index;
+    }
+    return progress_get_current_mission();
+}
+
+/// Everything this knows, to the output log. Bound to F12 alongside the save
+/// slot dump, so the state can be read off in one key rather than inferred.
+function progress_dump(_game) {
+    progress_load();
+    show_debug_message("--- mission progress ---");
+    show_debug_message("  file: " + game_save_id + PROGRESS_PATH +
+                       "  exists=" + string(file_exists(PROGRESS_PATH)));
+    show_debug_message("  start screen last launched index: " +
+                       string(progress_get_current_mission()));
+    if (_game == undefined) {
+        show_debug_message("  no game running");
+    } else {
+        show_debug_message("  this game: mission_index=" + string(_game.mission_index) +
+                           " game_over=" + string(_game.game_over) +
+                           " game_over_shown=" + string(_game.game_over_shown));
+        show_debug_message("  would tick index: " + string(progress_index_for_game(_game)));
+    }
+    var _list = "";
+    for (var _i = 0; _i < array_length(global.progress_done); _i++) {
+        if (global.progress_done[_i]) {
+            _list += string(_i + 1) + " ";
+        }
+    }
+    if (_list == "") {
+        _list = "(none)";
+    }
+    show_debug_message("  missions recorded complete: " + _list);
+}
+
 /// Read the ini into memory once. The start screen asks about the selected
 /// mission on every frame it draws, so this must not touch the disk each time.
 function progress_load() {
@@ -761,6 +816,18 @@ function progress_mark_mission_done(_index) {
     ini_write_real(PROGRESS_SECTION, progress_key(_index), 1);
     ini_close();   /* ini_close is what actually writes the file out */
 
-    show_debug_message("progress: mission " + string(_index + 1) + " marked complete in " +
-                       game_save_id + PROGRESS_PATH);
+    /* Read it straight back. This separates the two ways the mark can fail -
+       never called, or called and not persisted - which from the start screen
+       look identical, and which is what made this hard to pin down. */
+    ini_open(PROGRESS_PATH);
+    var _check = ini_read_real(PROGRESS_SECTION, progress_key(_index), 0);
+    ini_close();
+
+    var _note = "";
+    if (_check == 0) {
+        _note = "  *** WRITE DID NOT STICK ***";
+    }
+    show_debug_message("progress: mission " + string(_index + 1) +
+                       " marked complete in " + game_save_id + PROGRESS_PATH +
+                       " - read back as " + string(_check) + _note);
 }

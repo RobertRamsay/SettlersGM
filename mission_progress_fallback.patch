@@ -1,0 +1,204 @@
+From 39fb79e11e3479cd6cf9351ede928b535c3c234c Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 5 Sep 2026 15:39:57 +0000
+Subject: [PATCH] Mission tick no longer rides on the Game, and F12 says what
+ is true
+
+I have now guessed at this twice and been wrong twice, so this stops guessing.
+
+The tick was reached through Game.mission_index, set by GameInitBox when it
+starts a mission. Every reading of that path says it should work, and it plainly
+does not, so the dependency is removed rather than defended: the start screen now
+records what it launched in a global of its own, and a finished game ticks off
+whichever index is available - the Game's if it has one (which keeps a mission
+resumed from a save correct), otherwise the launcher's. Nothing that copies,
+resets or re-creates the Game between starting and winning can lose it now.
+Starting a custom game clears it, so a custom game cannot tick off a mission.
+
+To make the remaining possibilities distinguishable rather than inferred:
+
+- F12 now also dumps the progress state - where the ini is and whether it
+  exists, what the start screen last launched, this game's mission_index,
+  game_over and game_over_shown, which index a win would tick, and every
+  mission currently recorded complete.
+
+- The write reads itself straight back and says so. "Never called" and "called
+  but did not persist" look identical from the start screen, and telling them
+  apart is most of the remaining work.
+
+No behaviour changes beyond the fallback; the rest is instrumentation.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DFktm5o1kLnS2Pgvyp8tD4
+---
+ objects/obj_game/Step_0.gml             |  1 +
+ scripts/scr_game/scr_game.gml           | 13 ++---
+ scripts/scr_game_init/scr_game_init.gml |  5 ++
+ scripts/scr_interface/scr_interface.gml |  7 ++-
+ scripts/scr_savegame/scr_savegame.gml   | 71 ++++++++++++++++++++++++-
+ 5 files changed, 87 insertions(+), 10 deletions(-)
+
+diff --git a/objects/obj_game/Step_0.gml b/objects/obj_game/Step_0.gml
+index c5fafd81..af6199eb 100644
+--- a/objects/obj_game/Step_0.gml
++++ b/objects/obj_game/Step_0.gml
+@@ -21,6 +21,7 @@ interface.apply_pending_game();
+ 
+ // ---- F12 dumps the save slot state to the output log
+ if (keyboard_check_pressed(vk_f12)) {
++    progress_dump(interface.get_game());
+     var _box = interface.get_game_init_box();
+     if (_box != undefined) {
+         _box.dump_save_state();
+diff --git a/scripts/scr_game/scr_game.gml b/scripts/scr_game/scr_game.gml
+index 45c91cd0..da185e95 100644
+--- a/scripts/scr_game/scr_game.gml
++++ b/scripts/scr_game/scr_game.gml
+@@ -982,13 +982,14 @@ function Game() constructor {
+            the constructor's -1. That last one is worth saying out loud, because
+            from the player's seat it looks like winning simply failed to
+            register. */
+-        if (mission_index >= 0) {
+-            progress_mark_mission_done(mission_index);
++        var _tick = progress_index_for_game(self);
++        if (_tick >= 0) {
++            progress_mark_mission_done(_tick);
+         } else {
+-            show_debug_message("game: won, but this game carries no mission " +
+-                               "index (custom game, tutorial, or a save from " +
+-                               "before the mission list was tracked) - nothing " +
+-                               "to mark complete");
++            show_debug_message("game: won, but nothing identifies this as a " +
++                               "numbered mission (custom game, tutorial, or a " +
++                               "save from before the mission list was tracked) " +
++                               "- nothing to mark complete");
+         }
+ 
+         show_debug_message("game: every opponent is finished - victory");
+diff --git a/scripts/scr_game_init/scr_game_init.gml b/scripts/scr_game_init/scr_game_init.gml
+index d7bd52d7..63fc3640 100644
+--- a/scripts/scr_game_init/scr_game_init.gml
++++ b/scripts/scr_game_init/scr_game_init.gml
+@@ -562,9 +562,14 @@ function GameInitBox(_interface) : GuiObject() constructor {
+                        -1, because there is no entry to tick. */
+                     if (game_type == GameType.mission) {
+                         _game.mission_index = game_mission;
++                        progress_set_current_mission(game_mission);
+                         show_debug_message("game init: starting mission " +
+                                            string(game_mission + 1) +
+                                            " (index " + string(game_mission) + ")");
++                    } else {
++                        /* A custom game is not a numbered mission, so nothing
++                           it does should tick one off. */
++                        progress_set_current_mission(-1);
+                     }
+                     interface.on_new_game(_game);
+                 }
+diff --git a/scripts/scr_interface/scr_interface.gml b/scripts/scr_interface/scr_interface.gml
+index 990561cb..e9b97745 100644
+--- a/scripts/scr_interface/scr_interface.gml
++++ b/scripts/scr_interface/scr_interface.gml
+@@ -1131,8 +1131,11 @@ function Interface(_game = undefined) : GuiObject() constructor {
+                that arrives here with the result already decided - would never
+                reach the call in there. This runs wherever the result actually
+                reaches the player, and marking is idempotent. */
+-            if (game.game_over == 1 && game.mission_index >= 0) {
+-                progress_mark_mission_done(game.mission_index);
++            if (game.game_over == 1) {
++                var _tick = progress_index_for_game(game);
++                if (_tick >= 0) {
++                    progress_mark_mission_done(_tick);
++                }
+             }
+ 
+             open_popup(PopupType.game_end_box);
+diff --git a/scripts/scr_savegame/scr_savegame.gml b/scripts/scr_savegame/scr_savegame.gml
+index d4b1c683..d1880429 100644
+--- a/scripts/scr_savegame/scr_savegame.gml
++++ b/scripts/scr_savegame/scr_savegame.gml
+@@ -703,6 +703,61 @@ function progress_key(_index) {
+     return "mission_" + string(_index);
+ }
+ 
++/// Which mission is in play, recorded by GameInitBox the moment it starts one
++/// and -1 for anything that is not a numbered mission. Game.mission_index is
++/// still the primary record - it serialises, so a mission resumed from a save
++/// knows what it is - but this does not travel through the Game at all, so
++/// nothing that copies, resets or re-creates the Game can lose it.
++function progress_set_current_mission(_index) {
++    global.current_mission_index = _index;
++    show_debug_message("progress: current mission index is now " + string(_index));
++}
++
++function progress_get_current_mission() {
++    if (!variable_global_exists("current_mission_index")) {
++        return -1;
++    }
++    return global.current_mission_index;
++}
++
++/// The index a finished game should tick off: what the Game says if it knows,
++/// otherwise what the start screen last launched.
++function progress_index_for_game(_game) {
++    if (_game != undefined && _game.mission_index >= 0) {
++        return _game.mission_index;
++    }
++    return progress_get_current_mission();
++}
++
++/// Everything this knows, to the output log. Bound to F12 alongside the save
++/// slot dump, so the state can be read off in one key rather than inferred.
++function progress_dump(_game) {
++    progress_load();
++    show_debug_message("--- mission progress ---");
++    show_debug_message("  file: " + game_save_id + PROGRESS_PATH +
++                       "  exists=" + string(file_exists(PROGRESS_PATH)));
++    show_debug_message("  start screen last launched index: " +
++                       string(progress_get_current_mission()));
++    if (_game == undefined) {
++        show_debug_message("  no game running");
++    } else {
++        show_debug_message("  this game: mission_index=" + string(_game.mission_index) +
++                           " game_over=" + string(_game.game_over) +
++                           " game_over_shown=" + string(_game.game_over_shown));
++        show_debug_message("  would tick index: " + string(progress_index_for_game(_game)));
++    }
++    var _list = "";
++    for (var _i = 0; _i < array_length(global.progress_done); _i++) {
++        if (global.progress_done[_i]) {
++            _list += string(_i + 1) + " ";
++        }
++    }
++    if (_list == "") {
++        _list = "(none)";
++    }
++    show_debug_message("  missions recorded complete: " + _list);
++}
++
+ /// Read the ini into memory once. The start screen asks about the selected
+ /// mission on every frame it draws, so this must not touch the disk each time.
+ function progress_load() {
+@@ -761,6 +816,18 @@ function progress_mark_mission_done(_index) {
+     ini_write_real(PROGRESS_SECTION, progress_key(_index), 1);
+     ini_close();   /* ini_close is what actually writes the file out */
+ 
+-    show_debug_message("progress: mission " + string(_index + 1) + " marked complete in " +
+-                       game_save_id + PROGRESS_PATH);
++    /* Read it straight back. This separates the two ways the mark can fail -
++       never called, or called and not persisted - which from the start screen
++       look identical, and which is what made this hard to pin down. */
++    ini_open(PROGRESS_PATH);
++    var _check = ini_read_real(PROGRESS_SECTION, progress_key(_index), 0);
++    ini_close();
++
++    var _note = "";
++    if (_check == 0) {
++        _note = "  *** WRITE DID NOT STICK ***";
++    }
++    show_debug_message("progress: mission " + string(_index + 1) +
++                       " marked complete in " + game_save_id + PROGRESS_PATH +
++                       " - read back as " + string(_check) + _note);
+ }
+-- 
+2.43.0
+
