@@ -669,25 +669,18 @@ function popup_draw_options_box(_popup) {
     _popup.draw_green_string(1, 94, "Messages");
     _popup.draw_green_string(11, 94, _value);
 
-    // Not in the original. "Orig" is Freeserf's drag, which pushes the view the
-    // way the pointer goes so the map slides against the hand; "1:1" moves the
-    // map with the pointer, pixel for pixel at any zoom.
-    var _drag_value = "Orig";
-    if (global.map_drag_1to1) {
-        _drag_value = "1:1";
-    }
-    _popup.draw_green_string(1, 110, "Map drag");
-    _popup.draw_green_string(11, 110, _drag_value);
-
-    // Not in the original either. Flips whichever drag direction is selected,
-    // for anyone who wants the opposite of both. Drawn on the bottom band, to
-    // the left of the exit icon at x 120.
+    // Not in the original. There are only two possible drag behaviours and they
+    // differ by nothing but the sign: No grabs the ground, so the pixel under
+    // the cursor stays under it, and Yes is Freeserf's original, where the drag
+    // pushes the view and the map slides against the hand. Both are pixel exact
+    // at any zoom - Viewport.handle_event divides the delta by the zoom, with a
+    // carry, before this ever sees it.
     var _invert_value = "No";
     if (global.map_drag_invert) {
         _invert_value = "Yes";
     }
-    _popup.draw_green_string(1, 119, "Invert");
-    _popup.draw_green_string(9, 119, _invert_value);
+    _popup.draw_green_string(1, 110, "Invert");
+    _popup.draw_green_string(11, 110, _invert_value);
 
     _popup.draw_popup_icon(14, 128, 60); /* exit */
 }

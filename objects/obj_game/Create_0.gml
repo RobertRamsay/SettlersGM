@@ -73,16 +73,15 @@ suppress_click = array_create(4, false);
 global.fast_map_click = true;       // dbl-click own flag -> start a road there
 global.fast_building_click = true;  // dbl-click a build spot -> that build popup
 
-// Map drag direction, toggled by the "Map drag" row in the options popup.
-// false = "Orig": Freeserf's drag pushes the *view* the way the pointer goes,
-//         so the map slides the opposite way to the hand.
-// true  = "1:1": the map moves with the pointer - whatever was under the cursor
-//         when the button went down stays under it.
-// Both are pixel-exact; the setting only changes which way the map goes. The
-// minimap always drags 1:1 whatever this is set to.
-global.map_drag_1to1 = true;
-
-// Flips whichever drag direction is selected above. Off by default.
+// Map drag direction, toggled by the "Invert" row in the options popup.
+// false (default) = the map travels with the pointer, so whatever was under the
+//         cursor when the button went down stays under it.
+// true  = Freeserf's original, where the drag pushes the *view* the way the
+//         pointer goes and the map slides the opposite way to the hand.
+// There is nothing between those two: they are the same movement with opposite
+// signs, so one switch covers both. Both are pixel-exact at any zoom, because
+// Viewport.handle_event divides the drag delta by the zoom (carrying the
+// remainder) before the handler sees it. The minimap always drags 1:1.
 global.map_drag_invert = false;
 
 

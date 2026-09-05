@@ -27,9 +27,6 @@ function popup_c_init_tables() {
     Action.options_fullscreen, 106, 70, 16, 16,
     Action.options_message_count_1, 90, 90, 32, 16,
     Action.options_map_drag, 88, 106, 40, 16,
-    /* The invert row sits on the bottom band, left of the exit icon (which is
-       drawn at x 120 and clicked from x 112), so the two never overlap. */
-    Action.options_map_invert, 8, 123, 100, 19,
     Action.close_options, 112, 126, 16, 16,
     -1
   ];
@@ -1189,10 +1186,6 @@ function popup_handle_action(_popup, _action, _x, _y) {
     _popup.play_sound(Sfx.click);
     break;
   case Action.options_map_drag:
-    global.map_drag_1to1 = !global.map_drag_1to1;
-    _popup.play_sound(Sfx.click);
-    break;
-  case Action.options_map_invert:
     global.map_drag_invert = !global.map_drag_invert;
     _popup.play_sound(Sfx.click);
     break;
