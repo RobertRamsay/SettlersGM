@@ -186,6 +186,11 @@ function Building(_game, _index) : GameObject(_game, _index) constructor {
     first_knight = 0;
     burning_counter = 0;
 
+    /* "borntodie" cheat: damage this building can still absorb before the
+       soldiers level it. 40 = twenty rifle rounds plus five grenades. Inert
+       unless the cheat is armed. See scr_cheat_cf.gml. */
+    cf_hp = 40;             /* CF_BUILDING_HP */
+
     // -----------------------------------------------------------------------
     // Inline getters/setters from building.h
     // -----------------------------------------------------------------------

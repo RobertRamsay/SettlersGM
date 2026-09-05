@@ -433,11 +433,20 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
     pos = -1;
     tick = 0;
 
-    /* Last hex direction this serf actually walked in. Cosmetic only: the
-       "borntodie" cheat draws soldiers instead of knights, and a soldier who
-       is standing still or fighting has no direction in his animation number,
-       so he keeps facing the way he came. See scr_cheat_cf.gml. */
+    /* "borntodie" cheat state - see scr_cheat_cf.gml. Inert unless the cheat is
+       armed. cf_facing is the last hex direction this serf walked in, kept
+       because a soldier who is standing still or shooting has no direction in
+       his animation number and should keep looking where he was aimed. The rest
+       drive the siege: which mode he is in, what he is shooting at, his shot
+       clock, and how many hits he has left to take. */
     cf_facing = 2;
+    cf_mode = 0;            /* CfMode.none */
+    cf_target = 0;          /* building index while besieging, serf index while mopping up */
+    cf_timer = 0;           /* ticks until the next shot */
+    cf_shots = 0;           /* shots fired at the current building */
+    cf_last_shot = 0;       /* ticks since the last shot, for the recoil frame */
+    cf_throwing = false;    /* last shot was a grenade, so draw the throw pose */
+    cf_hp = 3;              /* CF_KNIGHT_HP: rifle hits this one can still take */
 
     /* The C++ union `s`, flattened: every union member's fields become
        <member>_<field>. NOTE: the C++ relies on union aliasing between some

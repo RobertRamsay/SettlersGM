@@ -2,17 +2,28 @@
 /// "borntodie" cheat: the player's knights fight as commandos.
 ///
 /// Name any save "borntodie" (the slot label or the file name, case and
-/// surrounding spaces ignored) and player 0's knights are redrawn as soldiers
-/// who shoot and grenade their way into enemy buildings, which burn instead of
-/// being captured.
+/// surrounding spaces ignored) and player 0's knights become soldiers who
+/// besiege enemy buildings instead of duelling for them.
 ///
-/// Design note: the ported Freeserf combat state machine is NOT rewritten. The
-/// same fight is fought, with the same morale maths, the same move sequence and
-/// the same win/lose transitions. This file only
-///   (a) substitutes what gets drawn,
-///   (b) hangs muzzle flashes, tracers, grenades, fire and sound off the moves
-///       the fight is already making, and
-///   (c) swaps the single "occupy the enemy building" step for "burn it down".
+/// The assault, in order:
+///   1. The soldier walks to the target exactly as a knight would, and stops
+///      one tile short of the door.
+///   2. He shoots it. Four rifle rounds, then a lobbed grenade, repeating.
+///      Twenty rounds and five grenades bring a building down.
+///   3. The building burns. Its garrison is turned out into the open by the
+///      game's own burnup(), which is what ejects knights from a demolished
+///      military building.
+///   4. The soldiers shoot the knights as they come out - three hits each.
+///   5. With nothing left standing, they walk home.
+///
+/// Design note: the ported Freeserf combat state machine is NOT rewritten and
+/// its duel is never entered by a besieging soldier. The siege is a small state
+/// machine of its own that runs entirely inside SerfState.knight_engaging_building
+/// - the one state a knight is already in when he arrives at an enemy building -
+/// and hands the serf back to the ported code, via SerfState.lost, when it is
+/// finished with him. A soldier who is DEFENDING one of the player's own huts is
+/// untouched by all this and fights the normal ported duel, dressed as a soldier.
+///
 /// Everything here is original work: no asset or code comes from any commercial
 /// game.
 
@@ -37,20 +48,40 @@
 
 #macro CF_CHEAT_WORD "borntodie"
 
-/// How far back from the building the attacker is drawn, in screen pixels.
-/// Purely cosmetic - the serf's map position is untouched, so nothing in the
-/// game logic can be confused by it.
-#macro CF_STANDOFF_X 13
-#macro CF_STANDOFF_Y 7
+/// Death animations, for spotting a knight who has already been killed:
+/// the ported code uses 147 + type for a beaten defender and 152 + type for a
+/// beaten attacker, and knight types run 22..26, so the whole band is 169..178.
+#macro CF_DEATH_ANIM_LO 169
+#macro CF_DEATH_ANIM_HI 178
 
-/// Ticks a burst of rifle rounds is spread over, and rounds per burst.
-#macro CF_BURST_GAP 6
-#macro CF_BURST_ROUNDS 3
+/// Siege economics. Four rounds then a grenade, five times over, is twenty
+/// rounds and five grenades - which is exactly CF_BUILDING_HP of damage.
+#macro CF_BUILDING_HP     40
+#macro CF_DMG_BULLET      1
+#macro CF_DMG_GRENADE     4
+#macro CF_SHOT_CYCLE      5      // every 5th shot is a grenade
+#macro CF_FIRE_INTERVAL   25     // ticks between shots (50 ticks = 1 second)
+#macro CF_GRENADE_FLIGHT  22     // ticks a grenade spends in the air
 
-/// Every Nth exchange in a fight is a grenade rather than rifle fire.
-#macro CF_GRENADE_EVERY 3
+/// Mopping up the garrison once it is turned out.
+#macro CF_KNIGHT_HP    3         // rifle hits to put a knight down in the open
+#macro CF_MOP_RADIUS   61        // spiral positions searched (radius 4)
+#macro CF_MOP_INTERVAL 18        // ticks between shots at a man in the open
+
+/// Cosmetic pull-back, in screen pixels, so a soldier is not standing on the
+/// doorstep of the thing he is shooting at.
+#macro CF_STANDOFF_X 11
+#macro CF_STANDOFF_Y 6
 
 #macro CF_FX_LIMIT 192
+
+/// Serf.cf_mode
+enum CfMode {
+    none = 0,       // not under cheat control
+    siege = 1,      // shooting at a building
+    mopping = 2,    // shooting at a knight in the open
+    withdraw = 3    // done, walk home
+}
 
 enum CfFx {
     flash,
@@ -100,16 +131,13 @@ function cf_name_is_cheat(_name) {
     if (_dot != 0) {
         var _ext = string_copy(_n, _dot + 1, string_length(_n) - _dot);
         if (_ext == "save" || _ext == "json") {
-            _n = string_copy(_n, 1, _dot - 1);
-            _n = string_trim(_n);
+            _n = string_trim(string_copy(_n, 1, _dot - 1));
         }
     }
     return _n == CF_CHEAT_WORD;
 }
 
 /// Save/load funnel both call this with whatever the player named the save.
-/// Naming a save "borntodie" arms the cheat; it stays armed for the session
-/// and travels inside the snapshot, so reloading that save comes back armed.
 function cf_check_name(_name) {
     if (cf_name_is_cheat(_name)) {
         cf_set_active(true);
@@ -128,9 +156,9 @@ function cf_rand(_n) {
 
 // ---------------------------------------------------------------- who is a soldier
 
-/// Player 0's knights only. A knight that has just died has been re-typed to
-/// SerfType.dead, so the death animation band is accepted as well - otherwise
-/// a soldier would flick back to a knight sprite at the moment he is shot.
+/// Player 0's knights only. A knight who has just died has been re-typed to
+/// SerfType.dead, so the death animation band is accepted as well - otherwise a
+/// soldier would flick back to a knight sprite at the moment he is shot.
 function cf_is_soldier(_serf) {
     if (!global.cf_active) {
         return false;
@@ -144,9 +172,49 @@ function cf_is_soldier(_serf) {
     }
     if (_type == SerfType.dead) {
         var _anim = _serf.get_animation();
-        return _anim >= 147 && _anim <= 165;
+        return _anim >= CF_DEATH_ANIM_LO && _anim <= CF_DEATH_ANIM_HI;
     }
     return false;
+}
+
+// ---------------------------------------------------------------- geometry
+
+/// The hex direction pointing from _from towards _to, as a best match: the
+/// six direction vectors in (col, row) are scored against the offset and the
+/// closest wins. Used to aim a soldier at what he is shooting.
+function cf_dir_towards(_map, _from, _to) {
+    var _geom = _map.geom;
+    var _dc = _geom.pos_col(_to) - _geom.pos_col(_from);
+    var _dr = _geom.pos_row(_to) - _geom.pos_row(_from);
+
+    // the map wraps, so take the short way round
+    var _cols = _geom.cols;
+    var _rows = _geom.rows;
+    if (_dc > _cols div 2) {
+        _dc -= _cols;
+    }
+    if (_dc < -(_cols div 2)) {
+        _dc += _cols;
+    }
+    if (_dr > _rows div 2) {
+        _dr -= _rows;
+    }
+    if (_dr < -(_rows div 2)) {
+        _dr += _rows;
+    }
+
+    // Direction.right, down_right, down, left, up_left, up
+    var _vec = [1, 0,  1, 1,  0, 1,  -1, 0,  -1, -1,  0, -1];
+    var _best = 2;
+    var _best_score = -100000;
+    for (var _d = 0; _d < 6; _d++) {
+        var _score = _dc * _vec[_d * 2] + _dr * _vec[_d * 2 + 1];
+        if (_score > _best_score) {
+            _best_score = _score;
+            _best = _d;
+        }
+    }
+    return _best;
 }
 
 // ---------------------------------------------------------------- pose
@@ -172,8 +240,8 @@ function cf_dir_from_animation(_anim) {
 }
 
 /// The facing to draw a soldier at. Serfs remember the last direction they
-/// actually walked in (Serf.cf_facing, initialised in the Serf constructor),
-/// so a soldier standing still or fighting keeps looking the way he came.
+/// actually walked in (Serf.cf_facing, initialised in the Serf constructor), so
+/// a soldier standing still or shooting keeps looking where he was aimed.
 function cf_facing_of(_serf) {
     var _d = cf_dir_from_animation(_serf.get_animation());
     if (_d >= 0) {
@@ -186,8 +254,6 @@ function cf_facing_of(_serf) {
 /// Frame of spr_cf_soldier to draw for this serf right now.
 function cf_frame_for(_serf) {
     var _dir = cf_facing_of(_serf);
-    var _state = _serf.get_state();
-    var _anim = _serf.get_animation();
     var _counter = _serf.get_counter();
 
     // dying: 5-frame fall, played out over the 255-tick death counter
@@ -202,24 +268,29 @@ function cf_frame_for(_serf) {
         return CF_DIE + _p;
     }
 
-    switch (_state) {
-    case SerfState.knight_attacking:
-    case SerfState.knight_attacking_free:
-        // Rifle fire, or the throwing pose on a grenade exchange. attacking_move
-        // steps once per exchange, so it is what decides which.
-        if ((_serf.s.attacking_move mod CF_GRENADE_EVERY) == (CF_GRENADE_EVERY - 1)) {
+    // under siege control: firing or throwing, aimed at cf_facing
+    if (_serf.cf_mode == CfMode.siege || _serf.cf_mode == CfMode.mopping) {
+        var _since = _serf.cf_last_shot;
+        if (_serf.cf_throwing) {
+            // wind-up, then the released pose as the grenade leaves his hand -
+            // the grenade effect itself is spawned with a matching 6-tick delay
             var _tp = 0;
-            if (_counter < 48) {
+            if (_since > 5) {
                 _tp = 1;
             }
             return CF_THROW + _dir * 2 + _tp;
         }
         var _fp = 0;
-        if ((_counter >> 3) & 1) {
-            _fp = 1;
+        if (_since < 6) {
+            _fp = 1;                 // kicked back by the recoil, briefly
         }
         return CF_FIRE + _dir * 2 + _fp;
+    }
 
+    // the ported duel, for a soldier defending one of the player's own huts
+    switch (_serf.get_state()) {
+    case SerfState.knight_attacking:
+    case SerfState.knight_attacking_free:
     case SerfState.knight_prepare_attacking:
     case SerfState.knight_prepare_attacking_free:
     case SerfState.knight_engaging_building:
@@ -238,7 +309,7 @@ function cf_frame_for(_serf) {
         break;
     }
 
-    // walking bands
+    var _anim = _serf.get_animation();
     if ((_anim >= 0 && _anim <= 80) || (_anim >= 110 && _anim <= 115)) {
         var _wp = (_counter >> 3) mod 4;
         if (_wp < 0) {
@@ -250,28 +321,24 @@ function cf_frame_for(_serf) {
     return CF_STAND + _dir;
 }
 
-/// Cosmetic pull-back so an attacker and his target are not standing on the
-/// same pixel. Returns [dx, dy] in screen pixels.
-function cf_standoff(_serf, _is_defender) {
-    var _state = _serf.get_state();
-    var _fighting = (_state == SerfState.knight_attacking ||
-                     _state == SerfState.knight_attacking_free ||
-                     _state == SerfState.knight_prepare_attacking ||
-                     _state == SerfState.knight_prepare_attacking_free);
-    if (!_fighting) {
+/// Cosmetic pull-back so a soldier is not drawn on the doorstep of what he is
+/// shooting. Returns [dx, dy] in screen pixels, away from the target.
+function cf_standoff(_serf) {
+    if (_serf.cf_mode != CfMode.siege && _serf.cf_mode != CfMode.mopping) {
         return [0, 0];
     }
-    if (_is_defender) {
-        return [-CF_STANDOFF_X, -CF_STANDOFF_Y];
-    }
-    return [CF_STANDOFF_X, CF_STANDOFF_Y];
+    // the six hex directions in rough screen terms, x then y
+    var _sx = [1, 1, 0, -1, -1, 0];
+    var _sy = [0, 1, 1, 0, -1, -1];
+    var _d = _serf.cf_facing;
+    return [-CF_STANDOFF_X * _sx[_d], -CF_STANDOFF_Y * _sy[_d]];
 }
 
 /// Draw a soldier where draw_row_serf would have drawn the knight.
 /// `_colour` is the player colour the knight would have been masked with. It is
-/// unused while the cheat is scoped to player 0 - every soldier on screen is
-/// the player's - and is kept in the signature so that widening the scope later
-/// only means tinting here.
+/// unused while the cheat is scoped to player 0 - every soldier on screen is the
+/// player's - and is kept in the signature so that widening the scope later only
+/// means tinting here.
 function cf_draw_soldier(_lx, _ly, _colour, _serf) {
     draw_sprite(spr_serf_shadow, 0, _lx, _ly);
     draw_sprite(spr_cf_soldier, cf_frame_for(_serf), _lx, _ly);
@@ -279,9 +346,11 @@ function cf_draw_soldier(_lx, _ly, _colour, _serf) {
 
 // ---------------------------------------------------------------- effects
 
-/// One-shot visual. `_pos` is a map position; `_ox`/`_oy` are pixel offsets
-/// from that tile's screen origin, so effects scroll correctly with the map.
-function cf_fx_add(_kind, _pos, _ox, _oy, _life, _delay) {
+/// One visual. `_pos` is the tile it starts on and `_pos2` the tile it ends on;
+/// `_ox/_oy` and `_tx/_ty` are pixel offsets from each. Both tiles are resolved
+/// to the screen at draw time, so an effect crossing from a soldier to the
+/// building he is shooting scrolls correctly with the map.
+function cf_fx_add(_kind, _pos, _ox, _oy, _pos2, _tx, _ty, _life, _delay) {
     if (global.cf_fx_count >= CF_FX_LIMIT) {
         return undefined;
     }
@@ -290,8 +359,9 @@ function cf_fx_add(_kind, _pos, _ox, _oy, _life, _delay) {
         pos: _pos,
         ox: _ox,
         oy: _oy,
-        tx: _ox,
-        ty: _oy,
+        pos2: _pos2,
+        tx: _tx,
+        ty: _ty,
         life: _life,
         life_max: _life,
         delay: _delay,
@@ -301,6 +371,11 @@ function cf_fx_add(_kind, _pos, _ox, _oy, _life, _delay) {
     array_push(global.cf_fx, _fx);
     global.cf_fx_count = array_length(global.cf_fx);
     return _fx;
+}
+
+/// An effect that stays put on one tile.
+function cf_fx_at(_kind, _pos, _ox, _oy, _life, _delay) {
+    return cf_fx_add(_kind, _pos, _ox, _oy, _pos, _ox, _oy, _life, _delay);
 }
 
 /// One tick of effect life. Called once per game tick from obj_game Step.
@@ -341,7 +416,7 @@ function cf_fx_update() {
     var _d = array_length(_detonate);
     for (var _j = 0; _j < _d; _j++) {
         var _g = _detonate[_j];
-        var _b = cf_fx_add(CfFx.boom, _g.pos, _g.tx, _g.ty, 30, 0);
+        var _b = cf_fx_at(CfFx.boom, _g.pos2, _g.tx, _g.ty, 30, 0);
         if (_b != undefined && _g.boom_sound) {
             cf_play(snd_cf_explosion);
         }
@@ -349,8 +424,8 @@ function cf_fx_update() {
 }
 
 /// Drawn by the viewport after the serf rows, so effects sit on top.
-/// `_view` is the Viewport (for screen_pix_from_map_coord), `_ox`/`_oy` its
-/// own screen origin.
+/// `_view` is the Viewport (for screen_pix_from_map_coord), `_ox`/`_oy` its own
+/// screen origin.
 function cf_fx_draw(_view, _ox, _oy) {
     var _n = array_length(global.cf_fx);
     if (_n == 0) {
@@ -361,51 +436,55 @@ function cf_fx_draw(_view, _ox, _oy) {
         if (_fx.delay > 0) {
             continue;
         }
-        var _s = _view.screen_pix_from_map_coord(_fx.pos);
-        var _sx = _ox + _s[0];
-        var _sy = _oy + _s[1];
+        var _a = _view.screen_pix_from_map_coord(_fx.pos);
+        var _ax = _ox + _a[0] + _fx.ox;
+        var _ay = _oy + _a[1] + _fx.oy;
+        var _bx = _ax;
+        var _by = _ay;
+        if (_fx.pos2 != _fx.pos) {
+            var _b = _view.screen_pix_from_map_coord(_fx.pos2);
+            _bx = _ox + _b[0] + _fx.tx;
+            _by = _oy + _b[1] + _fx.ty;
+        } else {
+            _bx = _ox + _a[0] + _fx.tx;
+            _by = _oy + _a[1] + _fx.ty;
+        }
         var _t = 1.0 - (_fx.life / _fx.life_max);   // 0 at birth, 1 at death
 
         switch (_fx.kind) {
         case CfFx.flash:
-            draw_sprite(spr_cf_fx, CF_FX_FLASH + min(2, floor(_t * 3)),
-                        _sx + _fx.ox, _sy + _fx.oy);
+            draw_sprite(spr_cf_fx, CF_FX_FLASH + min(2, floor(_t * 3)), _ax, _ay);
             break;
 
         case CfFx.tracer: {
             // a short bright dash travelling from muzzle to target
-            var _hx = lerp(_fx.ox, _fx.tx, _t);
-            var _hy = lerp(_fx.oy, _fx.ty, _t);
-            var _bx = lerp(_fx.ox, _fx.tx, max(0, _t - 0.28));
-            var _by = lerp(_fx.oy, _fx.ty, max(0, _t - 0.28));
-            draw_line_colour(_sx + _bx, _sy + _by, _sx + _hx, _sy + _hy,
+            var _hx = lerp(_ax, _bx, _t);
+            var _hy = lerp(_ay, _by, _t);
+            var _t0 = max(0, _t - 0.3);
+            draw_line_colour(lerp(_ax, _bx, _t0), lerp(_ay, _by, _t0), _hx, _hy,
                              make_colour_rgb(255, 184, 62),
                              make_colour_rgb(255, 246, 190));
             break;
         }
 
         case CfFx.grenade: {
-            // parabolic arc: linear across, with a lob added to the height
-            var _gx = lerp(_fx.ox, _fx.tx, _t);
-            var _gy = lerp(_fx.oy, _fx.ty, _t) - 14 * sin(pi * _t);
-            draw_sprite(spr_cf_fx, CF_FX_GREN + (floor(_t * 9) mod 3),
-                        _sx + _gx, _sy + _gy);
+            // parabolic arc: straight across, with a lob added to the height
+            var _gx = lerp(_ax, _bx, _t);
+            var _gy = lerp(_ay, _by, _t) - 18 * sin(pi * _t);
+            draw_sprite(spr_cf_fx, CF_FX_GREN + (floor(_t * 9) mod 3), _gx, _gy);
             break;
         }
 
         case CfFx.boom:
-            draw_sprite(spr_cf_fx, CF_FX_BOOM + min(5, floor(_t * 6)),
-                        _sx + _fx.ox, _sy + _fx.oy);
+            draw_sprite(spr_cf_fx, CF_FX_BOOM + min(5, floor(_t * 6)), _ax, _ay);
             break;
 
         case CfFx.fire:
-            draw_sprite(spr_cf_fx, CF_FX_FIRE + (floor(_t * 24) mod 6),
-                        _sx + _fx.ox, _sy + _fx.oy);
+            draw_sprite(spr_cf_fx, CF_FX_FIRE + (floor(_t * 24) mod 6), _ax, _ay);
             break;
 
         case CfFx.impact:
-            draw_sprite(spr_cf_fx, CF_FX_IMPACT + min(2, floor(_t * 3)),
-                        _sx + _fx.ox, _sy + _fx.oy);
+            draw_sprite(spr_cf_fx, CF_FX_IMPACT + min(2, floor(_t * 3)), _ax, _ay);
             break;
 
         default:
@@ -423,9 +502,9 @@ function cf_play(_snd) {
     audio_play_sound(_snd, 10, false);
 }
 
-/// Rifle fire specifically: several fights running at once would otherwise
-/// stack a burst per fight per exchange into a wall of noise, so gunfire is
-/// rate-limited across the whole map. Everything else plays unthrottled.
+/// Rifle fire specifically: several assaults running at once would otherwise
+/// stack a shot per soldier into a wall of noise, so gunfire is rate-limited
+/// across the whole map. Everything else plays unthrottled.
 function cf_play_rifle() {
     if (global.cf_shot_cool > 0) {
         return;
@@ -434,11 +513,272 @@ function cf_play_rifle() {
     cf_play(snd_cf_rifle);
 }
 
-// ---------------------------------------------------------------- fight hooks
+// ---------------------------------------------------------------- shooting
 
-/// Called from serf_handle_knight_attacking every time the fight advances one
-/// exchange. Nothing about the fight's outcome depends on this; it only makes
-/// the noise and the tracers.
+/// One rifle round from _serf at _target_pos, with a muzzle flash, a tracer and
+/// an impact where it lands.
+function cf_shoot_at(_serf, _target_pos, _aim_y) {
+    var _d = _serf.cf_facing;
+    var _sx = [1, 1, 0, -1, -1, 0];
+    var _sy = [0, 1, 1, 0, -1, -1];
+    var _mx = -CF_STANDOFF_X * _sx[_d] + 5 * _sx[_d];
+    var _my = -CF_STANDOFF_Y * _sy[_d] - 9;
+    var _spread = cf_rand(5) - 2;
+
+    cf_fx_at(CfFx.flash, _serf.pos, _mx, _my, 3, 0);
+    var _tr = cf_fx_add(CfFx.tracer, _serf.pos, _mx, _my,
+                        _target_pos, _spread, _aim_y, 5, 0);
+    cf_fx_add(CfFx.impact, _target_pos, _spread, _aim_y,
+              _target_pos, _spread, _aim_y, 6, 4);
+    cf_play_rifle();
+    _serf.cf_throwing = false;
+    _serf.cf_last_shot = 0;
+}
+
+/// One grenade from _serf at _target_pos. It arcs over, then detonates.
+function cf_throw_at(_serf, _target_pos, _aim_y) {
+    var _d = _serf.cf_facing;
+    var _sx = [1, 1, 0, -1, -1, 0];
+    var _sy = [0, 1, 1, 0, -1, -1];
+    var _mx = -CF_STANDOFF_X * _sx[_d] + 3 * _sx[_d];
+    var _my = -CF_STANDOFF_Y * _sy[_d] - 11;
+
+    var _g = cf_fx_add(CfFx.grenade, _serf.pos, _mx, _my,
+                       _target_pos, cf_rand(7) - 3, _aim_y,
+                       CF_GRENADE_FLIGHT, 6);
+    if (_g != undefined) {
+        _g.boom_on_end = true;
+        _g.boom_sound = true;
+    }
+    cf_play(snd_cf_grenade);
+    _serf.cf_throwing = true;
+    _serf.cf_last_shot = 0;
+}
+
+// ---------------------------------------------------------------- the siege
+
+/// Turn a building into a bonfire and turn its garrison out. burnup() does the
+/// whole demolition itself - land ownership, stock, and calling castle_deleted
+/// on every knight inside, which is what puts them outside in the open.
+function cf_torch_building(_building) {
+    if (_building.is_burning()) {
+        return;
+    }
+    var _pos = _building.get_position();
+    cf_fx_at(CfFx.boom, _pos, 0, -12, 30, 0);
+    for (var _i = 0; _i < 5; _i++) {
+        cf_fx_at(CfFx.fire, _pos, cf_rand(17) - 8, -4 - cf_rand(12),
+                 110 + cf_rand(80), 6 * _i);
+    }
+    cf_play(snd_cf_explosion);
+    cf_play(snd_cf_fire);
+    _building.burnup();
+    show_debug_message("cheat: building at " + string(_pos) + " levelled");
+}
+
+/// Put an enemy knight down, using the ported code's own death path: the
+/// knight_attacking_defeat handler waits out the 255-tick counter, clears the
+/// map tile and deletes the serf. set_type(dead) already adjusts the owner's
+/// serf counts and military score, so nothing else needs doing here.
+function cf_kill_knight(_knight) {
+    var _type = _knight.get_type();
+    _knight.state = SerfState.knight_attacking_defeat;
+    _knight.animation = 152 + _type;
+    _knight.counter = 255;
+    _knight.tick = _knight.game.get_tick() & 0xFFFF;
+    _knight.set_type(SerfType.dead);
+    cf_fx_at(CfFx.impact, _knight.pos, 0, -8, 8, 0);
+    cf_play(snd_cf_death);
+}
+
+/// Is this serf something the lads should be shooting at?
+function cf_is_hostile(_serf, _shooter) {
+    if (_serf.get_owner() == _shooter.get_owner()) {
+        return false;
+    }
+    var _type = _serf.get_type();
+    return _type >= SerfType.knight0 && _type <= SerfType.knight4;
+}
+
+/// Nearest enemy knight in the open, or 0 if the coast is clear.
+function cf_find_target(_serf) {
+    var _map = _serf.game.get_map();
+    for (var _i = 0; _i < CF_MOP_RADIUS; _i++) {
+        var _p = _map.pos_add_spirally(_serf.pos, _i);
+        if (!_map.has_serf(_p)) {
+            continue;
+        }
+        var _other = _serf.game.get_serf_at_pos(_p);
+        if (_other == undefined) {
+            continue;
+        }
+        if (cf_is_hostile(_other, _serf)) {
+            return _other.get_index();
+        }
+    }
+    return 0;
+}
+
+/// Hand the serf back to the ported code. SerfState.lost is the game's own
+/// "this one has no business here, send him home" path, so the walk back and
+/// the re-absorption into the economy are all existing, tested behaviour.
+function cf_send_home(_serf) {
+    _serf.cf_mode = CfMode.none;
+    _serf.cf_target = 0;
+    _serf.state = SerfState.lost;
+    _serf.s.lost_field_B = 0;
+    _serf.counter = 0;
+}
+
+/// The whole cheat assault, run from inside SerfState.knight_engaging_building.
+/// Returns true when the cheat has taken this serf over and the ported handler
+/// should not run; false to let the normal duel proceed.
+function cf_siege_tick(_serf) {
+    if (!global.cf_active) {
+        return false;
+    }
+    if (_serf.get_owner() != 0) {
+        return false;
+    }
+
+    var _game = _serf.game;
+    var _map = _game.get_map();
+
+    // ---- not yet engaged: is there something in front worth besieging?
+    if (_serf.cf_mode == CfMode.none) {
+        var _bpos = _map.move_up_left(_serf.pos);
+        var _obj = _map.get_obj(_bpos);
+        if (_obj < MapObject.small_building || _obj > MapObject.castle) {
+            return false;
+        }
+        var _bld = _game.get_building_at_pos(_bpos);
+        if (_bld == undefined) {
+            return false;
+        }
+        if (!_bld.is_done() || _bld.is_burning() ||
+            _bld.get_owner() == _serf.get_owner()) {
+            return false;
+        }
+        // An undefended building is left to the ported "occupy it" path, which
+        // scr_serf_c hands to cf_burn_enemy_building - there is nothing to
+        // besiege, so there is no point standing there shooting at it.
+        if (!_bld.has_knight()) {
+            return false;
+        }
+
+        _serf.cf_mode = CfMode.siege;
+        _serf.cf_target = _bld.get_index();
+        _serf.cf_shots = 0;
+        _serf.cf_timer = CF_FIRE_INTERVAL;
+        _serf.cf_facing = cf_dir_towards(_map, _serf.pos, _bpos);
+        _serf.animation = 168;
+        if (_bld.is_under_attack()) {
+            _game.get_player(_bld.get_owner()).add_notification(
+                MessageType.under_attack, _bld.get_position(), _serf.get_owner());
+        }
+        show_debug_message("cheat: soldier " + string(_serf.get_index()) +
+                           " opening up on building " + string(_serf.cf_target));
+    }
+
+    // ---- clock
+    var _delta = (_game.get_tick() - _serf.tick) & 0xFFFF;
+    _serf.tick = _game.get_tick() & 0xFFFF;
+    _serf.counter = 0;
+    _serf.cf_timer -= _delta;
+    _serf.cf_last_shot += _delta;
+
+    switch (_serf.cf_mode) {
+    case CfMode.siege: {
+        var _bld = _game.get_building(_serf.cf_target);
+        if (_bld == undefined || _bld.is_burning()) {
+            _serf.cf_mode = CfMode.mopping;
+            _serf.cf_target = 0;
+            _serf.cf_timer = CF_MOP_INTERVAL;
+            return true;
+        }
+        if (_serf.cf_timer > 0) {
+            return true;
+        }
+
+        _serf.cf_shots += 1;
+        _serf.cf_facing = cf_dir_towards(_map, _serf.pos, _bld.get_position());
+
+        if ((_serf.cf_shots mod CF_SHOT_CYCLE) == 0) {
+            cf_throw_at(_serf, _bld.get_position(), -10);
+            _bld.cf_hp -= CF_DMG_GRENADE;
+        } else {
+            cf_shoot_at(_serf, _bld.get_position(), -14);
+            _bld.cf_hp -= CF_DMG_BULLET;
+        }
+        _serf.cf_timer = CF_FIRE_INTERVAL;
+
+        if (_bld.cf_hp <= 0) {
+            cf_torch_building(_bld);
+            _serf.cf_mode = CfMode.mopping;
+            _serf.cf_target = 0;
+            _serf.cf_timer = CF_MOP_INTERVAL * 2;   // let them get outside first
+        }
+        return true;
+    }
+
+    case CfMode.mopping: {
+        var _target = undefined;
+        if (_serf.cf_target != 0) {
+            _target = _game.get_serf(_serf.cf_target);
+            if (_target == undefined || !cf_is_hostile(_target, _serf)) {
+                _target = undefined;
+                _serf.cf_target = 0;
+            }
+        }
+        if (_target == undefined) {
+            _serf.cf_target = cf_find_target(_serf);
+            if (_serf.cf_target == 0) {
+                _serf.cf_mode = CfMode.withdraw;
+                return true;
+            }
+            _target = _game.get_serf(_serf.cf_target);
+            if (_target == undefined) {
+                _serf.cf_target = 0;
+                return true;
+            }
+        }
+
+        if (_serf.cf_timer > 0) {
+            return true;
+        }
+
+        _serf.cf_facing = cf_dir_towards(_map, _serf.pos, _target.pos);
+        cf_shoot_at(_serf, _target.pos, -12);
+        _serf.cf_timer = CF_MOP_INTERVAL;
+
+        _target.cf_hp -= 1;
+        if (_target.cf_hp <= 0) {
+            cf_kill_knight(_target);
+            _serf.cf_target = 0;
+        } else {
+            if (cf_rand(2) == 0) {
+                cf_on_hurt(_target);
+            }
+        }
+        return true;
+    }
+
+    case CfMode.withdraw:
+        cf_send_home(_serf);
+        return true;
+
+    default:
+        break;
+    }
+
+    return false;
+}
+
+// ---------------------------------------------------------------- duel hooks
+// These only fire when a soldier is DEFENDING one of the player's own huts, so
+// he is in the ported duel rather than the siege above. Cosmetic only.
+
+/// Called from serf_handle_knight_attacking on every exchange.
 function cf_on_fight_step(_attacker, _defender, _move) {
     if (!global.cf_active) {
         return;
@@ -446,62 +786,33 @@ function cf_on_fight_step(_attacker, _defender, _move) {
     if (!cf_is_soldier(_attacker) && !cf_is_soldier(_defender)) {
         return;
     }
-
     var _pos = _attacker.pos;
-    var _mx = CF_STANDOFF_X;
-    var _my = CF_STANDOFF_Y - 9;          // muzzle height off the ground
-    var _tx = -CF_STANDOFF_X;
-    var _ty = -CF_STANDOFF_Y - 6;         // target: the defender's chest
-
-    if ((_attacker.s.attacking_move mod CF_GRENADE_EVERY) == (CF_GRENADE_EVERY - 1)) {
-        var _g = cf_fx_add(CfFx.grenade, _pos, _mx, _my - 2, 26, 10);
-        if (_g != undefined) {
-            _g.tx = _tx;
-            _g.ty = _ty + 6;
-            _g.boom_on_end = true;
-            _g.boom_sound = true;
-        }
-        cf_play(snd_cf_grenade);
-        return;
-    }
-
-    // a short burst rather than one shot per exchange - it should sound like
-    // an automatic weapon, not a musket
-    for (var _r = 0; _r < CF_BURST_ROUNDS; _r++) {
-        var _d = _r * CF_BURST_GAP;
-        var _spread = cf_rand(5) - 2;
-        cf_fx_add(CfFx.flash, _pos, _mx + 5, _my, 3, _d);
-        var _tr = cf_fx_add(CfFx.tracer, _pos, _mx + 6, _my, 5, _d);
-        if (_tr != undefined) {
-            _tr.tx = _tx;
-            _tr.ty = _ty + _spread;
-        }
-        cf_fx_add(CfFx.impact, _pos, _tx, _ty + _spread, 6, _d + 4);
-    }
+    cf_fx_at(CfFx.flash, _pos, 6, -12, 3, 0);
+    var _tr = cf_fx_add(CfFx.tracer, _pos, 7, -12, _pos, -7, -14, 5, 0);
+    cf_fx_at(CfFx.impact, _pos, -7, -14, 6, 4);
     cf_play_rifle();
-
-    /* Not every burst draws blood, so the grunts stay occasional rather than
-       becoming a drone under a long fight. */
     if (cf_rand(3) == 0) {
         cf_on_hurt(_defender);
     }
 }
 
-/// Called when one side of a fight is about to die. `_loser` is the serf that
-/// goes down; `_won` says whether the attacker won, for the log only.
+/// Called when one side of a duel is about to go down.
 function cf_on_fight_end(_attacker, _defender, _attacker_won) {
     if (!global.cf_active) {
+        return;
+    }
+    if (!cf_is_soldier(_attacker) && !cf_is_soldier(_defender)) {
         return;
     }
     var _loser = _defender;
     if (_attacker_won == 0) {
         _loser = _attacker;
     }
-    cf_fx_add(CfFx.impact, _loser.pos, 0, -8, 8, 0);
+    cf_fx_at(CfFx.impact, _loser.pos, 0, -8, 8, 0);
     cf_play(snd_cf_death);
 }
 
-/// Called when a soldier takes a hit but stays up.
+/// A hit that did not put the man down.
 function cf_on_hurt(_serf) {
     if (!global.cf_active) {
         return;
@@ -515,9 +826,9 @@ function cf_on_hurt(_serf) {
 
 // ---------------------------------------------------------------- buildings
 
-/// Replaces "capture the enemy building" while the cheat is on: the soldiers
-/// burn it instead. Returns true when the building was torched, false when the
-/// normal capture path should run after all.
+/// Replaces "capture the enemy building" while the cheat is on: an undefended
+/// building is simply torched. Returns true when it was, false when the normal
+/// capture path should run after all.
 function cf_burn_enemy_building(_serf, _building) {
     if (!global.cf_active) {
         return false;
@@ -528,23 +839,7 @@ function cf_burn_enemy_building(_serf, _building) {
     if (_building.is_burning()) {
         return false;
     }
-
-    var _pos = _building.get_position();
-
-    // a grenade goes through the door first, then the place goes up
-    cf_fx_add(CfFx.boom, _pos, 0, -12, 30, 0);
-    for (var _i = 0; _i < 5; _i++) {
-        var _fx = cf_fx_add(CfFx.fire, _pos,
-                            cf_rand(17) - 8, -4 - cf_rand(12),
-                            110 + cf_rand(80), 6 * _i);
-        if (_fx == undefined) {
-            break;
-        }
-    }
-    cf_play(snd_cf_explosion);
-    cf_play(snd_cf_fire);
-
-    _building.burnup();
-    show_debug_message("cheat: building at " + string(_pos) + " torched");
+    cf_throw_at(_serf, _building.get_position(), -10);
+    cf_torch_building(_building);
     return true;
 }

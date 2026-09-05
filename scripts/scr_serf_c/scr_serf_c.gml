@@ -53,6 +53,15 @@ function serf_c_init_tables() {
 }
 
 function serf_handle_serf_knight_engaging_building_state(_serf) {
+  /* "borntodie": the player's knights do not duel for a building, they besiege
+     it. The whole assault runs inside this state - shooting, grenading, the
+     burn, then mopping up the garrison as it is turned out - and hands the serf
+     back via SerfState.lost when it is done. Returns false for everyone else,
+     and the ported duel below runs untouched. */
+  if (cf_siege_tick(_serf)) {
+    return;
+  }
+
   var delta = (_serf.game.get_tick() - _serf.tick) & 0xFFFF;
   _serf.tick = _serf.game.get_tick() & 0xFFFF;
   _serf.counter -= delta;

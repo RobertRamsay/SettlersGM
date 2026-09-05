@@ -2025,7 +2025,7 @@ function Viewport(_interface, _map) : GuiObject() constructor {
                overlapping. The offset is applied to the drawn position only -
                the serf's map position is untouched. */
             if (cf_is_soldier(_serf)) {
-                var _off = cf_standoff(_serf, false);
+                var _off = cf_standoff(_serf);
                 cf_draw_soldier(_lx + _off[0], _ly + _off[1], _color, _serf);
             } else {
                 draw_row_serf(_lx, _ly, true, _color, _body);
@@ -2058,7 +2058,7 @@ function Viewport(_interface, _map) : GuiObject() constructor {
                 if (_dbody > -1) {
                     var _dcolor = get_player_colour(_def_serf.get_owner());
                     if (cf_is_soldier(_def_serf)) {
-                        var _doff = cf_standoff(_serf, true);
+                        var _doff = cf_standoff(_def_serf);
                         cf_draw_soldier(_dlx + _doff[0], _dly + _doff[1], _dcolor, _def_serf);
                     } else {
                         draw_row_serf(_dlx, _dly, true, _dcolor, _dbody);
