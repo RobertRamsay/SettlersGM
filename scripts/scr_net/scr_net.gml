@@ -94,6 +94,11 @@ function net_init() {
     global.net_turns    = ds_map_create();
     global.net_checks   = ds_map_create();
     global.net_desync   = false;
+
+    /* The last turn whose commands have been run. Separate from what has
+       ARRIVED, because a turn is five ticks long and stays the current turn for
+       all five - see net_before_tick. */
+    global.net_executed_turn = -1;
 }
 
 function net_is_active() {
@@ -440,6 +445,10 @@ function net_before_tick(_game) {
     }
 
     var _turn = net_current_turn();
+    if (_turn <= global.net_executed_turn) {
+        return;   /* this turn's commands have already run */
+    }
+    global.net_executed_turn = _turn;
 
     net_enforce_speed(_game);
     net_execute_turn(_game, _turn);
@@ -505,8 +514,16 @@ function net_execute_turn(_game, _turn) {
         }
     }
 
-    ds_map_delete(global.net_turns, _local_key);
-    ds_map_delete(global.net_turns, _peer_key);
+    /* Drop the PREVIOUS turn, never this one. A turn is NET_TICKS_PER_TURN
+       ticks long and stays the current turn for all of them, and
+       net_ticks_available() asks whether the current turn has arrived on every
+       one of those ticks. Deleting it the moment its commands ran meant that
+       from the second tick onwards the machine was asking whether the turn it
+       was already inside had arrived, being told no, and waiting for ever - a
+       deadlock that only showed at normal frame rates, because running all five
+       ticks in one go stepped over it. */
+    ds_map_delete(global.net_turns, "L" + string(_turn - 1));
+    ds_map_delete(global.net_turns, string(_turn - 1));
 }
 
 /// The other machine's player index. Two players for now, so it is simply the
@@ -781,6 +798,7 @@ function net_placing_status(_game) {
 function net_begin(_interface, _game, _local_player) {
     global.net_local_player = _local_player;
     global.net_sim_tick = 0;
+    global.net_executed_turn = -1;
     global.net_outbox = [];
 
     /* The turn maps are NOT cleared here. The host primes turns 0 and 1 and

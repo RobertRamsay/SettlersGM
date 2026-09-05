@@ -3,12 +3,12 @@
 // ---- game ticks: one update per TICK_LENGTH_MS of real time (50 Hz)
 tick_accumulator += delta_time / 1000;   // delta_time is microseconds
 var _ticks = tick_accumulator div TICK_LENGTH_MS;
+var _spiralled = false;
 if (_ticks > MAX_CATCHUP_TICKS) {
     _ticks = MAX_CATCHUP_TICKS;          // never spiral after a stall
-    tick_accumulator = 0;
-} else {
-    tick_accumulator -= _ticks * TICK_LENGTH_MS;
+    _spiralled = true;
 }
+
 // Networked games may only simulate as far as the other machine's commands
 // have arrived. net_ticks_available() is the whole of lockstep: when it returns
 // zero this machine waits, which is what stops the two drifting apart. Offline
@@ -18,6 +18,15 @@ if (net_is_active()) {
     if (_ticks > _allowed) {
         _ticks = _allowed;
     }
+}
+
+// Charged for what is actually run, not for what was wanted. The accumulator
+// used to be debited before the lockstep clamp, so every tick spent waiting for
+// the other machine was time thrown away and the game ran slow behind the wait.
+if (_spiralled) {
+    tick_accumulator = 0;
+} else {
+    tick_accumulator -= _ticks * TICK_LENGTH_MS;
 }
 
 for (var _t = 0; _t < _ticks; _t++) {
