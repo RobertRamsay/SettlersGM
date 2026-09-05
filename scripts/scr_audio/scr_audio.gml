@@ -118,6 +118,36 @@ function settlers_play_music() {
     }
 }
 
+/// Stop every sound effect at once, leaving the music playing.
+///
+/// Needed because leaving a finished game for the start screen used to take the
+/// fire with it: the viewport keeps drawing behind the box, draw_burning_building
+/// retriggers Sfx.burning as each building's burn counter rolls over, and a map
+/// full of burning buildings after a victory means that never lets up.
+///
+/// This is a stop rather than a fade. A real fade needs the handle of each
+/// playing instance, and this audio layer keeps none - play_sfx and cf_play both
+/// throw the return value of audio_play_sound away. Fading by asset instead
+/// would leave the gain at zero for every later play of that sound, which is a
+/// worse bug than an abrupt stop.
+function audio_stop_sfx() {
+    var _assets = global.sound_assets;
+    for (var _i = 0; _i < array_length(_assets); _i++) {
+        if (audio_is_playing(_assets[_i])) {
+            audio_stop_sound(_assets[_i]);
+        }
+    }
+
+    /* The "borntodie" sounds are their own assets and are not in sound_assets. */
+    var _cf = [snd_cf_rifle, snd_cf_grenade, snd_cf_explosion, snd_cf_fire,
+               snd_cf_hurt1, snd_cf_hurt2, snd_cf_death];
+    for (var _j = 0; _j < array_length(_cf); _j++) {
+        if (audio_is_playing(_cf[_j])) {
+            audio_stop_sound(_cf[_j]);
+        }
+    }
+}
+
 function audio_toggle_music() {
     var _a = audio_get_instance();
     _a.music.enable(!_a.music.is_enabled());

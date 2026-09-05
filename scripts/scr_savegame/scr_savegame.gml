@@ -736,26 +736,30 @@ function progress_load() {
 
 /// Has this mission been won? Index is 0-based, as game_mission is.
 function progress_mission_is_done(_index) {
-    var _done = progress_load();
-    if (_index < 0 || _index >= array_length(_done)) {
+    progress_load();
+    if (_index < 0 || _index >= array_length(global.progress_done)) {
         return false;
     }
-    return _done[_index];
+    return global.progress_done[_index];
 }
 
 /// Record a win and write it out at once. Writing immediately rather than at
 /// shutdown is the point: the game can be closed from the window's X, and a
 /// mission won but not recorded is exactly the thing a player would notice.
 function progress_mark_mission_done(_index) {
-    var _done = progress_load();
-    if (_index < 0 || _index >= array_length(_done)) {
+    progress_load();
+    if (_index < 0 || _index >= array_length(global.progress_done)) {
+        show_debug_message("progress: cannot record mission index " + string(_index));
         return;
     }
-    if (_done[_index]) {
+    if (global.progress_done[_index]) {
         return;   /* already recorded, nothing to write */
     }
 
-    _done[_index] = true;
+    /* Written straight into the global rather than through a local holding the
+       same array. The indirection was doing nothing useful and left the whole
+       thing resting on array reference semantics; this cannot be got wrong. */
+    global.progress_done[_index] = true;
     progress_save();
     show_debug_message("progress: mission " + string(_index + 1) + " completed");
 }
@@ -764,10 +768,10 @@ function progress_mark_mission_done(_index) {
 /// Indices rather than the flag array itself, so the file stays readable and
 /// stays valid if the mission table ever grows.
 function progress_save() {
-    var _done = progress_load();
+    progress_load();
     var _list = [];
-    for (var _i = 0; _i < array_length(_done); _i++) {
-        if (_done[_i]) {
+    for (var _i = 0; _i < array_length(global.progress_done); _i++) {
+        if (global.progress_done[_i]) {
             array_push(_list, _i);
         }
     }

@@ -1,0 +1,336 @@
+From 49bcdd692d1dc5e1cf178ee59e1fd6cd8cc49f7a Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 5 Sep 2026 14:54:38 +0000
+Subject: [PATCH] End box layout, silence the game at the menu, drop the Save
+ button
+
+Win panel:
+- Portraits 8px right. The colour block is drawn at 8 * column while everything
+  else in a popup is drawn at 8 * column + 8, so a portrait on what looks like
+  the middle column actually sat 8px left of centre. Each starting column moves
+  one right: one face is now 48..96, centred on 72; two are 16..64 and 80..128,
+  the pair centred on 72; three 40-wide blocks tile 8..128, centred on 68, the
+  closest an 8px grid gets.
+- Tick to the bottom left corner, column 0, with its clickmap row moved to match
+  (x 0..16, which is exactly the icon's own extent in clickmap space).
+
+Menu no longer leaves the game running behind it. The start screen sits OVER the
+game rather than replacing it, and viewport.set_enabled(false) only stops it
+taking input - it carries on drawing, and drawing a burning building is what
+plays Sfx.burning. After a victory the map is full of them, so the fire crackled
+away behind the menu forever. Taking Menu now stands the cheat's soldiers down,
+freezes the game so the burn counters stop advancing (which stops the retrigger
+at source) and stops every sound effect. The music is left alone. Freezing costs
+nothing here because the game is over; taking the tick instead leaves it running,
+which is the point of that choice.
+
+audio_stop_sfx() is a stop, not a fade. A real fade needs the handle of each
+playing instance and this audio layer keeps none - play_sfx and cf_play both
+throw the return of audio_play_sound away. Fading by asset instead would leave
+the gain at zero for every later play of that sound, which is a worse bug than
+an abrupt stop.
+
+The Save button is gone - enum entry, clickmap row, label and field. Progress was
+always written the moment a mission was won, so the button only ever offered a
+re-save of something already on disk.
+
+Why a completed mission may not have shown: only a game that carries a mission
+index can be ticked off, and that index is set when GameInitBox starts a mission.
+A game LOADED from a save written before the field existed comes back as the
+constructor's -1 and records nothing. That case now says so in the log instead of
+failing silently. The progress array is also written straight into the global
+rather than through a local holding the same array - the indirection was doing
+nothing and left the whole thing resting on array reference semantics.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DFktm5o1kLnS2Pgvyp8tD4
+---
+ scripts/scr_audio/scr_audio.gml         | 30 +++++++++++++++++++++++++
+ scripts/scr_game/scr_game.gml           | 13 ++++++++++-
+ scripts/scr_game_init/scr_game_init.gml | 29 +-----------------------
+ scripts/scr_popup_b/scr_popup_b.gml     | 17 +++++++++-----
+ scripts/scr_popup_c/scr_popup_c.gml     | 26 ++++++++++++++++++---
+ scripts/scr_savegame/scr_savegame.gml   | 24 +++++++++++---------
+ 6 files changed, 92 insertions(+), 47 deletions(-)
+
+diff --git a/scripts/scr_audio/scr_audio.gml b/scripts/scr_audio/scr_audio.gml
+index daa70015..7f74c4de 100644
+--- a/scripts/scr_audio/scr_audio.gml
++++ b/scripts/scr_audio/scr_audio.gml
+@@ -118,6 +118,36 @@ function settlers_play_music() {
+     }
+ }
+ 
++/// Stop every sound effect at once, leaving the music playing.
++///
++/// Needed because leaving a finished game for the start screen used to take the
++/// fire with it: the viewport keeps drawing behind the box, draw_burning_building
++/// retriggers Sfx.burning as each building's burn counter rolls over, and a map
++/// full of burning buildings after a victory means that never lets up.
++///
++/// This is a stop rather than a fade. A real fade needs the handle of each
++/// playing instance, and this audio layer keeps none - play_sfx and cf_play both
++/// throw the return value of audio_play_sound away. Fading by asset instead
++/// would leave the gain at zero for every later play of that sound, which is a
++/// worse bug than an abrupt stop.
++function audio_stop_sfx() {
++    var _assets = global.sound_assets;
++    for (var _i = 0; _i < array_length(_assets); _i++) {
++        if (audio_is_playing(_assets[_i])) {
++            audio_stop_sound(_assets[_i]);
++        }
++    }
++
++    /* The "borntodie" sounds are their own assets and are not in sound_assets. */
++    var _cf = [snd_cf_rifle, snd_cf_grenade, snd_cf_explosion, snd_cf_fire,
++               snd_cf_hurt1, snd_cf_hurt2, snd_cf_death];
++    for (var _j = 0; _j < array_length(_cf); _j++) {
++        if (audio_is_playing(_cf[_j])) {
++            audio_stop_sound(_cf[_j]);
++        }
++    }
++}
++
+ function audio_toggle_music() {
+     var _a = audio_get_instance();
+     _a.music.enable(!_a.music.is_enabled());
+diff --git a/scripts/scr_game/scr_game.gml b/scripts/scr_game/scr_game.gml
+index e65c9912..45c91cd0 100644
+--- a/scripts/scr_game/scr_game.gml
++++ b/scripts/scr_game/scr_game.gml
+@@ -975,9 +975,20 @@ function Game() constructor {
+         _human.add_notification(MessageType.game_won, _castle_pos[_me], _beaten);
+ 
+         /* Tick the mission off in the start screen's list. Only a win counts,
+-           and only a real mission has an index to tick. */
++           and only a real mission has an index to tick.
++
++           A game can legitimately have no index: a custom game or a tutorial,
++           or a save written before mission_index existed, which comes back as
++           the constructor's -1. That last one is worth saying out loud, because
++           from the player's seat it looks like winning simply failed to
++           register. */
+         if (mission_index >= 0) {
+             progress_mark_mission_done(mission_index);
++        } else {
++            show_debug_message("game: won, but this game carries no mission " +
++                               "index (custom game, tutorial, or a save from " +
++                               "before the mission list was tracked) - nothing " +
++                               "to mark complete");
+         }
+ 
+         show_debug_message("game: every opponent is finished - victory");
+diff --git a/scripts/scr_game_init/scr_game_init.gml b/scripts/scr_game_init/scr_game_init.gml
+index c84e2d00..66eca719 100644
+--- a/scripts/scr_game_init/scr_game_init.gml
++++ b/scripts/scr_game_init/scr_game_init.gml
+@@ -33,10 +33,7 @@ enum GameInitAction {
+     close,
+     gen_random,
+     apply_random,
+-    show_load,
+-    /* Not in Freeserf: write the completed-mission list out. Appended, never
+-       inserted, so nothing above it renumbers. */
+-    save_progress
++    show_load
+ }
+ 
+ /// GameInitBox::GameType
+@@ -81,7 +78,6 @@ function game_init_init_tables() {
+     global.game_init_clickmap_mission = [
+         GameInitAction.start_game,        20,  16, 32, 32,
+         GameInitAction.toggle_game_type,  60,  16, 32, 32,
+-        GameInitAction.save_progress,    212,  16, 40, 16,
+         GameInitAction.show_load,        200, 222, 40, 16,
+         GameInitAction.show_options,     308,  16, 32, 32,
+         GameInitAction.increment,        284,  16, 16, 16,
+@@ -273,10 +269,6 @@ function GameInitBox(_interface) : GuiObject() constructor {
+     game_type = GameType.custom;
+     game_mission = 0;
+ 
+-    /* current_time up to which the save button reads "Saved" instead of
+-       "Save". 0 means it never has been, this session. */
+-    progress_saved_until = 0;
+-
+     custom_mission = undefined;
+     mission = undefined;
+ 
+@@ -373,17 +365,6 @@ function GameInitBox(_interface) : GuiObject() constructor {
+                     draw_box_string(24, 18, "Complete");
+                 }
+ 
+-                /* Write the completed list out by hand. It is also written the
+-                   moment a mission is won, so this is a re-save rather than the
+-                   only way to keep progress - but having the button means the
+-                   state is never something you just have to trust. Column 24
+-                   puts it directly above "Complete" and clear of the up arrow
+-                   at x 284. */
+-                if (current_time < progress_saved_until) {
+-                    draw_box_string(24, 2, "Saved");
+-                } else {
+-                    draw_box_string(24, 2, "Save");
+-                }
+ 
+                 draw_box_icon(33, 0, 237);  // Up button
+                 draw_box_icon(33, 16, 240);  // Down button
+@@ -642,14 +623,6 @@ function GameInitBox(_interface) : GuiObject() constructor {
+                 }
+                 generate_map_preview();
+                 break;
+-            case GameInitAction.save_progress:
+-                progress_save();
+-                /* Sfx.accepted is the affirmative blip, so the click sounds
+-                   like it did something - there is no other feedback until the
+-                   label changes. */
+-                play_sound(Sfx.accepted);
+-                progress_saved_until = current_time + 1500;
+-                break;
+             case GameInitAction.close:
+                 /* Quitting in-game returns here, so this is the way out. */
+                 game_end();
+diff --git a/scripts/scr_popup_b/scr_popup_b.gml b/scripts/scr_popup_b/scr_popup_b.gml
+index f0da8bf7..c2e8f4e7 100644
+--- a/scripts/scr_popup_b/scr_popup_b.gml
++++ b/scripts/scr_popup_b/scr_popup_b.gml
+@@ -1311,15 +1311,22 @@ function popup_draw_game_end_box(_popup) {
+         _count = 3;    /* three is the most a mission can field against you */
+     }
+ 
+-    /* Column of the first face and the pitch between them, per count. */
+-    var _first = 5;
++    /* Column of the first face and the pitch between them, per count.
++       The colour block is drawn at 8 * column while everything else in a popup
++       is drawn at 8 * column + 8, so a portrait on what looks like the middle
++       column actually sits 8px left of centre. Each of these is therefore one
++       column further right than the arithmetic alone suggests, which is the
++       8px shift, not a fudge. One face: block 48..96, centred on 72. Two:
++       16..64 and 80..128, the pair centred on 72. Three: 40-wide blocks tiled
++       from 8 to 128, centred on 68 - the closest an 8px grid gets. */
++    var _first = 6;
+     var _pitch = 0;
+     var _block = 48;
+     if (_count == 2) {
+-        _first = 1;
++        _first = 2;
+         _pitch = 8;
+     } else if (_count >= 3) {
+-        _first = 0;
++        _first = 1;
+         _pitch = 5;
+         _block = 40;
+     }
+@@ -1342,7 +1349,7 @@ function popup_draw_game_end_box(_popup) {
+        the game. */
+     _popup.draw_green_string(4, 114, "Play on?");
+ 
+-    _popup.draw_popup_icon(3, 128, 288);  /* Checkbox: carry on playing */
++    _popup.draw_popup_icon(0, 128, 288);  /* Checkbox: carry on playing */
+     _popup.draw_popup_icon(14, 128, 60);  /* Exit: back to the start screen */
+ }
+ 
+diff --git a/scripts/scr_popup_c/scr_popup_c.gml b/scripts/scr_popup_c/scr_popup_c.gml
+index 56244541..a7628773 100644
+--- a/scripts/scr_popup_c/scr_popup_c.gml
++++ b/scripts/scr_popup_c/scr_popup_c.gml
+@@ -36,7 +36,7 @@ function popup_c_init_tables() {
+      126). Continue sits on the left where nothing else does, so it cannot be
+      hit by muscle memory aiming for exit. */
+   global.popup_c_clk_game_end = [
+-    Action.game_end_continue,  24, 126, 16, 16,
++    Action.game_end_continue,   0, 126, 16, 16,
+     Action.game_end_menu,     112, 126, 16, 16,
+     -1
+   ];
+@@ -1206,11 +1206,31 @@ function popup_handle_action(_popup, _action, _x, _y) {
+        game_over_shown is already set. */
+     _popup.interface.close_popup();
+     break;
+-  case Action.game_end_menu:
+-    /* Back to the start screen, with the mission list already ticked. */
++  case Action.game_end_menu: {
++    /* Back to the start screen, with the mission list already ticked.
++
++       The start screen sits OVER the game rather than replacing it, and
++       viewport.set_enabled(false) only stops it taking input - it carries on
++       drawing, and drawing a burning building is what plays Sfx.burning. After
++       a victory the map is full of them, so the fire crackled away behind the
++       menu forever. Freezing the game stops the burn counters advancing, which
++       stops the retrigger at source, and stopping the effects clears what is
++       already sounding. The music is left alone.
++
++       The game is over, so freezing it costs nothing: there is nothing left to
++       play out. Clicking the tick instead leaves it running, which is the whole
++       point of that choice. */
++    var _game = _popup.interface.get_game();
++    if (_game != undefined) {
++      cf_stand_down(_game);
++      _game.set_speed(0);
++    }
++    audio_stop_sfx();
++
+     _popup.interface.close_popup();
+     _popup.interface.open_game_init();
+     break;
++  }
+   case Action.options_volume_minus: {
+     /* Audio::get_instance().get_volume_controller()->volume_down() */
+     audio_volume_down();
+diff --git a/scripts/scr_savegame/scr_savegame.gml b/scripts/scr_savegame/scr_savegame.gml
+index b29a7cfc..141758c4 100644
+--- a/scripts/scr_savegame/scr_savegame.gml
++++ b/scripts/scr_savegame/scr_savegame.gml
+@@ -736,26 +736,30 @@ function progress_load() {
+ 
+ /// Has this mission been won? Index is 0-based, as game_mission is.
+ function progress_mission_is_done(_index) {
+-    var _done = progress_load();
+-    if (_index < 0 || _index >= array_length(_done)) {
++    progress_load();
++    if (_index < 0 || _index >= array_length(global.progress_done)) {
+         return false;
+     }
+-    return _done[_index];
++    return global.progress_done[_index];
+ }
+ 
+ /// Record a win and write it out at once. Writing immediately rather than at
+ /// shutdown is the point: the game can be closed from the window's X, and a
+ /// mission won but not recorded is exactly the thing a player would notice.
+ function progress_mark_mission_done(_index) {
+-    var _done = progress_load();
+-    if (_index < 0 || _index >= array_length(_done)) {
++    progress_load();
++    if (_index < 0 || _index >= array_length(global.progress_done)) {
++        show_debug_message("progress: cannot record mission index " + string(_index));
+         return;
+     }
+-    if (_done[_index]) {
++    if (global.progress_done[_index]) {
+         return;   /* already recorded, nothing to write */
+     }
+ 
+-    _done[_index] = true;
++    /* Written straight into the global rather than through a local holding the
++       same array. The indirection was doing nothing useful and left the whole
++       thing resting on array reference semantics; this cannot be got wrong. */
++    global.progress_done[_index] = true;
+     progress_save();
+     show_debug_message("progress: mission " + string(_index + 1) + " completed");
+ }
+@@ -764,10 +768,10 @@ function progress_mark_mission_done(_index) {
+ /// Indices rather than the flag array itself, so the file stays readable and
+ /// stays valid if the mission table ever grows.
+ function progress_save() {
+-    var _done = progress_load();
++    progress_load();
+     var _list = [];
+-    for (var _i = 0; _i < array_length(_done); _i++) {
+-        if (_done[_i]) {
++    for (var _i = 0; _i < array_length(global.progress_done); _i++) {
++        if (global.progress_done[_i]) {
+             array_push(_list, _i);
+         }
+     }
+-- 
+2.43.0
+

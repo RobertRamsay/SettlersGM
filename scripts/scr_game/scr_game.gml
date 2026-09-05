@@ -975,9 +975,20 @@ function Game() constructor {
         _human.add_notification(MessageType.game_won, _castle_pos[_me], _beaten);
 
         /* Tick the mission off in the start screen's list. Only a win counts,
-           and only a real mission has an index to tick. */
+           and only a real mission has an index to tick.
+
+           A game can legitimately have no index: a custom game or a tutorial,
+           or a save written before mission_index existed, which comes back as
+           the constructor's -1. That last one is worth saying out loud, because
+           from the player's seat it looks like winning simply failed to
+           register. */
         if (mission_index >= 0) {
             progress_mark_mission_done(mission_index);
+        } else {
+            show_debug_message("game: won, but this game carries no mission " +
+                               "index (custom game, tutorial, or a save from " +
+                               "before the mission list was tracked) - nothing " +
+                               "to mark complete");
         }
 
         show_debug_message("game: every opponent is finished - victory");

@@ -1311,15 +1311,22 @@ function popup_draw_game_end_box(_popup) {
         _count = 3;    /* three is the most a mission can field against you */
     }
 
-    /* Column of the first face and the pitch between them, per count. */
-    var _first = 5;
+    /* Column of the first face and the pitch between them, per count.
+       The colour block is drawn at 8 * column while everything else in a popup
+       is drawn at 8 * column + 8, so a portrait on what looks like the middle
+       column actually sits 8px left of centre. Each of these is therefore one
+       column further right than the arithmetic alone suggests, which is the
+       8px shift, not a fudge. One face: block 48..96, centred on 72. Two:
+       16..64 and 80..128, the pair centred on 72. Three: 40-wide blocks tiled
+       from 8 to 128, centred on 68 - the closest an 8px grid gets. */
+    var _first = 6;
     var _pitch = 0;
     var _block = 48;
     if (_count == 2) {
-        _first = 1;
+        _first = 2;
         _pitch = 8;
     } else if (_count >= 3) {
-        _first = 0;
+        _first = 1;
         _pitch = 5;
         _block = 40;
     }
@@ -1342,7 +1349,7 @@ function popup_draw_game_end_box(_popup) {
        the game. */
     _popup.draw_green_string(4, 114, "Play on?");
 
-    _popup.draw_popup_icon(3, 128, 288);  /* Checkbox: carry on playing */
+    _popup.draw_popup_icon(0, 128, 288);  /* Checkbox: carry on playing */
     _popup.draw_popup_icon(14, 128, 60);  /* Exit: back to the start screen */
 }
 

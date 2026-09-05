@@ -36,7 +36,7 @@ function popup_c_init_tables() {
      126). Continue sits on the left where nothing else does, so it cannot be
      hit by muscle memory aiming for exit. */
   global.popup_c_clk_game_end = [
-    Action.game_end_continue,  24, 126, 16, 16,
+    Action.game_end_continue,   0, 126, 16, 16,
     Action.game_end_menu,     112, 126, 16, 16,
     -1
   ];
@@ -1206,11 +1206,31 @@ function popup_handle_action(_popup, _action, _x, _y) {
        game_over_shown is already set. */
     _popup.interface.close_popup();
     break;
-  case Action.game_end_menu:
-    /* Back to the start screen, with the mission list already ticked. */
+  case Action.game_end_menu: {
+    /* Back to the start screen, with the mission list already ticked.
+
+       The start screen sits OVER the game rather than replacing it, and
+       viewport.set_enabled(false) only stops it taking input - it carries on
+       drawing, and drawing a burning building is what plays Sfx.burning. After
+       a victory the map is full of them, so the fire crackled away behind the
+       menu forever. Freezing the game stops the burn counters advancing, which
+       stops the retrigger at source, and stopping the effects clears what is
+       already sounding. The music is left alone.
+
+       The game is over, so freezing it costs nothing: there is nothing left to
+       play out. Clicking the tick instead leaves it running, which is the whole
+       point of that choice. */
+    var _game = _popup.interface.get_game();
+    if (_game != undefined) {
+      cf_stand_down(_game);
+      _game.set_speed(0);
+    }
+    audio_stop_sfx();
+
     _popup.interface.close_popup();
     _popup.interface.open_game_init();
     break;
+  }
   case Action.options_volume_minus: {
     /* Audio::get_instance().get_volume_controller()->volume_down() */
     audio_volume_down();
