@@ -157,6 +157,9 @@ function serf_set_fight_outcome(_serf, attacker, defender) {
 
 function serf_handle_serf_knight_prepare_attacking(_serf) {
   var def_serf = _serf.game.get_serf(_serf.s.attacking_def_index);
+  if (cf_lost_partner(_serf, def_serf)) {
+    return;
+  }
   if (def_serf.state == SerfState.knight_prepare_defending) {
     /* Change state of attacker. */
     _serf.state = SerfState.knight_attacking;
@@ -194,6 +197,9 @@ function serf_handle_knight_attacking(_serf) {
   var fight_anim_max = global.serf_c_fight_anim_max;
 
   var def_serf = _serf.game.get_serf(_serf.s.attacking_def_index);
+  if (cf_lost_partner(_serf, def_serf)) {
+    return;
+  }
 
   var delta = (_serf.game.get_tick() - _serf.tick) & 0xFFFF;
   _serf.tick = _serf.game.get_tick() & 0xFFFF;
@@ -291,6 +297,9 @@ function serf_handle_knight_attacking(_serf) {
 
 function serf_handle_serf_knight_attacking_victory_state(_serf) {
   var def_serf = _serf.game.get_serf(_serf.s.attacking_def_index);
+  if (cf_lost_partner(_serf, def_serf)) {
+    return;
+  }
 
   var delta = (_serf.game.get_tick() - def_serf.tick) & 0xFFFF;
   def_serf.tick = _serf.game.get_tick() & 0xFFFF;
@@ -485,6 +494,9 @@ function serf_handle_state_knight_engage_attacking_free_join(_serf) {
     _serf.counter = 0;
 
     var _other = _serf.game.get_serf(_serf.s.attacking_def_index);
+    if (cf_lost_partner(_serf, _other)) {
+      return;
+    }
     var other_pos = _other.pos;
     _other.state = SerfState.knight_prepare_defending_free;
     _other.counter = _serf.counter;
@@ -510,6 +522,9 @@ function serf_handle_state_knight_engage_attacking_free_join(_serf) {
 
 function serf_handle_state_knight_prepare_attacking_free(_serf) {
   var _other = _serf.game.get_serf(_serf.s.attacking_def_index);
+  if (cf_lost_partner(_serf, _other)) {
+    return;
+  }
   if (_other.state == SerfState.knight_prepare_defending_free_wait) {
     _serf.state = SerfState.knight_attacking_free;
     _serf.counter = 0;
@@ -580,6 +595,9 @@ function serf_handle_serf_knight_attacking_defeat_free_state(_serf) {
   if (_serf.counter < 0) {
     /* Change state of other. */
     var _other = _serf.game.get_serf(_serf.s.attacking_def_index);
+    if (cf_lost_partner(_serf, _other)) {
+      return;
+    }
     var dist_col = _other.s.defending_free_dist_col;
     var dist_row = _other.s.defending_free_dist_row;
 

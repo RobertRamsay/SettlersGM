@@ -622,12 +622,39 @@ function cf_kill_knight(_knight) {
 }
 
 /// Is this serf something the lads should be shooting at?
+///
+/// An enemy knight, yes - but ONLY one who is out in the open and not already a
+/// party to a fight the ported state machine is tracking. This restriction is
+/// not squeamishness, it is load-bearing: whenever the ported code sets up an
+/// engagement it stores one serf's index in the other's s.attacking_def_index
+/// and puts the referenced serf into an engagement state. Six handlers in
+/// scr_serf_c then dereference that index with no nil check. Shooting a knight
+/// out of an engagement deletes him and leaves the index dangling, and the next
+/// update of his opponent dies on it - which is exactly the crash the garrison
+/// coming out of a burning building produced, because they mill about next to
+/// the player's knights and get engaged within a second or two.
+///
+/// The states below are the ones in which a knight is provably nobody's
+/// attacking_def_index. This is re-checked every tick a target is held, and the
+/// killing shot happens in the same tick as the check, so a target who steps
+/// into a fight mid-burst is dropped rather than killed.
 function cf_is_hostile(_serf, _shooter) {
     if (_serf.get_owner() == _shooter.get_owner()) {
         return false;
     }
     var _type = _serf.get_type();
-    return _type >= SerfType.knight0 && _type <= SerfType.knight4;
+    if (_type < SerfType.knight0 || _type > SerfType.knight4) {
+        return false;
+    }
+    switch (_serf.get_state()) {
+    case SerfState.lost:              /* turned out of a burnt building */
+    case SerfState.escape_building:   /* on his way out of one */
+    case SerfState.walking:           /* crossing the map */
+    case SerfState.knight_free_walking:
+        return true;
+    default:
+        return false;
+    }
 }
 
 /// Nearest enemy knight in the open, or 0 if the coast is clear.
@@ -647,6 +674,30 @@ function cf_find_target(_serf) {
         }
     }
     return 0;
+}
+
+/// Safety net for a duel partner that has gone. The six handlers in scr_serf_c
+/// that read s.attacking_def_index all dereference it without a nil check -
+/// Freeserf's C++ would follow a dangling pointer and usually get away with it,
+/// where GML throws and takes the whole game down. cf_is_hostile() above is what
+/// stops the cheat creating that situation, so this should never fire; it is
+/// here so that a mistake anywhere costs one serf rather than the session.
+///
+/// Call it right after the get_serf() and return if it is true. The serf gives
+/// up the fight and walks home, which is what the ported code does elsewhere
+/// when it finds itself somewhere it should not be.
+function cf_lost_partner(_serf, _other) {
+    if (_other != undefined) {
+        return false;
+    }
+    show_debug_message("serf " + string(_serf.get_index()) +
+                       " lost its fight partner (state " +
+                       string(_serf.get_state()) + ") - sending it home");
+    _serf.s.attacking_def_index = 0;
+    _serf.state = SerfState.lost;
+    _serf.s.lost_field_B = 0;
+    _serf.counter = 0;
+    return true;
 }
 
 /// Hand the serf back to the ported code. SerfState.lost is the game's own
