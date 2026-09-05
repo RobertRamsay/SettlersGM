@@ -54,12 +54,18 @@
 #macro CF_DEATH_ANIM_LO 169
 #macro CF_DEATH_ANIM_HI 178
 
-/// Siege economics. Four rounds then a grenade, five times over, is twenty
-/// rounds and five grenades - which is exactly CF_BUILDING_HP of damage.
-#macro CF_BUILDING_HP     40
-#macro CF_DMG_BULLET      1
-#macro CF_DMG_GRENADE     4
+/// Siege economics. A soldier fires four rounds then lobs a grenade, so each
+/// cycle of five shots does 4 * CF_DMG_BULLET + CF_DMG_GRENADE = 13 damage.
+/// How much a building takes depends on its type; a castle is a real siege.
+#macro CF_DMG_BULLET      2
+#macro CF_DMG_GRENADE     5
 #macro CF_SHOT_CYCLE      5      // every 5th shot is a grenade
+
+#macro CF_HP_HUT          80
+#macro CF_HP_TOWER        140
+#macro CF_HP_FORTRESS     220
+#macro CF_HP_CASTLE       300
+#macro CF_HP_DEFAULT      80     // anything else the lads decide to shoot at
 #macro CF_FIRE_INTERVAL   25     // ticks between shots (50 ticks = 1 second)
 #macro CF_GRENADE_FLIGHT  22     // ticks a grenade spends in the air
 
@@ -175,6 +181,30 @@ function cf_is_soldier(_serf) {
         return _anim >= CF_DEATH_ANIM_LO && _anim <= CF_DEATH_ANIM_HI;
     }
     return false;
+}
+
+/// How much damage this building type absorbs before it comes down. A pure
+/// function of the type, so it is safe to call at any moment and nothing has to
+/// be initialised or kept in step when a building changes type.
+function cf_building_hp_for(_type) {
+    switch (_type) {
+    case BuildingType.hut:
+        return CF_HP_HUT;
+    case BuildingType.tower:
+        return CF_HP_TOWER;
+    case BuildingType.fortress:
+        return CF_HP_FORTRESS;
+    case BuildingType.castle:
+        return CF_HP_CASTLE;
+    default:
+        return CF_HP_DEFAULT;
+    }
+}
+
+/// True while the cheat is driving this serf, i.e. he is besieging or mopping
+/// up rather than running the ported state machine.
+function cf_in_siege(_serf) {
+    return _serf.cf_mode != CfMode.none;
 }
 
 // ---------------------------------------------------------------- geometry
@@ -672,6 +702,17 @@ function cf_siege_tick(_serf) {
         _serf.cf_timer = CF_FIRE_INTERVAL;
         _serf.cf_facing = cf_dir_towards(_map, _serf.pos, _bpos);
         _serf.animation = 168;
+
+        /* A besieging soldier has no duel partner. This matters because the
+           ported code only ever clears s.attacking_def_index on the way out of
+           a duel it actually finished, so a knight who once engaged someone in
+           the field can still be carrying that serf's index. The viewport draws
+           an "additional serf" for anyone in knight_engaging_building whose
+           attacking_def_index is non-zero - and a besieger now sits in that
+           state for the whole assault, so the stale index would be dereferenced
+           every frame, drawing an unrelated serf whose body code is outside the
+           range the index tables cover. That crashed draw_row_serf. */
+        _serf.s.attacking_def_index = 0;
         if (_bld.is_under_attack()) {
             _game.get_player(_bld.get_owner()).add_notification(
                 MessageType.under_attack, _bld.get_position(), _serf.get_owner());
@@ -686,6 +727,7 @@ function cf_siege_tick(_serf) {
     _serf.counter = 0;
     _serf.cf_timer -= _delta;
     _serf.cf_last_shot += _delta;
+    _serf.s.attacking_def_index = 0;   /* never a duel partner while besieging */
 
     switch (_serf.cf_mode) {
     case CfMode.siege: {
@@ -705,14 +747,14 @@ function cf_siege_tick(_serf) {
 
         if ((_serf.cf_shots mod CF_SHOT_CYCLE) == 0) {
             cf_throw_at(_serf, _bld.get_position(), -10);
-            _bld.cf_hp -= CF_DMG_GRENADE;
+            _bld.cf_damage += CF_DMG_GRENADE;
         } else {
             cf_shoot_at(_serf, _bld.get_position(), -14);
-            _bld.cf_hp -= CF_DMG_BULLET;
+            _bld.cf_damage += CF_DMG_BULLET;
         }
         _serf.cf_timer = CF_FIRE_INTERVAL;
 
-        if (_bld.cf_hp <= 0) {
+        if (_bld.cf_damage >= cf_building_hp_for(_bld.get_type())) {
             cf_torch_building(_bld);
             _serf.cf_mode = CfMode.mopping;
             _serf.cf_target = 0;

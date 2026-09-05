@@ -2036,19 +2036,25 @@ function Viewport(_interface, _map) : GuiObject() constructor {
             }
         }
 
-        /* Draw additional serf */
-        if (_serf.get_state() == SerfState.knight_engaging_building ||
+        /* Draw additional serf. Skipped for a serf the "borntodie" cheat is
+           driving: a besieging soldier stays in knight_engaging_building for the
+           whole assault and has no duel partner, so there is nothing to draw
+           beside him. */
+        if (!cf_in_siege(_serf) &&
+           (_serf.get_state() == SerfState.knight_engaging_building ||
             _serf.get_state() == SerfState.knight_prepare_attacking ||
             _serf.get_state() == SerfState.knight_attacking ||
             _serf.get_state() == SerfState.knight_prepare_attacking_free ||
             _serf.get_state() == SerfState.knight_attacking_free ||
             _serf.get_state() == SerfState.knight_attacking_victory_free ||
             _serf.get_state() == SerfState.knight_attacking_defeat_free ||
-            _serf.get_state() == SerfState.knight_attacking_victory) {
+            _serf.get_state() == SerfState.knight_attacking_victory)) {
             var _index = _serf.get_attacking_def_index();
+            var _def_serf = undefined;
             if (_index != 0) {
-                var _def_serf = interface.get_game().get_serf(_index);
-
+                _def_serf = interface.get_game().get_serf(_index);
+            }
+            if (_def_serf != undefined) {
                 var _danimation = get_animation(_def_serf.get_animation(), _def_serf.get_counter());
 
                 var _dlx = _x_base + _danimation[1];
