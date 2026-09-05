@@ -391,6 +391,14 @@ function serf_handle_knight_occupy_enemy_building(_serf) {
 }
 
 function serf_handle_state_knight_free_walking(_serf) {
+  /* "borntodie": a soldier sent to attack stops and opens fire as soon as his
+     target is within a few tiles, instead of walking all the way to the door.
+     The target is known exactly from free_walking_dist_col/row, so a soldier
+     is never hijacked by an enemy building he merely walks past. */
+  if (cf_try_open_siege(_serf)) {
+    return;
+  }
+
   var delta = (_serf.game.get_tick() - _serf.tick) & 0xFFFF;
   _serf.tick = _serf.game.get_tick() & 0xFFFF;
   _serf.counter -= delta;
@@ -404,6 +412,13 @@ function serf_handle_state_knight_free_walking(_serf) {
 
       if (map.has_serf(pos_)) {
         var _other = _serf.game.get_serf_at_pos(pos_);
+        if (_other == undefined) {
+          /* Belt and braces. Game.delete_serf now clears the map tile it is
+             leaving, so a tile should never point at a serf that is gone -
+             but if one ever does again, skip the neighbour rather than take
+             the whole game down. */
+          continue;
+        }
         if (_serf.get_owner() != _other.get_owner()) {
           if (_other.state == SerfState.knight_free_walking) {
             _serf.pos = map.move_left(pos_);

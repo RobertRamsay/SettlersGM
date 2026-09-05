@@ -2415,7 +2415,26 @@ function Game() constructor {
     };
 
     static delete_serf = function(_serf) {
-        serfs.erase(_serf.get_index());
+        /* The map holds a raw serf index per tile and nothing else clears it,
+           so it has to be cleared here or the tile goes on pointing at a serf
+           that is gone: has_serf() keeps saying true while get_serf_at_pos()
+           returns undefined, and the next knight to walk past dies on it.
+
+           Three callers never cleared it - building_deleted(), which kills the
+           serfs inside a burning castle or stock, and two of the duel paths -
+           so burning a castle left a booby-trapped tile behind.
+
+           Only cleared when the tile still points at THIS serf:
+           knight_attacking_free_wait deliberately hands its tile to the
+           survivor just before deleting the loser, and that must not be undone.
+           A serf that was never placed has pos = -1, which is not a tile. */
+        var _index = _serf.get_index();
+        var _pos = _serf.pos;
+        if (map != undefined && _pos >= 0 &&
+            map.get_serf_index(_pos) == _index) {
+            map.set_serf_index(_pos, 0);
+        }
+        serfs.erase(_index);
     };
 
     static create_flag = function(_index = -1) {
