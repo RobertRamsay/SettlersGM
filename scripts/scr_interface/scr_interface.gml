@@ -1030,6 +1030,19 @@ function Interface(_game = undefined) : GuiObject() constructor {
 
     /* Build new flag. */
     static build_flag = function() {
+        /* Networked: the flag is not built here. The command goes on the wire
+           and both machines run it on the same turn, so the world only ever
+           changes inside the simulation both are running. Acting locally first
+           and telling the other machine afterwards is precisely how the two
+           come apart.
+           The click still answers, so it does not feel dead while the command
+           is in flight - that sound is cosmetic and never touches the game. */
+        if (net_is_running()) {
+            net_queue_command(NetCmd.build_flag, map_cursor_pos, 0);
+            play_sound(Sfx.click);
+            return;
+        }
+
         if (!game.build_flag(map_cursor_pos, player)) {
             play_sound(Sfx.not_accepted);
             return;

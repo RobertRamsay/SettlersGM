@@ -16,6 +16,12 @@ gfx_init();
 gui_init_globals();
 audio_init();
 cf_init();      // "borntodie" cheat state + its effects list
+net_init();     // two-player lockstep networking (idle until F7 / F8)
+
+// Set by the async networking event when the host says which game to build, and
+// consumed by the Step event - a game must never be switched from inside an
+// event that is walking the interface's float list.
+global.net_pending_start = undefined;
 
 // Window: integer-scaled, pixel-perfect
 window_set_size(SCREEN_W * SCREEN_SCALE, SCREEN_H * SCREEN_SCALE);

@@ -17,3 +17,17 @@ if (show_debug) {
         + " owner=" + string(_map.get_owner(_pos))
         + "  flags=" + string(game.flags.size()) + " bld=" + string(game.buildings.size()) + " serfs=" + string(game.serfs.size()));
 }
+
+// ---- networking status, drawn last so nothing covers it.
+// Only while networked: offline this is not a thing the player should see.
+if (net_is_active()) {
+    var _msg = "NET: " + net_status_line();
+    if (net_is_running() && net_ticks_available() <= 0) {
+        _msg += "  [waiting for the other player]";
+    }
+    draw_set_colour(c_black);
+    draw_text(5, 5, _msg);
+    draw_set_colour(c_white);
+    draw_text(4, 4, _msg);
+    draw_set_colour(c_white);
+}

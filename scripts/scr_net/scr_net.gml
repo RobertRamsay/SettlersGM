@@ -1,0 +1,656 @@
+/// scr_net.gml - two-player networking, first cut.
+///
+/// DETERMINISTIC LOCKSTEP. Both machines run the whole simulation; the only
+/// thing that crosses the wire is what the players DID. Nothing about the world
+/// is ever sent, so the traffic is a few bytes a turn no matter how many serfs
+/// are walking about - which is the only model that works for a game this size.
+///
+/// It is viable here because the simulation is deterministic: every random
+/// number in it comes from game.random_int(), which is the 3-word RandomState
+/// port, and nothing in the simulation reads the clock. The two places that do
+/// use irandom - the "borntodie" effects and the panel's blink - are cosmetic by
+/// deliberate design and must STAY that way. Anything that feeds a wall-clock
+/// value or an unseeded random into the simulation breaks multiplayer, and the
+/// symptom will be a desync a thousand ticks later, not a crash at the line that
+/// did it.
+///
+/// The model:
+///   - Time is divided into TURNS of NET_TICKS_PER_TURN simulation ticks.
+///   - A command issued during turn T is scheduled to EXECUTE on turn
+///     T + NET_TURN_DELAY, on both machines, in the same order.
+///   - A machine may not simulate turn T until the other one's packet for turn
+///     T has arrived. That is the lockstep: they cannot drift apart, because
+///     neither can run ahead.
+///   - The delay is what hides the latency. Two turns at 100ms is 200ms between
+///     clicking and seeing it, which is what every RTS of this kind does.
+///
+/// Desync detection: every NET_CHECK_TURNS turns both sides hash the world and
+/// compare. A mismatch means the simulations have diverged and everything after
+/// it is fiction, so the game stops there and says so rather than letting the
+/// two players play on in separate realities.
+///
+/// FIRST CUT - what is deliberately not here yet: a lobby (F7 hosts, F8 joins
+/// 127.0.0.1, which is what makes two instances on one machine testable), any
+/// command but build-flag, reconnection, and any handling of one side being
+/// slower than the other beyond simply waiting for it.
+
+#macro NET_PORT             6510
+#macro NET_TICKS_PER_TURN   5      // 5 ticks at 50Hz = one turn every 100ms
+#macro NET_TURN_DELAY       2      // commands land 2 turns later = 200ms
+#macro NET_CHECK_TURNS      10     // compare world hashes once a second
+#macro NET_BUFFER_SIZE      1024
+
+enum NetRole {
+    off = 0,
+    host = 1,
+    client = 2
+}
+
+enum NetPhase {
+    idle = 0,        // not networked
+    listening = 1,   // hosting, nobody has joined
+    connecting = 2,  // joining, no answer yet
+    running = 3,     // in a game
+    dead = 4         // dropped or desynced; see global.net_status
+}
+
+enum NetMsg {
+    start = 1,       // host -> client: which mission, and the RNG seed
+    turn = 2,        // both ways: the commands for one turn
+    check = 3        // both ways: a world hash at a turn boundary
+}
+
+/// The commands that can cross the wire. Only build_flag is wired up in this
+/// first cut - it is the smallest command that changes the world in a way both
+/// machines must agree on, which is exactly what needs proving.
+enum NetCmd {
+    build_flag = 1
+}
+
+// ---------------------------------------------------------------- state
+
+function net_init() {
+    global.net_role      = NetRole.off;
+    global.net_phase     = NetPhase.idle;
+    global.net_status    = "";
+    global.net_server    = -1;
+    global.net_socket    = -1;   // host: the client's socket. client: our own.
+    global.net_send      = buffer_create(NET_BUFFER_SIZE, buffer_grow, 1);
+
+    /* Which player index this machine drives. Host is 0, client is 1. */
+    global.net_local_player = 0;
+
+    /* Simulation ticks executed since the game started. Turn number is this
+       divided by NET_TICKS_PER_TURN, so the two can never disagree about where
+       a turn boundary is. */
+    global.net_sim_tick = 0;
+
+    /* Commands waiting to be sent, and everything received so far.
+       net_turns is keyed by turn number as a string: a turn is present exactly
+       when the peer's packet for it has arrived. */
+    global.net_outbox   = [];
+    global.net_turns    = ds_map_create();
+    global.net_checks   = ds_map_create();
+    global.net_desync   = false;
+}
+
+function net_is_active() {
+    return (global.net_role != NetRole.off);
+}
+
+function net_is_running() {
+    return (global.net_phase == NetPhase.running);
+}
+
+function net_local_player() {
+    return global.net_local_player;
+}
+
+function net_status_line() {
+    return global.net_status;
+}
+
+// ---------------------------------------------------------------- connect
+
+function net_host() {
+    if (net_is_active()) {
+        return false;
+    }
+
+    global.net_server = network_create_server(network_socket_tcp, NET_PORT, 1);
+    if (global.net_server < 0) {
+        global.net_status = "could not listen on port " + string(NET_PORT);
+        show_debug_message("net: " + global.net_status);
+        return false;
+    }
+
+    global.net_role  = NetRole.host;
+    global.net_phase = NetPhase.listening;
+    global.net_local_player = 0;
+    ds_map_clear(global.net_turns);
+    ds_map_clear(global.net_checks);
+    global.net_outbox = [];
+    global.net_status = "hosting on port " + string(NET_PORT) + " - waiting";
+    show_debug_message("net: " + global.net_status);
+    return true;
+}
+
+function net_join(_ip) {
+    if (net_is_active()) {
+        return false;
+    }
+
+    global.net_socket = network_create_socket(network_socket_tcp);
+    if (global.net_socket < 0) {
+        global.net_status = "could not open a socket";
+        show_debug_message("net: " + global.net_status);
+        return false;
+    }
+
+    /* network_connect blocks until it succeeds or times out. Fine for a first
+       cut on a LAN; a lobby would want network_connect_async. */
+    if (network_connect(global.net_socket, _ip, NET_PORT) < 0) {
+        network_destroy(global.net_socket);
+        global.net_socket = -1;
+        global.net_status = "no answer from " + string(_ip);
+        show_debug_message("net: " + global.net_status);
+        return false;
+    }
+
+    global.net_role  = NetRole.client;
+    global.net_phase = NetPhase.connecting;
+    global.net_local_player = 1;
+    ds_map_clear(global.net_turns);
+    ds_map_clear(global.net_checks);
+    global.net_outbox = [];
+    global.net_status = "connected to " + string(_ip) + " - waiting for start";
+    show_debug_message("net: " + global.net_status);
+    return true;
+}
+
+function net_close(_why) {
+    if (global.net_socket >= 0) {
+        network_destroy(global.net_socket);
+        global.net_socket = -1;
+    }
+    if (global.net_server >= 0) {
+        network_destroy(global.net_server);
+        global.net_server = -1;
+    }
+
+    global.net_role  = NetRole.off;
+    global.net_phase = NetPhase.idle;
+    global.net_status = _why;
+
+    ds_map_clear(global.net_turns);
+    ds_map_clear(global.net_checks);
+    global.net_outbox = [];
+
+    show_debug_message("net: closed - " + string(_why));
+}
+
+/// Stop dead, keeping the reason on screen. Used for a desync, where carrying
+/// on would mean two players in two different worlds both believing they are
+/// winning.
+function net_fail(_why) {
+    global.net_phase  = NetPhase.dead;
+    global.net_status = _why;
+    show_debug_message("net: STOPPED - " + string(_why));
+}
+
+// ---------------------------------------------------------------- sending
+
+function net_peer_socket() {
+    return global.net_socket;
+}
+
+function net_send_start(_mission_index, _rnd) {
+    var _b = global.net_send;
+    buffer_seek(_b, buffer_seek_start, 0);
+    buffer_write(_b, buffer_u8,  NetMsg.start);
+    buffer_write(_b, buffer_s16, _mission_index);
+    buffer_write(_b, buffer_u16, _rnd.state[0]);
+    buffer_write(_b, buffer_u16, _rnd.state[1]);
+    buffer_write(_b, buffer_u16, _rnd.state[2]);
+    network_send_packet(net_peer_socket(), _b, buffer_tell(_b));
+}
+
+/// Send this machine's commands for `_turn`. Sent EVERY turn even when empty:
+/// the empty packet is what tells the other side it may proceed, so silence has
+/// to mean "not yet", never "nothing to do".
+function net_send_turn(_turn, _cmds) {
+    var _b = global.net_send;
+    buffer_seek(_b, buffer_seek_start, 0);
+    buffer_write(_b, buffer_u8,  NetMsg.turn);
+    buffer_write(_b, buffer_u32, _turn);
+    buffer_write(_b, buffer_u8,  array_length(_cmds));
+    for (var _i = 0; _i < array_length(_cmds); _i++) {
+        var _c = _cmds[_i];
+        buffer_write(_b, buffer_u8,  _c.kind);
+        buffer_write(_b, buffer_u32, _c.a);
+        buffer_write(_b, buffer_u32, _c.b);
+    }
+    network_send_packet(net_peer_socket(), _b, buffer_tell(_b));
+}
+
+function net_send_check(_turn, _hash) {
+    var _b = global.net_send;
+    buffer_seek(_b, buffer_seek_start, 0);
+    buffer_write(_b, buffer_u8,  NetMsg.check);
+    buffer_write(_b, buffer_u32, _turn);
+    buffer_write(_b, buffer_u32, _hash);
+    network_send_packet(net_peer_socket(), _b, buffer_tell(_b));
+}
+
+// ---------------------------------------------------------------- receiving
+
+/// Called from obj_game's Async Networking event with async_load.
+function net_handle_async(_async) {
+    var _type = _async[? "type"];
+
+    if (_type == network_type_connect) {
+        if (global.net_role == NetRole.host && global.net_phase == NetPhase.listening) {
+            global.net_socket = _async[? "socket"];
+            global.net_status = "player 2 joined";
+            show_debug_message("net: " + global.net_status);
+        }
+        return;
+    }
+
+    if (_type == network_type_disconnect) {
+        net_fail("the other player disconnected");
+        return;
+    }
+
+    if (_type != network_type_data) {
+        return;
+    }
+
+    var _b = _async[? "buffer"];
+    buffer_seek(_b, buffer_seek_start, 0);
+    var _msg = buffer_read(_b, buffer_u8);
+
+    switch (_msg) {
+    case NetMsg.start:
+        net_receive_start(_b);
+        break;
+    case NetMsg.turn:
+        net_receive_turn(_b);
+        break;
+    case NetMsg.check:
+        net_receive_check(_b);
+        break;
+    default:
+        show_debug_message("net: unknown message " + string(_msg));
+        break;
+    }
+}
+
+function net_receive_start(_b) {
+    var _mission = buffer_read(_b, buffer_s16);
+    var _s0 = buffer_read(_b, buffer_u16);
+    var _s1 = buffer_read(_b, buffer_u16);
+    var _s2 = buffer_read(_b, buffer_u16);
+
+    show_debug_message("net: start, mission " + string(_mission + 1) +
+                       " seed " + string(_s0) + "/" + string(_s1) + "/" + string(_s2));
+
+    /* obj_game picks this up on its next step - starting a game from inside the
+       async event would rebuild the float list while the event that is walking
+       it has not returned. */
+    global.net_pending_start = { mission: _mission, s0: _s0, s1: _s1, s2: _s2 };
+}
+
+function net_receive_turn(_b) {
+    var _turn  = buffer_read(_b, buffer_u32);
+    var _count = buffer_read(_b, buffer_u8);
+
+    var _cmds = [];
+    for (var _i = 0; _i < _count; _i++) {
+        var _kind = buffer_read(_b, buffer_u8);
+        var _a    = buffer_read(_b, buffer_u32);
+        var _c    = buffer_read(_b, buffer_u32);
+        array_push(_cmds, { kind: _kind, a: _a, b: _c });
+    }
+
+    ds_map_set(global.net_turns, string(_turn), _cmds);
+}
+
+function net_receive_check(_b) {
+    var _turn = buffer_read(_b, buffer_u32);
+    var _hash = buffer_read(_b, buffer_u32);
+    ds_map_set(global.net_checks, string(_turn), _hash);
+}
+
+// ---------------------------------------------------------------- lockstep
+
+function net_current_turn() {
+    return global.net_sim_tick div NET_TICKS_PER_TURN;
+}
+
+function net_have_turn(_turn) {
+    return ds_map_exists(global.net_turns, string(_turn));
+}
+
+/// How many simulation ticks this machine is allowed to run right now.
+///
+/// Everything up to the end of the last turn we have the peer's commands for,
+/// and not one tick further. When this returns 0 the game is waiting for the
+/// other player, which is what lockstep looks like on a slow link.
+function net_ticks_available() {
+    if (!net_is_running()) {
+        return 0;
+    }
+
+    var _turn = net_current_turn();
+    if (!net_have_turn(_turn)) {
+        return 0;
+    }
+
+    /* We can run to the end of this turn. The next boundary re-tests. */
+    var _end_of_turn = (_turn + 1) * NET_TICKS_PER_TURN;
+    return _end_of_turn - global.net_sim_tick;
+}
+
+/// Queue a command the local player just issued. It executes NET_TURN_DELAY
+/// turns from now, on both machines.
+function net_queue_command(_kind, _a, _b) {
+    array_push(global.net_outbox, { kind: _kind, a: _a, b: _b });
+}
+
+/// Called immediately before each simulation tick while networked. Does the
+/// turn-boundary work: run this turn's commands, ship ours for a later turn,
+/// and compare hashes.
+function net_before_tick(_game) {
+    if (!net_is_running()) {
+        return;
+    }
+
+    if ((global.net_sim_tick mod NET_TICKS_PER_TURN) != 0) {
+        return;   /* mid-turn, nothing to do */
+    }
+
+    var _turn = net_current_turn();
+
+    net_enforce_speed(_game);
+    net_execute_turn(_game, _turn);
+
+    /* Our own commands for a turn far enough ahead that they will have arrived
+       by the time it comes round. The outbox is emptied whether or not it had
+       anything in it, because the packet must go either way. */
+    var _mine = global.net_outbox;
+    global.net_outbox = [];
+    net_send_turn(_turn + NET_TURN_DELAY, _mine);
+
+    /* Our own commands are executed from the same schedule as the peer's, so
+       both machines run them at the same turn and in the same order. */
+    net_schedule_local(_turn + NET_TURN_DELAY, _mine);
+
+    if ((_turn mod NET_CHECK_TURNS) == 0) {
+        net_compare_check(_game, _turn);
+    }
+}
+
+/// Called after each simulation tick.
+function net_after_tick() {
+    if (!net_is_running()) {
+        return;
+    }
+    global.net_sim_tick += 1;
+}
+
+/// Local commands go into their own schedule, keyed the same way. Kept separate
+/// from the peer's so that neither can be mistaken for the other, and so the
+/// execution order is always ours-then-theirs on BOTH machines - the ordering
+/// has to be a rule, not an accident of arrival time.
+function net_schedule_local(_turn, _cmds) {
+    ds_map_set(global.net_turns, "L" + string(_turn), _cmds);
+}
+
+function net_execute_turn(_game, _turn) {
+    var _local = ds_map_find_value(global.net_turns, "L" + string(_turn));
+    if (is_array(_local)) {
+        net_run_commands(_game, _local, global.net_local_player);
+        ds_map_delete(global.net_turns, "L" + string(_turn));
+    }
+
+    var _peer = ds_map_find_value(global.net_turns, string(_turn));
+    if (is_array(_peer)) {
+        var _peer_player = 1;
+        if (global.net_local_player == 1) {
+            _peer_player = 0;
+        }
+        net_run_commands(_game, _peer, _peer_player);
+        ds_map_delete(global.net_turns, string(_turn));
+    }
+}
+
+function net_run_commands(_game, _cmds, _player_index) {
+    if (_game == undefined) {
+        return;
+    }
+
+    var _player = _game.get_player(_player_index);
+    if (_player == undefined) {
+        return;
+    }
+
+    for (var _i = 0; _i < array_length(_cmds); _i++) {
+        var _c = _cmds[_i];
+        switch (_c.kind) {
+        case NetCmd.build_flag:
+            /* The return value is deliberately ignored. A command that fails
+               must fail on BOTH machines - it will, because they are the same
+               simulation - and reacting to the failure locally is what would
+               pull them apart. */
+            _game.build_flag(_c.a, _player);
+            break;
+        default:
+            show_debug_message("net: unknown command " + string(_c.kind));
+            break;
+        }
+    }
+}
+
+/// The speed button changes how much simulation one tick does, so the two
+/// machines must agree on it. Until it is a command in its own right it is
+/// simply pinned, and said out loud the first time it is touched.
+function net_enforce_speed(_game) {
+    if (_game == undefined) {
+        return;
+    }
+    if (_game.game_speed == DEFAULT_GAME_SPEED) {
+        return;
+    }
+    _game.set_speed(DEFAULT_GAME_SPEED);
+    show_debug_message("net: game speed is pinned in multiplayer");
+}
+
+// ---------------------------------------------------------------- desync
+
+/// A deterministic hash of everything that matters about the world.
+///
+/// Kept to whole numbers and folded with a small multiplier on purpose: GML
+/// numbers are doubles, exact only to 2^53, so a 32-bit FNV-style hash would
+/// silently lose its low bits the moment it multiplied. 31 against a 31-bit
+/// accumulator stays well inside what a double represents exactly.
+function net_hash_game(_game) {
+    if (_game == undefined) {
+        return 0;
+    }
+
+    var _h = 2166136261 mod 2147483647;
+
+    _h = net_hash_fold(_h, _game.tick);
+    _h = net_hash_fold(_h, _game.const_tick);
+
+    var _serfs = _game.serfs.objects;
+    for (var _i = 0; _i < array_length(_serfs); _i++) {
+        var _s = _serfs[_i];
+        if (_s == undefined) {
+            continue;
+        }
+        _h = net_hash_fold(_h, _i);
+        _h = net_hash_fold(_h, _s.pos);
+        _h = net_hash_fold(_h, _s.state);
+        _h = net_hash_fold(_h, _s.animation);
+        _h = net_hash_fold(_h, _s.counter);
+    }
+
+    var _blds = _game.buildings.objects;
+    for (var _j = 0; _j < array_length(_blds); _j++) {
+        var _b = _blds[_j];
+        if (_b == undefined) {
+            continue;
+        }
+        _h = net_hash_fold(_h, _j);
+        _h = net_hash_fold(_h, _b.pos);
+        _h = net_hash_fold(_h, _b.get_type());
+        _h = net_hash_fold(_h, _b.progress);
+    }
+
+    var _flags = _game.flags.objects;
+    for (var _k = 0; _k < array_length(_flags); _k++) {
+        var _f = _flags[_k];
+        if (_f == undefined) {
+            continue;
+        }
+        _h = net_hash_fold(_h, _k);
+        _h = net_hash_fold(_h, _f.pos);
+    }
+
+    /* The RNG itself: if the two have drawn a different number of randoms the
+       worlds have already diverged even where nothing visible has moved yet. */
+    _h = net_hash_fold(_h, _game.rnd.state[0]);
+    _h = net_hash_fold(_h, _game.rnd.state[1]);
+    _h = net_hash_fold(_h, _game.rnd.state[2]);
+
+    return _h;
+}
+
+function net_hash_fold(_h, _v) {
+    return ((_h * 31) + _v) mod 2147483647;
+}
+
+function net_compare_check(_game, _turn) {
+    var _mine = net_hash_game(_game);
+    net_send_check(_turn, _mine);
+
+    var _key = string(_turn);
+    if (!ds_map_exists(global.net_checks, _key)) {
+        /* Theirs has not arrived yet. Keep ours so the comparison can happen
+           when it does - see net_late_checks below. */
+        ds_map_set(global.net_checks, "M" + _key, _mine);
+        return;
+    }
+
+    var _theirs = ds_map_find_value(global.net_checks, _key);
+    ds_map_delete(global.net_checks, _key);
+
+    if (_mine != _theirs) {
+        net_fail("DESYNC at turn " + string(_turn) +
+                 " (" + string(_mine) + " vs " + string(_theirs) + ")");
+    }
+}
+
+/// Compare any hashes whose partner arrived after we made ours. Called once a
+/// step, because the peer's packet for a turn can land at any point after it.
+function net_late_checks() {
+    if (!net_is_running()) {
+        return;
+    }
+
+    var _key = ds_map_find_first(global.net_checks);
+    while (!is_undefined(_key)) {
+        var _next = ds_map_find_next(global.net_checks, _key);
+
+        if (string_char_at(_key, 1) == "M") {
+            var _turn_key = string_delete(_key, 1, 1);
+            if (ds_map_exists(global.net_checks, _turn_key)) {
+                var _mine   = ds_map_find_value(global.net_checks, _key);
+                var _theirs = ds_map_find_value(global.net_checks, _turn_key);
+                ds_map_delete(global.net_checks, _key);
+                ds_map_delete(global.net_checks, _turn_key);
+                if (_mine != _theirs) {
+                    net_fail("DESYNC at turn " + _turn_key +
+                             " (" + string(_mine) + " vs " + string(_theirs) + ")");
+                    return;
+                }
+            }
+        }
+
+        _key = _next;
+    }
+}
+
+// ---------------------------------------------------------------- starting
+
+/// Host: build the game, tell the client what to build, and start the clock.
+function net_host_start_game(_interface, _mission_index) {
+    var _game = new Game();
+    var _mission = game_info_get_mission(_mission_index);
+    if (_mission.instantiate(_game) == undefined) {
+        net_fail("could not build mission " + string(_mission_index + 1));
+        return;
+    }
+    _game.mission_index = _mission_index;
+
+    net_send_start(_mission_index, _game.rnd);
+    net_begin(_interface, _game, 0);
+}
+
+/// Client: build the same game from what the host sent, and adopt its RNG
+/// state so both machines draw the same numbers from the same point.
+function net_client_start_game(_interface, _start) {
+    var _game = new Game();
+    var _mission = game_info_get_mission(_start.mission);
+    if (_mission.instantiate(_game) == undefined) {
+        net_fail("could not build mission " + string(_start.mission + 1));
+        return;
+    }
+    _game.mission_index = _start.mission;
+
+    _game.rnd.state[0] = _start.s0;
+    _game.rnd.state[1] = _start.s1;
+    _game.rnd.state[2] = _start.s2;
+
+    net_begin(_interface, _game, 1);
+}
+
+function net_begin(_interface, _game, _local_player) {
+    global.net_local_player = _local_player;
+    global.net_sim_tick = 0;
+    global.net_outbox = [];
+
+    /* The turn maps are NOT cleared here. The host primes turns 0 and 1 and
+       sends them in the same breath as the start message, so on a local
+       connection they can easily arrive before the client has finished starting
+       its own game - clearing at this point would throw them away and the
+       client would then wait forever for a turn 0 that is never sent again.
+       They are cleared where nothing can have arrived yet: net_host/net_join. */
+
+    _game.set_speed(DEFAULT_GAME_SPEED);
+    _interface.set_game(_game);
+
+    /* set_game has already selected player 0. Calling set_player again with the
+       index it already has deletes the panel and then returns early on its
+       "unchanged index" test, leaving no panel at all - the trap set_game's own
+       comment describes. Only the client actually needs to switch. */
+    if (_local_player != 0) {
+        _interface.set_player(_local_player);
+    }
+
+    _interface.close_game_init();
+
+    /* Prime the pipeline: the first NET_TURN_DELAY turns can carry no commands
+       because nobody has had a chance to issue any, but their packets still
+       have to exist or neither machine could ever start. */
+    for (var _t = 0; _t < NET_TURN_DELAY; _t++) {
+        net_send_turn(_t, []);
+        net_schedule_local(_t, []);
+    }
+
+    global.net_phase = NetPhase.running;
+    global.net_status = "in game as player " + string(_local_player + 1);
+    show_debug_message("net: " + global.net_status);
+}

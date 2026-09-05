@@ -9,11 +9,34 @@ if (_ticks > MAX_CATCHUP_TICKS) {
 } else {
     tick_accumulator -= _ticks * TICK_LENGTH_MS;
 }
+// Networked games may only simulate as far as the other machine's commands
+// have arrived. net_ticks_available() is the whole of lockstep: when it returns
+// zero this machine waits, which is what stops the two drifting apart. Offline
+// it does not apply and the tick budget is whatever real time earned.
+if (net_is_active()) {
+    var _allowed = net_ticks_available();
+    if (_ticks > _allowed) {
+        _ticks = _allowed;
+    }
+}
+
 for (var _t = 0; _t < _ticks; _t++) {
+    net_before_tick(interface.get_game());
     interface.handle_event(gui_make_event(EventType.update, 0, 0, 0, 0, 0));
     // "borntodie" effects age on the game tick, so tracers and flames keep
     // pace with the fight that spawned them at every game speed.
     cf_fx_update();
+    net_after_tick();
+}
+
+net_late_checks();
+
+// A start the host sent while the async event was running. Handled here for the
+// same reason apply_pending_game is: switching the game rebuilds the float list.
+if (global.net_pending_start != undefined) {
+    var _start = global.net_pending_start;
+    global.net_pending_start = undefined;
+    net_client_start_game(interface, _start);
 }
 
 // ---- a queued game switch runs here, never inside event dispatch
@@ -34,6 +57,26 @@ if (keyboard_check_pressed(vk_f12)) {
         }
         show_debug_message("last load error: '" + savegame_last_error() + "'");
     }
+}
+
+// ---- F7 hosts a two-player game, F8 joins one on this machine.
+// Deliberately keys and not a lobby yet: two instances on one PC is how the
+// lockstep gets tested, and 127.0.0.1 needs no network at all to try.
+if (keyboard_check_pressed(vk_f7)) {
+    if (net_host()) {
+        show_debug_message("net: waiting for a joiner, then mission 1 starts");
+    }
+}
+
+if (keyboard_check_pressed(vk_f8)) {
+    net_join("127.0.0.1");
+}
+
+// The host starts the game as soon as somebody is actually connected.
+if (global.net_role == NetRole.host &&
+    global.net_phase == NetPhase.listening &&
+    global.net_socket >= 0) {
+    net_host_start_game(interface, 0);
 }
 
 // ---- F10 toggles fullscreen, the same switch the options popup's row throws.

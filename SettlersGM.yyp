@@ -43,6 +43,7 @@
     {"id":{"name":"scr_map","path":"scripts/scr_map/scr_map.yy",},},
     {"id":{"name":"scr_minimap","path":"scripts/scr_minimap/scr_minimap.yy",},},
     {"id":{"name":"scr_mission","path":"scripts/scr_mission/scr_mission.yy",},},
+    {"id":{"name":"scr_net","path":"scripts/scr_net/scr_net.yy",},},
     {"id":{"name":"scr_notification","path":"scripts/scr_notification/scr_notification.yy",},},
     {"id":{"name":"scr_objects","path":"scripts/scr_objects/scr_objects.yy",},},
     {"id":{"name":"scr_panel","path":"scripts/scr_panel/scr_panel.yy",},},
