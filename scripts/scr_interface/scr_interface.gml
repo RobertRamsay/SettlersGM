@@ -1123,6 +1123,18 @@ function Interface(_game = undefined) : GuiObject() constructor {
            the "notification and carry on" choice was about. */
         if (game.game_over != 0 && !game.game_over_shown) {
             game.game_over_shown = true;
+
+            /* Tick the mission off here as well as in check_game_over. Not
+               belt and braces for its own sake: check_game_over returns
+               immediately when game_over is already set, so a game restored
+               from a save that was written after the win - or any other route
+               that arrives here with the result already decided - would never
+               reach the call in there. This runs wherever the result actually
+               reaches the player, and marking is idempotent. */
+            if (game.game_over == 1 && game.mission_index >= 0) {
+                progress_mark_mission_done(game.mission_index);
+            }
+
             open_popup(PopupType.game_end_box);
         }
 

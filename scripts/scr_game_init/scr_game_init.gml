@@ -562,6 +562,9 @@ function GameInitBox(_interface) : GuiObject() constructor {
                        -1, because there is no entry to tick. */
                     if (game_type == GameType.mission) {
                         _game.mission_index = game_mission;
+                        show_debug_message("game init: starting mission " +
+                                           string(game_mission + 1) +
+                                           " (index " + string(game_mission) + ")");
                     }
                     interface.on_new_game(_game);
                 }

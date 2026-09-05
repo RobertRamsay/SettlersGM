@@ -1,0 +1,248 @@
+From 6ab779570422bfe658074575a7bff77b88f62569 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 5 Sep 2026 15:13:07 +0000
+Subject: [PATCH] Mission progress moves to an ini, and marks on every route to
+ a win
+
+Bob asked for a universal file, and the ini is also the more robust store.
+GameMaker's ini_* functions read and write the sandboxed save area as one
+operation with no separate load step to get wrong, and ini_close() is what
+commits the file - so a write cannot land somewhere the next read does not look.
+settlers.ini, section [missions], one key per mission, so other settings can
+move in later without disturbing this one.
+
+Two ways the old version could fail silently, both now closed:
+
+- The in-memory flags were sized from game_info_get_mission_count(). Had that
+  ever been empty or not yet built the first time progress was asked about - and
+  the very first thing that asks is the start screen, on frame one - the array
+  would have been EMPTY AND CACHED THAT WAY for the session: every mission reads
+  as not done and every attempt to record one is dropped. PROGRESS_MIN_SLOTS
+  (64) floors the size so that is unreachable, and a write past the end extends
+  the array rather than being refused, so an index the table does not know about
+  is still stored.
+
+- check_game_over returns immediately when game_over is already set, so it is
+  reached exactly once, at the instant of victory. A game restored from a save
+  written after the win - or any other route arriving with the result already
+  decided - never got there. Interface.update now marks the mission at the point
+  the result reaches the player as well. Marking is idempotent, so both paths
+  running is fine and either alone is enough.
+
+Also logs what it is doing: which mission is being started, where the ini lives,
+how many completions were read back, and - as before - when a win carries no
+mission index to record.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DFktm5o1kLnS2Pgvyp8tD4
+---
+ scripts/scr_game_init/scr_game_init.gml |   3 +
+ scripts/scr_interface/scr_interface.gml |  12 +++
+ scripts/scr_savegame/scr_savegame.gml   | 128 ++++++++++--------------
+ 3 files changed, 70 insertions(+), 73 deletions(-)
+
+diff --git a/scripts/scr_game_init/scr_game_init.gml b/scripts/scr_game_init/scr_game_init.gml
+index 66eca719..d7bd52d7 100644
+--- a/scripts/scr_game_init/scr_game_init.gml
++++ b/scripts/scr_game_init/scr_game_init.gml
+@@ -562,6 +562,9 @@ function GameInitBox(_interface) : GuiObject() constructor {
+                        -1, because there is no entry to tick. */
+                     if (game_type == GameType.mission) {
+                         _game.mission_index = game_mission;
++                        show_debug_message("game init: starting mission " +
++                                           string(game_mission + 1) +
++                                           " (index " + string(game_mission) + ")");
+                     }
+                     interface.on_new_game(_game);
+                 }
+diff --git a/scripts/scr_interface/scr_interface.gml b/scripts/scr_interface/scr_interface.gml
+index 3c6a1411..990561cb 100644
+--- a/scripts/scr_interface/scr_interface.gml
++++ b/scripts/scr_interface/scr_interface.gml
+@@ -1123,6 +1123,18 @@ function Interface(_game = undefined) : GuiObject() constructor {
+            the "notification and carry on" choice was about. */
+         if (game.game_over != 0 && !game.game_over_shown) {
+             game.game_over_shown = true;
++
++            /* Tick the mission off here as well as in check_game_over. Not
++               belt and braces for its own sake: check_game_over returns
++               immediately when game_over is already set, so a game restored
++               from a save that was written after the win - or any other route
++               that arrives here with the result already decided - would never
++               reach the call in there. This runs wherever the result actually
++               reaches the player, and marking is idempotent. */
++            if (game.game_over == 1 && game.mission_index >= 0) {
++                progress_mark_mission_done(game.mission_index);
++            }
++
+             open_popup(PopupType.game_end_box);
+         }
+ 
+diff --git a/scripts/scr_savegame/scr_savegame.gml b/scripts/scr_savegame/scr_savegame.gml
+index 141758c4..d4b1c683 100644
+--- a/scripts/scr_savegame/scr_savegame.gml
++++ b/scripts/scr_savegame/scr_savegame.gml
+@@ -676,62 +676,58 @@ function savegame_self_test(_game) {
+ }
+ 
+ // ---------------------------------------------------------- mission progress
+-// Not in Freeserf, which never recorded what you had finished. A small file
+-// beside the save slots holds which missions have been won, so the start screen
+-// can mark them off and you can see where you got to.
++// Not in Freeserf, which never recorded what you had finished. Which missions
++// have been won is kept in an ini beside the save slots, so the start screen can
++// mark them off and you can see where you got to.
+ //
+-// It is deliberately its own file rather than part of a save: progress belongs
+-// to the player, not to one game, and it has to survive starting a new mission.
+-
+-#macro PROGRESS_PATH "settlers_progress.json"
++// Deliberately its own file rather than part of a save: progress belongs to the
++// player, not to one game, and it has to survive starting a new mission.
++//
++// An ini rather than JSON in a buffer. GameMaker's ini_* functions read and
++// write the sandboxed save area as one operation, with no separate load step to
++// get wrong, and ini_close() is what commits the file - so a write cannot end up
++// somewhere the next read does not look. The section is named so other settings
++// can move in later without disturbing this one.
++
++#macro PROGRESS_PATH    "settlers.ini"
++#macro PROGRESS_SECTION "missions"
++
++/// The lower bound on how many flags to keep, whatever the mission table says.
++/// If the table were ever empty or not yet built when progress is first asked
++/// about, an array sized from it would be empty AND CACHED THAT WAY - after
++/// which every mission reads as not done and every attempt to record one is
++/// dropped, silently and permanently. This makes that unreachable.
++#macro PROGRESS_MIN_SLOTS 64
++
++function progress_key(_index) {
++    return "mission_" + string(_index);
++}
+ 
+-/// The completed-mission flags: one bool per mission, allocated in full the
+-/// first time anything asks. Sized from the mission table rather than from the
+-/// file, so every index the start screen can reach is already there and nothing
+-/// downstream has to ask whether a slot exists before reading it.
++/// Read the ini into memory once. The start screen asks about the selected
++/// mission on every frame it draws, so this must not touch the disk each time.
+ function progress_load() {
+     if (variable_global_exists("progress_done")) {
+-        return global.progress_done;
++        return;
+     }
+ 
+     var _count = game_info_get_mission_count();
+-    global.progress_done = array_create(_count, false);
+-
+-    if (!file_exists(PROGRESS_PATH)) {
+-        return global.progress_done;
+-    }
+-
+-    var _buffer = buffer_load(PROGRESS_PATH);
+-    if (_buffer < 0) {
+-        show_debug_message("progress: could not open " + PROGRESS_PATH);
+-        return global.progress_done;
++    if (_count < PROGRESS_MIN_SLOTS) {
++        _count = PROGRESS_MIN_SLOTS;
+     }
+-    var _text = buffer_read(_buffer, buffer_text);
+-    buffer_delete(_buffer);
++    global.progress_done = array_create(_count, false);
+ 
+-    var _list = undefined;
+-    try {
+-        _list = json_parse(_text);
+-    } catch (_e) {
+-        // A corrupt progress file must never stop the game starting. Losing the
+-        // ticks is a nuisance; refusing to run is not, for something this
+-        // peripheral - so it is reported and read as "nothing done yet".
+-        show_debug_message("progress: " + PROGRESS_PATH + " is not valid JSON, ignoring it");
+-        return global.progress_done;
+-    }
+-
+-    if (is_array(_list)) {
+-        for (var _i = 0; _i < array_length(_list); _i++) {
+-            var _index = _list[_i];
+-            /* An index from a file the player could have edited, or written by
+-               a build with more missions in the table than this one has. */
+-            if (is_real(_index) && _index >= 0 && _index < _count) {
+-                global.progress_done[_index] = true;
+-            }
++    ini_open(PROGRESS_PATH);
++    var _found = 0;
++    for (var _i = 0; _i < _count; _i++) {
++        if (ini_read_real(PROGRESS_SECTION, progress_key(_i), 0) != 0) {
++            global.progress_done[_i] = true;
++            _found++;
+         }
+     }
++    ini_close();
+ 
+-    return global.progress_done;
++    show_debug_message("progress: " + string(_found) + " mission(s) recorded as " +
++                       "complete, from " + game_save_id + PROGRESS_PATH);
+ }
+ 
+ /// Has this mission been won? Index is 0-based, as game_mission is.
+@@ -743,42 +739,28 @@ function progress_mission_is_done(_index) {
+     return global.progress_done[_index];
+ }
+ 
+-/// Record a win and write it out at once. Writing immediately rather than at
++/// Record a win and commit it at once. Writing immediately rather than at
+ /// shutdown is the point: the game can be closed from the window's X, and a
+ /// mission won but not recorded is exactly the thing a player would notice.
++/// Safe to call more than once for the same mission - the callers deliberately
++/// do, so that every path to a victory records it.
+ function progress_mark_mission_done(_index) {
+-    progress_load();
+-    if (_index < 0 || _index >= array_length(global.progress_done)) {
+-        show_debug_message("progress: cannot record mission index " + string(_index));
++    if (_index < 0) {
++        show_debug_message("progress: asked to record mission index " + string(_index) +
++                           ", which is not a mission - nothing written");
+         return;
+     }
+-    if (global.progress_done[_index]) {
+-        return;   /* already recorded, nothing to write */
+-    }
+ 
+-    /* Written straight into the global rather than through a local holding the
+-       same array. The indirection was doing nothing useful and left the whole
+-       thing resting on array reference semantics; this cannot be got wrong. */
++    progress_load();
++
++    /* Writing past the end of a GML array extends it, so an index beyond what
++       the mission table admitted to is still stored rather than dropped. */
+     global.progress_done[_index] = true;
+-    progress_save();
+-    show_debug_message("progress: mission " + string(_index + 1) + " completed");
+-}
+ 
+-/// Write the flags back out as a plain array of the indices that are done.
+-/// Indices rather than the flag array itself, so the file stays readable and
+-/// stays valid if the mission table ever grows.
+-function progress_save() {
+-    progress_load();
+-    var _list = [];
+-    for (var _i = 0; _i < array_length(global.progress_done); _i++) {
+-        if (global.progress_done[_i]) {
+-            array_push(_list, _i);
+-        }
+-    }
++    ini_open(PROGRESS_PATH);
++    ini_write_real(PROGRESS_SECTION, progress_key(_index), 1);
++    ini_close();   /* ini_close is what actually writes the file out */
+ 
+-    var _text = json_stringify(_list);
+-    var _buffer = buffer_create(string_byte_length(_text) + 1, buffer_grow, 1);
+-    buffer_write(_buffer, buffer_text, _text);
+-    buffer_save(_buffer, PROGRESS_PATH);
+-    buffer_delete(_buffer);
++    show_debug_message("progress: mission " + string(_index + 1) + " marked complete in " +
++                       game_save_id + PROGRESS_PATH);
+ }
+-- 
+2.43.0
+
