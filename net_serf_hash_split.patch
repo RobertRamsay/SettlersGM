@@ -1,0 +1,207 @@
+From f7c635cde67c4c345da1b184ce82a5d09441d208 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 5 Sep 2026 22:14:03 +0000
+Subject: [PATCH] Split the serf hash by field: timing or logic, and which one
+
+A real desync this time - the sign bug is gone and serfs differ while tick, rnd,
+buildings, flags and players all match. That combination is already informative:
+rnd matching means both machines have drawn the SAME NUMBER of random values, so
+neither has taken a different branch through the state machine. The disagreement
+is inside the serfs alone.
+
+"The serfs differ" is still not an answer, so the serf hash is now six hashes:
+
+  serf_count   - a serf exists on one machine and not the other
+  serf_pos     - they are in different places
+  serf_state   - the state machine took a different path: a LOGIC problem
+  serf_anim    - the same, one step earlier
+  serf_counter - the states agree but the two are at different points within a
+                 step: a TIMING problem
+  serf_tick    - counter is driven by (game.tick - serf.tick), and game.tick
+                 already matches, so this says which half of that is adrift
+
+counter and tick without state or pos would mean the two agree on what every
+serf is doing and disagree only on how far through it they are - which is a very
+different bug from one where a serf is somewhere else entirely, and worth
+knowing before touching the serf code.
+
+The full comparison of every part, both sides, now also goes to settlers_net.log
+with the differing ones marked; the screen line has to stay short, the file does
+not.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DFktm5o1kLnS2Pgvyp8tD4
+---
+ scripts/scr_net/scr_net.gml | 109 ++++++++++++++++++++++--------------
+ 1 file changed, 67 insertions(+), 42 deletions(-)
+
+diff --git a/scripts/scr_net/scr_net.gml b/scripts/scr_net/scr_net.gml
+index bcfcbbcd..23ef7102 100644
+--- a/scripts/scr_net/scr_net.gml
++++ b/scripts/scr_net/scr_net.gml
+@@ -705,7 +705,7 @@ function net_speed_locked() {
+ /// numbers are doubles, exact only to 2^53, so a 32-bit FNV-style hash would
+ /// silently lose its low bits the moment it multiplied. 31 against a 31-bit
+ /// accumulator stays well inside what a double represents exactly.
+-#macro NET_HASH_PARTS 6
++#macro NET_HASH_PARTS 11
+ 
+ function net_hash_parts(_game) {
+     var _out = array_create(NET_HASH_PARTS, 0);
+@@ -722,23 +722,7 @@ function net_hash_parts(_game) {
+     _h = net_hash_fold(_h, _game.rnd.state[1]);
+     _out[1] = net_hash_fold(_h, _game.rnd.state[2]);
+ 
+-    /* 2: serfs */
+-    _h = 0;
+-    var _serfs = _game.serfs.objects;
+-    for (var _i = 0; _i < array_length(_serfs); _i++) {
+-        var _s = _serfs[_i];
+-        if (_s == undefined) {
+-            continue;
+-        }
+-        _h = net_hash_fold(_h, _i);
+-        _h = net_hash_fold(_h, _s.pos);
+-        _h = net_hash_fold(_h, _s.state);
+-        _h = net_hash_fold(_h, _s.animation);
+-        _h = net_hash_fold(_h, _s.counter);
+-    }
+-    _out[2] = _h;
+-
+-    /* 3: buildings */
++    /* 2: buildings */
+     _h = 0;
+     var _blds = _game.buildings.objects;
+     for (var _j = 0; _j < array_length(_blds); _j++) {
+@@ -751,9 +735,9 @@ function net_hash_parts(_game) {
+         _h = net_hash_fold(_h, _b.get_type());
+         _h = net_hash_fold(_h, _b.progress);
+     }
+-    _out[3] = _h;
++    _out[2] = _h;
+ 
+-    /* 4: flags */
++    /* 3: flags */
+     _h = 0;
+     var _flags = _game.flags.objects;
+     for (var _k = 0; _k < array_length(_flags); _k++) {
+@@ -764,9 +748,9 @@ function net_hash_parts(_game) {
+         _h = net_hash_fold(_h, _k);
+         _h = net_hash_fold(_h, _f.pos);
+     }
+-    _out[4] = _h;
++    _out[3] = _h;
+ 
+-    /* 5: player bookkeeping */
++    /* 4: player bookkeeping */
+     _h = 0;
+     for (var _p = 0; _p < GAME_MAX_PLAYER_COUNT; _p++) {
+         if (!_game.players.exists(_p)) {
+@@ -781,36 +765,66 @@ function net_hash_parts(_game) {
+         _h = net_hash_fold(_h, _player.total_building_score);
+         _h = net_hash_fold(_h, _player.total_military_score);
+     }
+-    _out[5] = _h;
++    _out[4] = _h;
++
++    /* 5..10: serfs, one hash per field.
++       Splitting them is what turns "the serfs differ" into an answer. Which
++       field parts company says what KIND of problem it is:
++         count      - a serf exists on one machine and not the other
++         pos/state  - the state machine took a different path: a logic problem
++         anim       - the same, one step earlier
++         counter    - the state machine agrees but the two are at different
++                      points within a step: a TIMING problem, and counter is
++                      driven by (game.tick - serf.tick), so
++         tick       - names which half of that is adrift. */
++    var _count = 0;
++    var _h_pos = 0;
++    var _h_state = 0;
++    var _h_anim = 0;
++    var _h_counter = 0;
++    var _h_tick = 0;
++
++    var _serfs = _game.serfs.objects;
++    for (var _i = 0; _i < array_length(_serfs); _i++) {
++        var _s = _serfs[_i];
++        if (_s == undefined) {
++            continue;
++        }
++        _count += 1;
++        _h_pos     = net_hash_fold(net_hash_fold(_h_pos, _i), _s.pos);
++        _h_state   = net_hash_fold(net_hash_fold(_h_state, _i), _s.state);
++        _h_anim    = net_hash_fold(net_hash_fold(_h_anim, _i), _s.animation);
++        _h_counter = net_hash_fold(net_hash_fold(_h_counter, _i), _s.counter);
++        _h_tick    = net_hash_fold(net_hash_fold(_h_tick, _i), _s.tick);
++    }
++
++    _out[5]  = _count;
++    _out[6]  = _h_pos;
++    _out[7]  = _h_state;
++    _out[8]  = _h_anim;
++    _out[9]  = _h_counter;
++    _out[10] = _h_tick;
+ 
+     return _out;
+ }
+ 
+ function net_hash_part_name(_i) {
+     switch (_i) {
+-    case 0: return "tick";
+-    case 1: return "rnd";
+-    case 2: return "serfs";
+-    case 3: return "buildings";
+-    case 4: return "flags";
+-    case 5: return "players";
++    case 0:  return "tick";
++    case 1:  return "rnd";
++    case 2:  return "buildings";
++    case 3:  return "flags";
++    case 4:  return "players";
++    case 5:  return "serf_count";
++    case 6:  return "serf_pos";
++    case 7:  return "serf_state";
++    case 8:  return "serf_anim";
++    case 9:  return "serf_counter";
++    case 10: return "serf_tick";
+     }
+     return "?";
+ }
+ 
+-/// MUST return a non-negative value.
+-///
+-/// GML's mod keeps the sign of its left operand, and plenty of what gets hashed
+-/// is legitimately negative - serf.counter above all. So the accumulator could
+-/// go negative, and a negative hash written to the wire as buffer_u32 comes back
+-/// as its two's complement: -29791 out, 4294937505 in. The two machines then
+-/// compared a signed number against the unsigned form of THE SAME NUMBER and
+-/// called it a desync.
+-///
+-/// That was the whole of "DESYNC turn 0 in serfs (-29791 vs 4294937505)" -
+-/// 2^32 - 29791 is exactly 4294937505 - and it is very likely what the turn 330
+-/// and turn 400 reports were as well, since the old single hash folded serf
+-/// counters in too. The simulations may never have parted at all.
+ function net_hash_fold(_h, _v) {
+     var _r = ((_h * 31) + _v) mod 2147483647;
+     if (_r < 0) {
+@@ -840,6 +854,17 @@ function net_compare_check(_game, _turn) {
+ function net_report_check(_turn, _mine, _theirs) {
+     for (var _i = 0; _i < NET_HASH_PARTS; _i++) {
+         if (_mine[_i] != _theirs[_i]) {
++            /* Every part, both sides, into the log - the summary on screen has
++               to stay short but the file does not. */
++            for (var _j = 0; _j < NET_HASH_PARTS; _j++) {
++                var _mark = "  ";
++                if (_mine[_j] != _theirs[_j]) {
++                    _mark = "**";
++                }
++                net_log(_mark + " turn " + string(_turn) + " " +
++                        net_hash_part_name(_j) + ": mine=" + string(_mine[_j]) +
++                        " theirs=" + string(_theirs[_j]));
++            }
+             net_fail("DESYNC turn " + string(_turn) + " in " +
+                      net_hash_part_name(_i) + " (" + string(_mine[_i]) +
+                      " vs " + string(_theirs[_i]) + ")" +
+-- 
+2.43.0
+
