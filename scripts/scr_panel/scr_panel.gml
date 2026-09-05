@@ -20,11 +20,14 @@
 #macro SPEED_BUTTON 5
 
 // Multiples of DEFAULT_GAME_SPEED the button cycles through: >, >>, >>>.
-// game_speed is what Game.update adds to tick each step, and speed_increase
-// caps at 40, so 15x (= 30) is the most that stays in range.
-#macro SPEED_STEP_2 20
-#macro SPEED_STEP_3 50
-#macro SPEED_STEP_4 100
+// game_speed is what Game.update adds to tick each step.
+// Halved from 20 / 50 / 100 - the old steps ran away from the eye and there was
+// nothing usable between normal pace and a blur. Normal play is deliberately
+// NOT touched: step 1 stays at DEFAULT_GAME_SPEED, which is Freeserf's own
+// value and therefore the Amiga's pace.
+#macro SPEED_STEP_2 10
+#macro SPEED_STEP_3 25
+#macro SPEED_STEP_4 50
 
 
 enum PanelButton {
@@ -424,6 +427,14 @@ function PanelBar(_interface) : GuiObject() constructor {
                 }
                 break;
         }
+    };
+
+    /// Swallow double clicks for the same reason PopupBox does: the default
+    /// GuiObject handler returns false, and a float that answers false hands the
+    /// event down to the viewport behind it. Clicking a panel button twice
+    /// quickly would otherwise double click the map underneath the panel.
+    static handle_dbl_click = function(_cx, _cy, _button) {
+        return true;
     };
 
     static handle_click_left = function(_cx, _cy) {

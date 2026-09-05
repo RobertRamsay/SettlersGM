@@ -161,6 +161,19 @@ function Game() constructor {
     game_over = 0;
     game_over_counter = 0;
     game_over_seen = array_create(GAME_MAX_PLAYER_COUNT, false);
+    /* Which mission this is, so a win can tick it off in the start screen's
+       list. -1 for a custom game or a tutorial, which have nothing to tick.
+       GameInitBox sets it when it starts a mission. It serialises with the rest
+       of the Game, so finishing a mission resumed from a save still counts, and
+       a save written before this field existed simply comes back as -1. */
+    mission_index = -1;
+    /* Set once the result has been put on screen, so the end box opens exactly
+       once however long play carries on afterwards. */
+    game_over_shown = false;
+    /* Who the end box has to show: every opponent that was in the game, in
+       player order. Captured when the game ends because players can be gone
+       from the collection by the time anyone looks. */
+    game_over_opponents = [];
     map_preserve_bugs = 0;
     player_score_leader = 0;
 
@@ -933,6 +946,7 @@ function Game() constructor {
                 }
             }
             game_over = 2;
+            game_over_opponents = collect_opponents(_me);
             _human.add_notification(MessageType.game_lost, _castle_pos[_me], _victor);
             show_debug_message("game: player 0 has nothing left - defeat");
             return;
@@ -957,8 +971,30 @@ function Game() constructor {
         }
 
         game_over = 1;
+        game_over_opponents = collect_opponents(_me);
         _human.add_notification(MessageType.game_won, _castle_pos[_me], _beaten);
+
+        /* Tick the mission off in the start screen's list. Only a win counts,
+           and only a real mission has an index to tick. */
+        if (mission_index >= 0) {
+            progress_mark_mission_done(mission_index);
+        }
+
         show_debug_message("game: every opponent is finished - victory");
+    };
+
+    /// Every player except `_me`, in player order. Read once when the game ends
+    /// because the end box may be looked at long afterwards, by which time the
+    /// collection has moved on.
+    static collect_opponents = function(_me) {
+        var _list = [];
+        for (var _i = 0; _i < GAME_MAX_PLAYER_COUNT; _i++) {
+            if (_i == _me || !players.exists(_i)) {
+                continue;
+            }
+            array_push(_list, _i);
+        }
+        return _list;
     };
 
     /* Pause or unpause the game. */

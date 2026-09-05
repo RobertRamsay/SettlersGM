@@ -1,0 +1,725 @@
+From 68e8aa86268b44d7c26fd974043d890233acf1a8 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 5 Sep 2026 14:10:33 +0000
+Subject: [PATCH] Victory screen, two crash fixes, notification jump, paging
+ fix, slower speeds
+
+Six things Bob reported after finishing a mission.
+
+1. Winning crashed. Interface.update indexes msg_category by MessageType, and
+   that table stops at call_to_stock (19) while game_won and game_lost are 20
+   and 21 - "Variable Index [20] out of range [20]" the moment the game was won.
+   The table gains both, in category 0, which the default config has on and no
+   message-count setting turns off. The two lookups now go through
+   interface_msg_category_of(), which falls back to category 0 rather than
+   throwing, so the next message kind added cannot repeat this.
+
+2. flag_prio[-1]. Flag.schedule_known_dest_cb_ reads the type of the slot that
+   other_end_dir already names, and that slot can be EMPTY: a slot scheduled
+   through the not-yet-scheduled branch never gets its `dir` set, so Flag.update
+   keeps offering it and it can end up named by two directions at once. The
+   transporter that collects it calls prioritize_pickup for its own direction
+   only, leaving the other still flagged as scheduled and pointing at a slot
+   whose type is now none. Freeserf has the same hole - there it is a silent
+   out-of-bounds read, which is why it never shows. An empty slot is now treated
+   as no competition, so whatever is waiting takes the schedule and overwrites
+   the stale pointer, which heals it.
+
+3. The end of the game now has a screen. PopupType.game_end_box was an enum
+   entry with nothing behind it; it draws the result, the faces of everyone who
+   was in the game, and two choices - carry on with the finished world, or back
+   to the start screen. Interface.update opens it once, tracked by
+   Game.game_over_shown so it survives save/load and never reopens.
+
+   Faces are 48x72 with a ~32x64 portrait inset, so two fit side by side and
+   three do not; at three the colour blocks drop to 40 wide and tile edge to
+   edge while the portraits still stand clear.
+
+   Winning a mission is now recorded. Game.mission_index is set by GameInitBox
+   when it starts one (-1 for a custom game, which has nothing to tick) and
+   serialises, so a mission finished from a save still counts. The set of
+   completed missions lives in settlers_progress.json, written the moment a
+   mission is won rather than at shutdown, and the mission selector shows DONE
+   beside one already beaten.
+
+4. Clicking a notification now goes to the place it is telling you about and
+   answers with Sfx.accepted. Before, the jump happened once in open_message and
+   the box was a dead end - by the time you had read it and clicked it away, you
+   had lost the spot. A message with no position (the since-save reminders)
+   closes with the ordinary click sound, so a dead click never sounds live.
+
+5. The build popup vanished while paging. Two clicks on the flip button inside
+   MOUSE_TIME_SENSITIVITY (600 ms) make the second one a click AND a double
+   click; the click turned the page, and the double click fell through - the
+   default GuiObject handler returns false, which gui_handle_event reads as
+   "this float did not want it" and hands down to the viewport, where
+   fast_building_click acted on the map behind the popup. PopupBox, PanelBar and
+   NotificationBox now swallow double clicks. Floats inside the popup that do
+   use them, like the save-file list, are offered the event first and are
+   unaffected.
+
+6. Speed steps halved, 20/50/100 -> 10/25/50. Normal play is deliberately NOT
+   touched: step 1 stays at DEFAULT_GAME_SPEED, which is Freeserf's value and
+   therefore the Amiga's pace.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DFktm5o1kLnS2Pgvyp8tD4
+---
+ scripts/scr_flag/scr_flag.gml                 |  32 +++++-
+ scripts/scr_game/scr_game.gml                 |  36 ++++++
+ scripts/scr_game_init/scr_game_init.gml       |  14 +++
+ scripts/scr_interface/scr_interface.gml       |  39 ++++++-
+ scripts/scr_notification/scr_notification.gml |  34 ++++++
+ scripts/scr_panel/scr_panel.gml               |  21 +++-
+ scripts/scr_popup/scr_popup.gml               |  34 +++++-
+ scripts/scr_popup_b/scr_popup_b.gml           |  88 +++++++++++++++
+ scripts/scr_popup_c/scr_popup_c.gml           |  27 +++++
+ scripts/scr_savegame/scr_savegame.gml         | 104 ++++++++++++++++++
+ 10 files changed, 416 insertions(+), 13 deletions(-)
+
+diff --git a/scripts/scr_flag/scr_flag.gml b/scripts/scr_flag/scr_flag.gml
+index c40137a2..7a34fdc1 100644
+--- a/scripts/scr_flag/scr_flag.gml
++++ b/scripts/scr_flag/scr_flag.gml
+@@ -756,8 +756,36 @@ function Flag(_game, _index) : GameObject(_game, _index) constructor {
+                 } else {
+                     var _player = game.get_player(get_owner());
+                     var _other_dir = _src.other_end_dir[search_dir];
+-                    var _prio_old = _player.get_flag_prio(_src.slot[_other_dir & 7].type);
+-                    var _prio_new = _player.get_flag_prio(_src.slot[_slot].type);
++
++                    /* The slot the scheduled bit points at can be EMPTY by now.
++                       other_end_dir names a slot and nothing guarantees the two
++                       stay in step: a slot scheduled through the branch above
++                       never gets its `dir` set, so Flag.update keeps offering it
++                       and it can end up named by two directions at once. The
++                       transporter that collects it calls prioritize_pickup for
++                       its own direction only, which leaves the other direction
++                       still flagged as scheduled, pointing at a slot whose type
++                       is now ResourceType.none (-1).
++
++                       Freeserf has the same hole; there it is a silent
++                       out-of-bounds read of flag_prio[-1], so it never shows.
++                       GML throws, which is how we found it: "Variable Index [-1]
++                       out of range [26]". Treating an empty slot as no
++                       competition is both safe and right - whatever is waiting
++                       now should take the schedule, and the stale pointer is
++                       overwritten below, which heals it. */
++                    var _prio_old = -1;
++                    var _old_type = _src.slot[_other_dir & 7].type;
++                    if (_old_type != ResourceType.none) {
++                        _prio_old = _player.get_flag_prio(_old_type);
++                    }
++
++                    var _prio_new = -1;
++                    var _new_type = _src.slot[_slot].type;
++                    if (_new_type != ResourceType.none) {
++                        _prio_new = _player.get_flag_prio(_new_type);
++                    }
++
+                     if (_prio_new > _prio_old) {
+                         /* This item has the highest priority now */
+                         _src.other_end_dir[search_dir] =
+diff --git a/scripts/scr_game/scr_game.gml b/scripts/scr_game/scr_game.gml
+index 7047c103..e65c9912 100644
+--- a/scripts/scr_game/scr_game.gml
++++ b/scripts/scr_game/scr_game.gml
+@@ -161,6 +161,19 @@ function Game() constructor {
+     game_over = 0;
+     game_over_counter = 0;
+     game_over_seen = array_create(GAME_MAX_PLAYER_COUNT, false);
++    /* Which mission this is, so a win can tick it off in the start screen's
++       list. -1 for a custom game or a tutorial, which have nothing to tick.
++       GameInitBox sets it when it starts a mission. It serialises with the rest
++       of the Game, so finishing a mission resumed from a save still counts, and
++       a save written before this field existed simply comes back as -1. */
++    mission_index = -1;
++    /* Set once the result has been put on screen, so the end box opens exactly
++       once however long play carries on afterwards. */
++    game_over_shown = false;
++    /* Who the end box has to show: every opponent that was in the game, in
++       player order. Captured when the game ends because players can be gone
++       from the collection by the time anyone looks. */
++    game_over_opponents = [];
+     map_preserve_bugs = 0;
+     player_score_leader = 0;
+ 
+@@ -933,6 +946,7 @@ function Game() constructor {
+                 }
+             }
+             game_over = 2;
++            game_over_opponents = collect_opponents(_me);
+             _human.add_notification(MessageType.game_lost, _castle_pos[_me], _victor);
+             show_debug_message("game: player 0 has nothing left - defeat");
+             return;
+@@ -957,10 +971,32 @@ function Game() constructor {
+         }
+ 
+         game_over = 1;
++        game_over_opponents = collect_opponents(_me);
+         _human.add_notification(MessageType.game_won, _castle_pos[_me], _beaten);
++
++        /* Tick the mission off in the start screen's list. Only a win counts,
++           and only a real mission has an index to tick. */
++        if (mission_index >= 0) {
++            progress_mark_mission_done(mission_index);
++        }
++
+         show_debug_message("game: every opponent is finished - victory");
+     };
+ 
++    /// Every player except `_me`, in player order. Read once when the game ends
++    /// because the end box may be looked at long afterwards, by which time the
++    /// collection has moved on.
++    static collect_opponents = function(_me) {
++        var _list = [];
++        for (var _i = 0; _i < GAME_MAX_PLAYER_COUNT; _i++) {
++            if (_i == _me || !players.exists(_i)) {
++                continue;
++            }
++            array_push(_list, _i);
++        }
++        return _list;
++    };
++
+     /* Pause or unpause the game. */
+     static pause = function() {
+         if (game_speed != 0) {
+diff --git a/scripts/scr_game_init/scr_game_init.gml b/scripts/scr_game_init/scr_game_init.gml
+index 407639c4..6413f0d5 100644
+--- a/scripts/scr_game_init/scr_game_init.gml
++++ b/scripts/scr_game_init/scr_game_init.gml
+@@ -357,6 +357,14 @@ function GameInitBox(_interface) : GuiObject() constructor {
+                 draw_box_string(10, 18, "Mission:");
+                 draw_box_string(20, 18, _level);
+ 
++                /* Not in the original: mark a mission already won, so you can
++                   step through the list and see where you got to rather than
++                   having to remember. progress_mission_is_done reads a cached
++                   set, so asking every frame costs nothing. */
++                if (progress_mission_is_done(game_mission)) {
++                    draw_box_string(23, 18, "DONE");
++                }
++
+                 draw_box_icon(33, 0, 237);  // Up button
+                 draw_box_icon(33, 16, 240);  // Down button
+ 
+@@ -548,6 +556,12 @@ function GameInitBox(_interface) : GuiObject() constructor {
+                     if (mission.instantiate(_game) == undefined) {
+                         return;
+                     }
++                    /* Remember which mission this is so winning it can tick it
++                       off in the list. A custom game keeps the constructor's
++                       -1, because there is no entry to tick. */
++                    if (game_type == GameType.mission) {
++                        _game.mission_index = game_mission;
++                    }
+                     interface.on_new_game(_game);
+                 }
+ 
+diff --git a/scripts/scr_interface/scr_interface.gml b/scripts/scr_interface/scr_interface.gml
+index e4d7362b..3c6a1411 100644
+--- a/scripts/scr_interface/scr_interface.gml
++++ b/scripts/scr_interface/scr_interface.gml
+@@ -73,12 +73,32 @@ function interface_init_tables() {
+         0xa2, 0xa0, 0xa1, 0x99, 0x9d, 0x9e, 0x98, 0x9f, 0xb2
+     ];
+     // const int msg_category[] (Interface::update)
++    // Indexed by MessageType, so it MUST carry an entry for every enumerator.
++    // Freeserf's own table stops at call_to_stock (19); game_won (20) and
++    // game_lost (21) are ours. They go in category 0, which the default config
++    // (0x39) has switched on and which no message-count setting turns off -
++    // losing the result of the game to a verbosity option would be absurd.
+     global.interface_msg_category = [
+         -1, 5, 5, 5, 4, 0, 4, 3, 4, 5,
+-        5, 5, 4, 4, 4, 4, 0, 0, 0, 0
++        5, 5, 4, 4, 4, 4, 0, 0, 0, 0,
++        0, 0
+     ];
+ }
+ 
++/// The category a message type is filed under, or 0 for a type the table has
++/// not been extended to cover. A missing entry used to be a crash - "Variable
++/// Index [20] out of range [20]" the moment the game was won - because the
++/// table is indexed raw. Falling back to category 0 means a new message kind
++/// always shows rather than silently never appearing, which is the safer half
++/// of the two ways to be wrong.
++function interface_msg_category_of(_type) {
++    var _table = global.interface_msg_category;
++    if (_type < 0 || _type >= array_length(_table)) {
++        return 0;
++    }
++    return _table[_type];
++}
++
+ // ---------------------------------------------------------------------------
+ // class Road (map.h / map.cc)
+ // ---------------------------------------------------------------------------
+@@ -1095,6 +1115,17 @@ function Interface(_game = undefined) : GuiObject() constructor {
+ 
+         game.update();
+ 
++        /* Not in Freeserf: put the result on screen the moment the game ends.
++           game_over_shown lives on the Game rather than here so it survives
++           save and load, and so a game whose result has already been seen never
++           reopens the box when it is loaded back. The box itself does not stop
++           play - closing it leaves the finished world running, which is what
++           the "notification and carry on" choice was about. */
++        if (game.game_over != 0 && !game.game_over_shown) {
++            game.game_over_shown = true;
++            open_popup(PopupType.game_end_box);
++        }
++
+         var _tick_diff = game.get_const_tick() - last_const_tick;
+         last_const_tick = game.get_const_tick();
+ 
+@@ -1107,14 +1138,12 @@ function Interface(_game = undefined) : GuiObject() constructor {
+             return_timeout -= _tick_diff;
+         }
+ 
+-        var _msg_category = global.interface_msg_category;
+-
+         /* Handle newly enqueued messages */
+         if ((player != undefined) && player.has_message()) {
+             player.drop_message();
+             while (player.has_notification()) {
+                 var _message = player.peek_notification();
+-                if ((config & (1 << _msg_category[_message.type])) != 0) {
++                if ((config & (1 << interface_msg_category_of(_message.type))) != 0) {
+                     play_sound(Sfx.message);
+                     msg_flags |= (1 << 0);
+                     break;
+@@ -1132,7 +1161,7 @@ function Interface(_game = undefined) : GuiObject() constructor {
+                 }
+ 
+                 var _message2 = player.peek_notification();
+-                if ((config & (1 << _msg_category[_message2.type])) != 0) {
++                if ((config & (1 << interface_msg_category_of(_message2.type))) != 0) {
+                     break;
+                 }
+                 player.pop_notification();
+diff --git a/scripts/scr_notification/scr_notification.gml b/scripts/scr_notification/scr_notification.gml
+index d22ffc56..c1beec1b 100644
+--- a/scripts/scr_notification/scr_notification.gml
++++ b/scripts/scr_notification/scr_notification.gml
+@@ -251,11 +251,45 @@ function NotificationBox(_interface) : GuiObject() constructor {
+         }
+     };
+ 
++    /// Not in Freeserf, where clicking the box only dismissed it and the jump to
++    /// the reported place happened once, back in Interface.open_message. That
++    /// left the call-to-location messages feeling dead: by the time you had read
++    /// the box and clicked it away, anything that moved the view since had lost
++    /// you the place, and there was no way back to it.
++    ///
++    /// Clicking the notification now goes there, so the message is a button that
++    /// takes you to what it is telling you about. `pos` is a real map position
++    /// for every message kind that has one; the ones that do not (the
++    /// since-save reminders) carry 0, and those just close.
+     static handle_click_left = function(_x, _y) {
++        var _went = false;
++        if (interface != undefined && message.pos != 0) {
++            var _viewport = interface.get_viewport();
++            if (_viewport != undefined) {
++                _viewport.move_to_map_pos(message.pos);
++                interface.update_map_cursor_pos(message.pos);
++                _went = true;
++            }
++        }
++
++        /* Sfx.accepted is the original's affirmative blip - the same one the
++           game answers a good click with. Sfx.click for a message with nowhere
++           to go, so a dead click never sounds like it did something. */
++        if (_went) {
++            play_sound(Sfx.accepted);
++        } else {
++            play_sound(Sfx.click);
++        }
++
+         set_displayed(false);
+         return true;
+     };
+ 
++    /// A double click must not fall through to the map behind - see PopupBox.
++    static handle_dbl_click = function(_x, _y, _button) {
++        return true;
++    };
++
+     static show = function(_message) {
+         message = _message;
+         set_displayed(true);
+diff --git a/scripts/scr_panel/scr_panel.gml b/scripts/scr_panel/scr_panel.gml
+index 239dc31f..94e60d2a 100644
+--- a/scripts/scr_panel/scr_panel.gml
++++ b/scripts/scr_panel/scr_panel.gml
+@@ -20,11 +20,14 @@
+ #macro SPEED_BUTTON 5
+ 
+ // Multiples of DEFAULT_GAME_SPEED the button cycles through: >, >>, >>>.
+-// game_speed is what Game.update adds to tick each step, and speed_increase
+-// caps at 40, so 15x (= 30) is the most that stays in range.
+-#macro SPEED_STEP_2 20
+-#macro SPEED_STEP_3 50
+-#macro SPEED_STEP_4 100
++// game_speed is what Game.update adds to tick each step.
++// Halved from 20 / 50 / 100 - the old steps ran away from the eye and there was
++// nothing usable between normal pace and a blur. Normal play is deliberately
++// NOT touched: step 1 stays at DEFAULT_GAME_SPEED, which is Freeserf's own
++// value and therefore the Amiga's pace.
++#macro SPEED_STEP_2 10
++#macro SPEED_STEP_3 25
++#macro SPEED_STEP_4 50
+ 
+ 
+ enum PanelButton {
+@@ -426,6 +429,14 @@ function PanelBar(_interface) : GuiObject() constructor {
+         }
+     };
+ 
++    /// Swallow double clicks for the same reason PopupBox does: the default
++    /// GuiObject handler returns false, and a float that answers false hands the
++    /// event down to the viewport behind it. Clicking a panel button twice
++    /// quickly would otherwise double click the map underneath the panel.
++    static handle_dbl_click = function(_cx, _cy, _button) {
++        return true;
++    };
++
+     static handle_click_left = function(_cx, _cy) {
+         set_redraw();
+ 
+diff --git a/scripts/scr_popup/scr_popup.gml b/scripts/scr_popup/scr_popup.gml
+index 9d4ae1d0..457801aa 100644
+--- a/scripts/scr_popup/scr_popup.gml
++++ b/scripts/scr_popup/scr_popup.gml
+@@ -368,7 +368,11 @@ enum Action {
+     options_sfx,
+     save,
+     new_name,
+-    options_map_drag
++    options_map_drag,
++    /* Not in Freeserf: the end-of-game box. Appended, never inserted, so the
++       numbering of everything above is untouched. */
++    game_end_continue,
++    game_end_menu
+ }
+ 
+ /// Static tables for popup.cc (the local `const int layout[]` arrays of the
+@@ -1703,6 +1707,9 @@ function PopupBox(_interface) : GuiObject() constructor {
+         case PopupType.map:
+             draw_map_box();
+             break;
++        case PopupType.game_end_box:
++            draw_game_end_box();
++            break;
+         case PopupType.mine_building:
+             draw_mine_building_box();
+             break;
+@@ -1931,6 +1938,9 @@ function PopupBox(_interface) : GuiObject() constructor {
+         case PopupType.map:
+             handle_minimap_clk(_cx, _cy);
+             break;
++        case PopupType.game_end_box:
++            handle_game_end_clk(_cx, _cy);
++            break;
+         case PopupType.mine_building:
+             handle_mine_building_clk(_cx, _cy);
+             break;
+@@ -2072,6 +2082,26 @@ function PopupBox(_interface) : GuiObject() constructor {
+         return true;
+     };
+ 
++    /// Swallow double clicks. A popup has no double-click behaviour of its own,
++    /// but it MUST NOT let one fall through, and the default GuiObject handler
++    /// returns false - which gui_handle_event reads as "this float did not want
++    /// it" and passes down to the viewport underneath. With fast_building_click
++    /// on, that lands as a double click on the map behind the popup and opens or
++    /// closes a popup of its own.
++    ///
++    /// That is why the build popup vanished when you paged through it: two
++    /// clicks on the flip button inside MOUSE_TIME_SENSITIVITY (600 ms) make the
++    /// second one a click AND a double click, the click turned the page, and the
++    /// double click went straight through to the map. Nothing is done here on
++    /// purpose - the page has already been turned by the ordinary click that
++    /// came with it, so acting again would turn two.
++    ///
++    /// Floats inside the popup - the save-file list, which does use double
++    /// clicks - are offered the event before this, so they are unaffected.
++    static handle_dbl_click = function(_cx, _cy, _button) {
++        return true;
++    };
++
+     static show = function(_box) {
+         set_box(_box);
+         set_displayed(true);
+@@ -2127,6 +2157,8 @@ function PopupBox(_interface) : GuiObject() constructor {
+     static draw_bld_4_box = function() { popup_draw_bld_4_box(self); };
+     static draw_building_stock_box = function() { popup_draw_building_stock_box(self); };
+     static draw_player_faces_box = function() { popup_draw_player_faces_box(self); };
++    static draw_game_end_box = function() { popup_draw_game_end_box(self); };
++    static handle_game_end_clk = function(_cx, _cy) { popup_handle_game_end_clk(self, _cx, _cy); };
+     static draw_demolish_box = function() { popup_draw_demolish_box(self); };
+     static draw_save_box = function() { popup_draw_save_box(self); };
+ 
+diff --git a/scripts/scr_popup_b/scr_popup_b.gml b/scripts/scr_popup_b/scr_popup_b.gml
+index 93612ff6..af2ddf04 100644
+--- a/scripts/scr_popup_b/scr_popup_b.gml
++++ b/scripts/scr_popup_b/scr_popup_b.gml
+@@ -1274,3 +1274,91 @@ function popup_draw_save_box(_popup) {
+ 
+     _popup.draw_popup_icon(14, 128, 60); /* Exit */
+ }
++
++/// Not in Freeserf, which declared TypeGameEnd and never drew it. The result of
++/// the game, the faces of everyone who was in it, and the two things worth
++/// doing next.
++///
++/// Everything is sized around the popup's 128x144 content area. A player face
++/// is a 48x72 colour block with a ~32x64 portrait inset 8px into it, so two sit
++/// side by side comfortably and three do not - at three the colour blocks are
++/// drawn 40 wide instead of 48, which tiles them edge to edge across the full
++/// 120px while the portraits, being narrower, still stand clear of each other.
++function popup_draw_game_end_box(_popup) {
++    _popup.draw_box_background(BackgroundPattern.striped_green);
++
++    var _game = _popup.interface.get_game();
++    var _result = 0;
++    var _opponents = [];
++    if (_game != undefined) {
++        _result = _game.game_over;
++        _opponents = _game.game_over_opponents;
++    }
++
++    /* Titles are centred by eye on a 16 column grid: 8 characters starting at
++       column 4 lands in the middle. */
++    if (_result == 1) {
++        _popup.draw_green_string(4, 4, "VICTORY");
++    } else if (_result == 2) {
++        _popup.draw_green_string(4, 4, "DEFEATED");
++    } else {
++        _popup.draw_green_string(3, 4, "IN PROGRESS");
++    }
++
++    var _count = array_length(_opponents);
++    if (_count > 3) {
++        _count = 3;    /* three is the most a mission can field against you */
++    }
++
++    /* Column of the first face and the pitch between them, per count. */
++    var _first = 5;
++    var _pitch = 0;
++    var _block = 48;
++    if (_count == 2) {
++        _first = 1;
++        _pitch = 8;
++    } else if (_count >= 3) {
++        _first = 0;
++        _pitch = 5;
++        _block = 40;
++    }
++
++    for (var _i = 0; _i < _count; _i++) {
++        popup_draw_game_end_face(_popup, _first + _i * _pitch, 14,
++                                 _opponents[_i], _block);
++    }
++
++    if (_result == 1) {
++        _popup.draw_green_string(1, 94, "Land is yours");
++    } else if (_result == 2) {
++        _popup.draw_green_string(1, 94, "You are beaten");
++    }
++
++    _popup.draw_green_string(0, 112, "Play on");
++    _popup.draw_green_string(8, 112, "Menu");
++
++    _popup.draw_popup_icon(3, 128, 288);  /* Checkbox: carry on playing */
++    _popup.draw_popup_icon(14, 128, 60);  /* Exit: back to the start screen */
++}
++
++/// One opponent portrait. Same idea as PopupBox.draw_player_face, but the width
++/// of the colour block is a parameter so three can be tiled without overlapping.
++/// A player who is no longer in the collection still gets his block, drawn with
++/// the blank face - being wiped out is exactly when this box is looked at.
++function popup_draw_game_end_face(_popup, _ix, _iy, _player, _block_width) {
++    var _face = 0;
++    var _color = -1;
++    var _game = _popup.interface.get_game();
++    if (_game != undefined) {
++        var _p = _game.get_player(_player);
++        if (_p != undefined) {
++            _face = _p.get_face();
++        }
++        _color = _popup.interface.get_player_color(_player);
++    }
++
++    if (_color != -1) {
++        gfx_fill_rect(8 * _ix, _iy + 5, _block_width, 72, _color);
++    }
++    _popup.draw_popup_icon(_ix, _iy, _popup.get_player_face_sprite(_face));
++}
+diff --git a/scripts/scr_popup_c/scr_popup_c.gml b/scripts/scr_popup_c/scr_popup_c.gml
+index 7fe95b07..56244541 100644
+--- a/scripts/scr_popup_c/scr_popup_c.gml
++++ b/scripts/scr_popup_c/scr_popup_c.gml
+@@ -31,6 +31,16 @@ function popup_c_init_tables() {
+     -1
+   ];
+ 
++  /* Not in Freeserf. The two icons on the end-of-game box's bottom band, at the
++     same y the other boxes put their exit icon (drawn at 128, clicked from
++     126). Continue sits on the left where nothing else does, so it cannot be
++     hit by muscle memory aiming for exit. */
++  global.popup_c_clk_game_end = [
++    Action.game_end_continue,  24, 126, 16, 16,
++    Action.game_end_menu,     112, 126, 16, 16,
++    -1
++  ];
++
+   global.popup_c_clk_mine_building = [
+     Action.build_stonemine, 16, 8, 33, 65,
+     Action.build_coalmine, 64, 8, 33, 65,
+@@ -1189,6 +1199,18 @@ function popup_handle_action(_popup, _action, _x, _y) {
+     global.map_drag_invert = !global.map_drag_invert;
+     _popup.play_sound(Sfx.click);
+     break;
++  case Action.game_end_continue:
++    /* Close and carry on. The game is not stopped when it ends - that was the
++       choice made when end-game detection went in - so there is a finished
++       world here to keep poking at, and the box never comes back because
++       game_over_shown is already set. */
++    _popup.interface.close_popup();
++    break;
++  case Action.game_end_menu:
++    /* Back to the start screen, with the mission list already ticked. */
++    _popup.interface.close_popup();
++    _popup.interface.open_game_init();
++    break;
+   case Action.options_volume_minus: {
+     /* Audio::get_instance().get_volume_controller()->volume_down() */
+     audio_volume_down();
+@@ -1294,6 +1316,11 @@ function popup_handle_box_options_clk(_popup, _cx, _cy) {
+   popup_handle_clickmap(_popup, _cx, _cy, global.popup_c_clk_box_options);
+ }
+ 
++function popup_handle_game_end_clk(_popup, _cx, _cy) {
++  popup_c_init_tables();
++  popup_handle_clickmap(_popup, _cx, _cy, global.popup_c_clk_game_end);
++}
++
+ function popup_handle_mine_building_clk(_popup, _cx, _cy) {
+   popup_c_init_tables();
+   popup_handle_clickmap(_popup, _cx, _cy, global.popup_c_clk_mine_building);
+diff --git a/scripts/scr_savegame/scr_savegame.gml b/scripts/scr_savegame/scr_savegame.gml
+index d62b7560..b29a7cfc 100644
+--- a/scripts/scr_savegame/scr_savegame.gml
++++ b/scripts/scr_savegame/scr_savegame.gml
+@@ -674,3 +674,107 @@ function savegame_self_test(_game) {
+ 
+     return false;
+ }
++
++// ---------------------------------------------------------- mission progress
++// Not in Freeserf, which never recorded what you had finished. A small file
++// beside the save slots holds which missions have been won, so the start screen
++// can mark them off and you can see where you got to.
++//
++// It is deliberately its own file rather than part of a save: progress belongs
++// to the player, not to one game, and it has to survive starting a new mission.
++
++#macro PROGRESS_PATH "settlers_progress.json"
++
++/// The completed-mission flags: one bool per mission, allocated in full the
++/// first time anything asks. Sized from the mission table rather than from the
++/// file, so every index the start screen can reach is already there and nothing
++/// downstream has to ask whether a slot exists before reading it.
++function progress_load() {
++    if (variable_global_exists("progress_done")) {
++        return global.progress_done;
++    }
++
++    var _count = game_info_get_mission_count();
++    global.progress_done = array_create(_count, false);
++
++    if (!file_exists(PROGRESS_PATH)) {
++        return global.progress_done;
++    }
++
++    var _buffer = buffer_load(PROGRESS_PATH);
++    if (_buffer < 0) {
++        show_debug_message("progress: could not open " + PROGRESS_PATH);
++        return global.progress_done;
++    }
++    var _text = buffer_read(_buffer, buffer_text);
++    buffer_delete(_buffer);
++
++    var _list = undefined;
++    try {
++        _list = json_parse(_text);
++    } catch (_e) {
++        // A corrupt progress file must never stop the game starting. Losing the
++        // ticks is a nuisance; refusing to run is not, for something this
++        // peripheral - so it is reported and read as "nothing done yet".
++        show_debug_message("progress: " + PROGRESS_PATH + " is not valid JSON, ignoring it");
++        return global.progress_done;
++    }
++
++    if (is_array(_list)) {
++        for (var _i = 0; _i < array_length(_list); _i++) {
++            var _index = _list[_i];
++            /* An index from a file the player could have edited, or written by
++               a build with more missions in the table than this one has. */
++            if (is_real(_index) && _index >= 0 && _index < _count) {
++                global.progress_done[_index] = true;
++            }
++        }
++    }
++
++    return global.progress_done;
++}
++
++/// Has this mission been won? Index is 0-based, as game_mission is.
++function progress_mission_is_done(_index) {
++    var _done = progress_load();
++    if (_index < 0 || _index >= array_length(_done)) {
++        return false;
++    }
++    return _done[_index];
++}
++
++/// Record a win and write it out at once. Writing immediately rather than at
++/// shutdown is the point: the game can be closed from the window's X, and a
++/// mission won but not recorded is exactly the thing a player would notice.
++function progress_mark_mission_done(_index) {
++    var _done = progress_load();
++    if (_index < 0 || _index >= array_length(_done)) {
++        return;
++    }
++    if (_done[_index]) {
++        return;   /* already recorded, nothing to write */
++    }
++
++    _done[_index] = true;
++    progress_save();
++    show_debug_message("progress: mission " + string(_index + 1) + " completed");
++}
++
++/// Write the flags back out as a plain array of the indices that are done.
++/// Indices rather than the flag array itself, so the file stays readable and
++/// stays valid if the mission table ever grows.
++function progress_save() {
++    var _done = progress_load();
++    var _list = [];
++    for (var _i = 0; _i < array_length(_done); _i++) {
++        if (_done[_i]) {
++            array_push(_list, _i);
++        }
++    }
++
++    var _text = json_stringify(_list);
++    var _buffer = buffer_create(string_byte_length(_text) + 1, buffer_grow, 1);
++    buffer_write(_buffer, buffer_text, _text);
++    buffer_save(_buffer, PROGRESS_PATH);
++    buffer_delete(_buffer);
++}
+-- 
+2.43.0
+

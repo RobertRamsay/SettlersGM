@@ -756,8 +756,36 @@ function Flag(_game, _index) : GameObject(_game, _index) constructor {
                 } else {
                     var _player = game.get_player(get_owner());
                     var _other_dir = _src.other_end_dir[search_dir];
-                    var _prio_old = _player.get_flag_prio(_src.slot[_other_dir & 7].type);
-                    var _prio_new = _player.get_flag_prio(_src.slot[_slot].type);
+
+                    /* The slot the scheduled bit points at can be EMPTY by now.
+                       other_end_dir names a slot and nothing guarantees the two
+                       stay in step: a slot scheduled through the branch above
+                       never gets its `dir` set, so Flag.update keeps offering it
+                       and it can end up named by two directions at once. The
+                       transporter that collects it calls prioritize_pickup for
+                       its own direction only, which leaves the other direction
+                       still flagged as scheduled, pointing at a slot whose type
+                       is now ResourceType.none (-1).
+
+                       Freeserf has the same hole; there it is a silent
+                       out-of-bounds read of flag_prio[-1], so it never shows.
+                       GML throws, which is how we found it: "Variable Index [-1]
+                       out of range [26]". Treating an empty slot as no
+                       competition is both safe and right - whatever is waiting
+                       now should take the schedule, and the stale pointer is
+                       overwritten below, which heals it. */
+                    var _prio_old = -1;
+                    var _old_type = _src.slot[_other_dir & 7].type;
+                    if (_old_type != ResourceType.none) {
+                        _prio_old = _player.get_flag_prio(_old_type);
+                    }
+
+                    var _prio_new = -1;
+                    var _new_type = _src.slot[_slot].type;
+                    if (_new_type != ResourceType.none) {
+                        _prio_new = _player.get_flag_prio(_new_type);
+                    }
+
                     if (_prio_new > _prio_old) {
                         /* This item has the highest priority now */
                         _src.other_end_dir[search_dir] =

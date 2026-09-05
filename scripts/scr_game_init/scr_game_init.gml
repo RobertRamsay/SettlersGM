@@ -357,6 +357,14 @@ function GameInitBox(_interface) : GuiObject() constructor {
                 draw_box_string(10, 18, "Mission:");
                 draw_box_string(20, 18, _level);
 
+                /* Not in the original: mark a mission already won, so you can
+                   step through the list and see where you got to rather than
+                   having to remember. progress_mission_is_done reads a cached
+                   set, so asking every frame costs nothing. */
+                if (progress_mission_is_done(game_mission)) {
+                    draw_box_string(23, 18, "DONE");
+                }
+
                 draw_box_icon(33, 0, 237);  // Up button
                 draw_box_icon(33, 16, 240);  // Down button
 
@@ -547,6 +555,12 @@ function GameInitBox(_interface) : GuiObject() constructor {
                     var _game = new Game();
                     if (mission.instantiate(_game) == undefined) {
                         return;
+                    }
+                    /* Remember which mission this is so winning it can tick it
+                       off in the list. A custom game keeps the constructor's
+                       -1, because there is no entry to tick. */
+                    if (game_type == GameType.mission) {
+                        _game.mission_index = game_mission;
                     }
                     interface.on_new_game(_game);
                 }

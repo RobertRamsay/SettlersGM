@@ -674,3 +674,107 @@ function savegame_self_test(_game) {
 
     return false;
 }
+
+// ---------------------------------------------------------- mission progress
+// Not in Freeserf, which never recorded what you had finished. A small file
+// beside the save slots holds which missions have been won, so the start screen
+// can mark them off and you can see where you got to.
+//
+// It is deliberately its own file rather than part of a save: progress belongs
+// to the player, not to one game, and it has to survive starting a new mission.
+
+#macro PROGRESS_PATH "settlers_progress.json"
+
+/// The completed-mission flags: one bool per mission, allocated in full the
+/// first time anything asks. Sized from the mission table rather than from the
+/// file, so every index the start screen can reach is already there and nothing
+/// downstream has to ask whether a slot exists before reading it.
+function progress_load() {
+    if (variable_global_exists("progress_done")) {
+        return global.progress_done;
+    }
+
+    var _count = game_info_get_mission_count();
+    global.progress_done = array_create(_count, false);
+
+    if (!file_exists(PROGRESS_PATH)) {
+        return global.progress_done;
+    }
+
+    var _buffer = buffer_load(PROGRESS_PATH);
+    if (_buffer < 0) {
+        show_debug_message("progress: could not open " + PROGRESS_PATH);
+        return global.progress_done;
+    }
+    var _text = buffer_read(_buffer, buffer_text);
+    buffer_delete(_buffer);
+
+    var _list = undefined;
+    try {
+        _list = json_parse(_text);
+    } catch (_e) {
+        // A corrupt progress file must never stop the game starting. Losing the
+        // ticks is a nuisance; refusing to run is not, for something this
+        // peripheral - so it is reported and read as "nothing done yet".
+        show_debug_message("progress: " + PROGRESS_PATH + " is not valid JSON, ignoring it");
+        return global.progress_done;
+    }
+
+    if (is_array(_list)) {
+        for (var _i = 0; _i < array_length(_list); _i++) {
+            var _index = _list[_i];
+            /* An index from a file the player could have edited, or written by
+               a build with more missions in the table than this one has. */
+            if (is_real(_index) && _index >= 0 && _index < _count) {
+                global.progress_done[_index] = true;
+            }
+        }
+    }
+
+    return global.progress_done;
+}
+
+/// Has this mission been won? Index is 0-based, as game_mission is.
+function progress_mission_is_done(_index) {
+    var _done = progress_load();
+    if (_index < 0 || _index >= array_length(_done)) {
+        return false;
+    }
+    return _done[_index];
+}
+
+/// Record a win and write it out at once. Writing immediately rather than at
+/// shutdown is the point: the game can be closed from the window's X, and a
+/// mission won but not recorded is exactly the thing a player would notice.
+function progress_mark_mission_done(_index) {
+    var _done = progress_load();
+    if (_index < 0 || _index >= array_length(_done)) {
+        return;
+    }
+    if (_done[_index]) {
+        return;   /* already recorded, nothing to write */
+    }
+
+    _done[_index] = true;
+    progress_save();
+    show_debug_message("progress: mission " + string(_index + 1) + " completed");
+}
+
+/// Write the flags back out as a plain array of the indices that are done.
+/// Indices rather than the flag array itself, so the file stays readable and
+/// stays valid if the mission table ever grows.
+function progress_save() {
+    var _done = progress_load();
+    var _list = [];
+    for (var _i = 0; _i < array_length(_done); _i++) {
+        if (_done[_i]) {
+            array_push(_list, _i);
+        }
+    }
+
+    var _text = json_stringify(_list);
+    var _buffer = buffer_create(string_byte_length(_text) + 1, buffer_grow, 1);
+    buffer_write(_buffer, buffer_text, _text);
+    buffer_save(_buffer, PROGRESS_PATH);
+    buffer_delete(_buffer);
+}

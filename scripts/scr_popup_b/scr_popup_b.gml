@@ -1274,3 +1274,91 @@ function popup_draw_save_box(_popup) {
 
     _popup.draw_popup_icon(14, 128, 60); /* Exit */
 }
+
+/// Not in Freeserf, which declared TypeGameEnd and never drew it. The result of
+/// the game, the faces of everyone who was in it, and the two things worth
+/// doing next.
+///
+/// Everything is sized around the popup's 128x144 content area. A player face
+/// is a 48x72 colour block with a ~32x64 portrait inset 8px into it, so two sit
+/// side by side comfortably and three do not - at three the colour blocks are
+/// drawn 40 wide instead of 48, which tiles them edge to edge across the full
+/// 120px while the portraits, being narrower, still stand clear of each other.
+function popup_draw_game_end_box(_popup) {
+    _popup.draw_box_background(BackgroundPattern.striped_green);
+
+    var _game = _popup.interface.get_game();
+    var _result = 0;
+    var _opponents = [];
+    if (_game != undefined) {
+        _result = _game.game_over;
+        _opponents = _game.game_over_opponents;
+    }
+
+    /* Titles are centred by eye on a 16 column grid: 8 characters starting at
+       column 4 lands in the middle. */
+    if (_result == 1) {
+        _popup.draw_green_string(4, 4, "VICTORY");
+    } else if (_result == 2) {
+        _popup.draw_green_string(4, 4, "DEFEATED");
+    } else {
+        _popup.draw_green_string(3, 4, "IN PROGRESS");
+    }
+
+    var _count = array_length(_opponents);
+    if (_count > 3) {
+        _count = 3;    /* three is the most a mission can field against you */
+    }
+
+    /* Column of the first face and the pitch between them, per count. */
+    var _first = 5;
+    var _pitch = 0;
+    var _block = 48;
+    if (_count == 2) {
+        _first = 1;
+        _pitch = 8;
+    } else if (_count >= 3) {
+        _first = 0;
+        _pitch = 5;
+        _block = 40;
+    }
+
+    for (var _i = 0; _i < _count; _i++) {
+        popup_draw_game_end_face(_popup, _first + _i * _pitch, 14,
+                                 _opponents[_i], _block);
+    }
+
+    if (_result == 1) {
+        _popup.draw_green_string(1, 94, "Land is yours");
+    } else if (_result == 2) {
+        _popup.draw_green_string(1, 94, "You are beaten");
+    }
+
+    _popup.draw_green_string(0, 112, "Play on");
+    _popup.draw_green_string(8, 112, "Menu");
+
+    _popup.draw_popup_icon(3, 128, 288);  /* Checkbox: carry on playing */
+    _popup.draw_popup_icon(14, 128, 60);  /* Exit: back to the start screen */
+}
+
+/// One opponent portrait. Same idea as PopupBox.draw_player_face, but the width
+/// of the colour block is a parameter so three can be tiled without overlapping.
+/// A player who is no longer in the collection still gets his block, drawn with
+/// the blank face - being wiped out is exactly when this box is looked at.
+function popup_draw_game_end_face(_popup, _ix, _iy, _player, _block_width) {
+    var _face = 0;
+    var _color = -1;
+    var _game = _popup.interface.get_game();
+    if (_game != undefined) {
+        var _p = _game.get_player(_player);
+        if (_p != undefined) {
+            _face = _p.get_face();
+        }
+        _color = _popup.interface.get_player_color(_player);
+    }
+
+    if (_color != -1) {
+        gfx_fill_rect(8 * _ix, _iy + 5, _block_width, 72, _color);
+    }
+    _popup.draw_popup_icon(_ix, _iy, _popup.get_player_face_sprite(_face));
+}

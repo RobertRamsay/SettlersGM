@@ -73,10 +73,30 @@ function interface_init_tables() {
         0xa2, 0xa0, 0xa1, 0x99, 0x9d, 0x9e, 0x98, 0x9f, 0xb2
     ];
     // const int msg_category[] (Interface::update)
+    // Indexed by MessageType, so it MUST carry an entry for every enumerator.
+    // Freeserf's own table stops at call_to_stock (19); game_won (20) and
+    // game_lost (21) are ours. They go in category 0, which the default config
+    // (0x39) has switched on and which no message-count setting turns off -
+    // losing the result of the game to a verbosity option would be absurd.
     global.interface_msg_category = [
         -1, 5, 5, 5, 4, 0, 4, 3, 4, 5,
-        5, 5, 4, 4, 4, 4, 0, 0, 0, 0
+        5, 5, 4, 4, 4, 4, 0, 0, 0, 0,
+        0, 0
     ];
+}
+
+/// The category a message type is filed under, or 0 for a type the table has
+/// not been extended to cover. A missing entry used to be a crash - "Variable
+/// Index [20] out of range [20]" the moment the game was won - because the
+/// table is indexed raw. Falling back to category 0 means a new message kind
+/// always shows rather than silently never appearing, which is the safer half
+/// of the two ways to be wrong.
+function interface_msg_category_of(_type) {
+    var _table = global.interface_msg_category;
+    if (_type < 0 || _type >= array_length(_table)) {
+        return 0;
+    }
+    return _table[_type];
 }
 
 // ---------------------------------------------------------------------------
@@ -1095,6 +1115,17 @@ function Interface(_game = undefined) : GuiObject() constructor {
 
         game.update();
 
+        /* Not in Freeserf: put the result on screen the moment the game ends.
+           game_over_shown lives on the Game rather than here so it survives
+           save and load, and so a game whose result has already been seen never
+           reopens the box when it is loaded back. The box itself does not stop
+           play - closing it leaves the finished world running, which is what
+           the "notification and carry on" choice was about. */
+        if (game.game_over != 0 && !game.game_over_shown) {
+            game.game_over_shown = true;
+            open_popup(PopupType.game_end_box);
+        }
+
         var _tick_diff = game.get_const_tick() - last_const_tick;
         last_const_tick = game.get_const_tick();
 
@@ -1107,14 +1138,12 @@ function Interface(_game = undefined) : GuiObject() constructor {
             return_timeout -= _tick_diff;
         }
 
-        var _msg_category = global.interface_msg_category;
-
         /* Handle newly enqueued messages */
         if ((player != undefined) && player.has_message()) {
             player.drop_message();
             while (player.has_notification()) {
                 var _message = player.peek_notification();
-                if ((config & (1 << _msg_category[_message.type])) != 0) {
+                if ((config & (1 << interface_msg_category_of(_message.type))) != 0) {
                     play_sound(Sfx.message);
                     msg_flags |= (1 << 0);
                     break;
@@ -1132,7 +1161,7 @@ function Interface(_game = undefined) : GuiObject() constructor {
                 }
 
                 var _message2 = player.peek_notification();
-                if ((config & (1 << _msg_category[_message2.type])) != 0) {
+                if ((config & (1 << interface_msg_category_of(_message2.type))) != 0) {
                     break;
                 }
                 player.pop_notification();

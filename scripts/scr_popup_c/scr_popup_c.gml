@@ -31,6 +31,16 @@ function popup_c_init_tables() {
     -1
   ];
 
+  /* Not in Freeserf. The two icons on the end-of-game box's bottom band, at the
+     same y the other boxes put their exit icon (drawn at 128, clicked from
+     126). Continue sits on the left where nothing else does, so it cannot be
+     hit by muscle memory aiming for exit. */
+  global.popup_c_clk_game_end = [
+    Action.game_end_continue,  24, 126, 16, 16,
+    Action.game_end_menu,     112, 126, 16, 16,
+    -1
+  ];
+
   global.popup_c_clk_mine_building = [
     Action.build_stonemine, 16, 8, 33, 65,
     Action.build_coalmine, 64, 8, 33, 65,
@@ -1189,6 +1199,18 @@ function popup_handle_action(_popup, _action, _x, _y) {
     global.map_drag_invert = !global.map_drag_invert;
     _popup.play_sound(Sfx.click);
     break;
+  case Action.game_end_continue:
+    /* Close and carry on. The game is not stopped when it ends - that was the
+       choice made when end-game detection went in - so there is a finished
+       world here to keep poking at, and the box never comes back because
+       game_over_shown is already set. */
+    _popup.interface.close_popup();
+    break;
+  case Action.game_end_menu:
+    /* Back to the start screen, with the mission list already ticked. */
+    _popup.interface.close_popup();
+    _popup.interface.open_game_init();
+    break;
   case Action.options_volume_minus: {
     /* Audio::get_instance().get_volume_controller()->volume_down() */
     audio_volume_down();
@@ -1292,6 +1314,11 @@ function popup_handle_box_close_clk(_popup, _cx, _cy) {
 function popup_handle_box_options_clk(_popup, _cx, _cy) {
   popup_c_init_tables();
   popup_handle_clickmap(_popup, _cx, _cy, global.popup_c_clk_box_options);
+}
+
+function popup_handle_game_end_clk(_popup, _cx, _cy) {
+  popup_c_init_tables();
+  popup_handle_clickmap(_popup, _cx, _cy, global.popup_c_clk_game_end);
 }
 
 function popup_handle_mine_building_clk(_popup, _cx, _cy) {

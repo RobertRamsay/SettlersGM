@@ -251,8 +251,42 @@ function NotificationBox(_interface) : GuiObject() constructor {
         }
     };
 
+    /// Not in Freeserf, where clicking the box only dismissed it and the jump to
+    /// the reported place happened once, back in Interface.open_message. That
+    /// left the call-to-location messages feeling dead: by the time you had read
+    /// the box and clicked it away, anything that moved the view since had lost
+    /// you the place, and there was no way back to it.
+    ///
+    /// Clicking the notification now goes there, so the message is a button that
+    /// takes you to what it is telling you about. `pos` is a real map position
+    /// for every message kind that has one; the ones that do not (the
+    /// since-save reminders) carry 0, and those just close.
     static handle_click_left = function(_x, _y) {
+        var _went = false;
+        if (interface != undefined && message.pos != 0) {
+            var _viewport = interface.get_viewport();
+            if (_viewport != undefined) {
+                _viewport.move_to_map_pos(message.pos);
+                interface.update_map_cursor_pos(message.pos);
+                _went = true;
+            }
+        }
+
+        /* Sfx.accepted is the original's affirmative blip - the same one the
+           game answers a good click with. Sfx.click for a message with nowhere
+           to go, so a dead click never sounds like it did something. */
+        if (_went) {
+            play_sound(Sfx.accepted);
+        } else {
+            play_sound(Sfx.click);
+        }
+
         set_displayed(false);
+        return true;
+    };
+
+    /// A double click must not fall through to the map behind - see PopupBox.
+    static handle_dbl_click = function(_x, _y, _button) {
         return true;
     };
 

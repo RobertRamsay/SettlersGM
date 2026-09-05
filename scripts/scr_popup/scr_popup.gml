@@ -368,7 +368,11 @@ enum Action {
     options_sfx,
     save,
     new_name,
-    options_map_drag
+    options_map_drag,
+    /* Not in Freeserf: the end-of-game box. Appended, never inserted, so the
+       numbering of everything above is untouched. */
+    game_end_continue,
+    game_end_menu
 }
 
 /// Static tables for popup.cc (the local `const int layout[]` arrays of the
@@ -1703,6 +1707,9 @@ function PopupBox(_interface) : GuiObject() constructor {
         case PopupType.map:
             draw_map_box();
             break;
+        case PopupType.game_end_box:
+            draw_game_end_box();
+            break;
         case PopupType.mine_building:
             draw_mine_building_box();
             break;
@@ -1931,6 +1938,9 @@ function PopupBox(_interface) : GuiObject() constructor {
         case PopupType.map:
             handle_minimap_clk(_cx, _cy);
             break;
+        case PopupType.game_end_box:
+            handle_game_end_clk(_cx, _cy);
+            break;
         case PopupType.mine_building:
             handle_mine_building_clk(_cx, _cy);
             break;
@@ -2072,6 +2082,26 @@ function PopupBox(_interface) : GuiObject() constructor {
         return true;
     };
 
+    /// Swallow double clicks. A popup has no double-click behaviour of its own,
+    /// but it MUST NOT let one fall through, and the default GuiObject handler
+    /// returns false - which gui_handle_event reads as "this float did not want
+    /// it" and passes down to the viewport underneath. With fast_building_click
+    /// on, that lands as a double click on the map behind the popup and opens or
+    /// closes a popup of its own.
+    ///
+    /// That is why the build popup vanished when you paged through it: two
+    /// clicks on the flip button inside MOUSE_TIME_SENSITIVITY (600 ms) make the
+    /// second one a click AND a double click, the click turned the page, and the
+    /// double click went straight through to the map. Nothing is done here on
+    /// purpose - the page has already been turned by the ordinary click that
+    /// came with it, so acting again would turn two.
+    ///
+    /// Floats inside the popup - the save-file list, which does use double
+    /// clicks - are offered the event before this, so they are unaffected.
+    static handle_dbl_click = function(_cx, _cy, _button) {
+        return true;
+    };
+
     static show = function(_box) {
         set_box(_box);
         set_displayed(true);
@@ -2127,6 +2157,8 @@ function PopupBox(_interface) : GuiObject() constructor {
     static draw_bld_4_box = function() { popup_draw_bld_4_box(self); };
     static draw_building_stock_box = function() { popup_draw_building_stock_box(self); };
     static draw_player_faces_box = function() { popup_draw_player_faces_box(self); };
+    static draw_game_end_box = function() { popup_draw_game_end_box(self); };
+    static handle_game_end_clk = function(_cx, _cy) { popup_handle_game_end_clk(self, _cx, _cy); };
     static draw_demolish_box = function() { popup_draw_demolish_box(self); };
     static draw_save_box = function() { popup_draw_save_box(self); };
 
