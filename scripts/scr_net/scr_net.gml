@@ -718,7 +718,7 @@ function net_speed_locked() {
 /// numbers are doubles, exact only to 2^53, so a 32-bit FNV-style hash would
 /// silently lose its low bits the moment it multiplied. 31 against a 31-bit
 /// accumulator stays well inside what a double represents exactly.
-#macro NET_HASH_PARTS 12
+#macro NET_HASH_PARTS 14
 
 function net_hash_parts(_game) {
     var _out = array_create(NET_HASH_PARTS, 0);
@@ -747,6 +747,23 @@ function net_hash_parts(_game) {
         _h = net_hash_fold(_h, _b.pos);
         _h = net_hash_fold(_h, _b.get_type());
         _h = net_hash_fold(_h, _b.progress);
+        _h = net_hash_fold(_h, _b.owner);
+        _h = net_hash_fold(_h, _b.u);
+        _h = net_hash_fold(_h, _b.first_knight);
+        _h = net_hash_fold(_h, net_bit(_b.constructing));
+        _h = net_hash_fold(_h, net_bit(_b.holder));
+        _h = net_hash_fold(_h, net_bit(_b.active));
+        _h = net_hash_fold(_h, net_bit(_b.burning));
+        _h = net_hash_fold(_h, net_bit(_b.serf_requested));
+        _h = net_hash_fold(_h, net_bit(_b.serf_request_failed));
+        for (var _sl = 0; _sl < BUILDING_MAX_STOCK; _sl++) {
+            var _st = _b.stock[_sl];
+            _h = net_hash_fold(_h, _st.type);
+            _h = net_hash_fold(_h, _st.prio);
+            _h = net_hash_fold(_h, _st.available);
+            _h = net_hash_fold(_h, _st.requested);
+            _h = net_hash_fold(_h, _st.maximum);
+        }
     }
     _out[2] = _h;
 
@@ -760,6 +777,23 @@ function net_hash_parts(_game) {
         }
         _h = net_hash_fold(_h, _k);
         _h = net_hash_fold(_h, _f.pos);
+        _h = net_hash_fold(_h, _f.owner);
+        _h = net_hash_fold(_h, _f.path_con);
+        _h = net_hash_fold(_h, _f.endpoint);
+        _h = net_hash_fold(_h, _f.transporter);
+        _h = net_hash_fold(_h, _f.bld_flags);
+        _h = net_hash_fold(_h, _f.search_num);
+        _h = net_hash_fold(_h, _f.search_dir);
+        for (var _d = 0; _d < 6; _d++) {
+            _h = net_hash_fold(_h, _f.length[_d]);
+            _h = net_hash_fold(_h, _f.other_end_dir[_d]);
+        }
+        for (var _sl2 = 0; _sl2 < FLAG_MAX_RES_COUNT; _sl2++) {
+            var _slot = _f.slot[_sl2];
+            _h = net_hash_fold(_h, _slot.type);
+            _h = net_hash_fold(_h, _slot.dir);
+            _h = net_hash_fold(_h, _slot.dest);
+        }
     }
     _out[3] = _h;
 
@@ -846,7 +880,66 @@ function net_hash_parts(_game) {
     }
     _out[11] = _h;
 
+    /* 12: serf TYPE.
+
+       Left out of 6..10 and it should not have been: the first two-machine
+       comparison showed one serf as generic on one side and a transporter on
+       the other, a difference none of the other parts can see. A serf's type
+       changes when an inventory specialises it, so this part watches the
+       inventory's decisions from the outside. */
+    _h = 0;
+    for (var _t = 0; _t < array_length(_serfs); _t++) {
+        var _st2 = _serfs[_t];
+        if (_st2 == undefined) {
+            continue;
+        }
+        _h = net_hash_fold(net_hash_fold(_h, _t), _st2.get_type());
+    }
+    _out[12] = _h;
+
+    /* 13: inventories - what each stock holds, who is waiting to come out of
+       it, and what it is holding back.
+
+       Nothing was watching these at all, which is why a divergence in who gets
+       called out of the castle only became visible turns later as two serfs in
+       the wrong state. */
+    _h = 0;
+    var _invs = _game.inventories.objects;
+    for (var _n2 = 0; _n2 < array_length(_invs); _n2++) {
+        var _inv = _invs[_n2];
+        if (_inv == undefined) {
+            continue;
+        }
+        _h = net_hash_fold(_h, _n2);
+        _h = net_hash_fold(_h, _inv.owner);
+        _h = net_hash_fold(_h, _inv.flag);
+        _h = net_hash_fold(_h, _inv.building);
+        _h = net_hash_fold(_h, _inv.serfs_out);
+        _h = net_hash_fold(_h, _inv.generic_count);
+        _h = net_hash_fold(_h, _inv.res_dir);
+        for (var _r2 = 0; _r2 < ResourceType.types_count; _r2++) {
+            _h = net_hash_fold(_h, _inv.resources[_r2]);
+        }
+        for (var _q2 = 0; _q2 < 2; _q2++) {
+            _h = net_hash_fold(_h, _inv.out_queue[_q2].type);
+            _h = net_hash_fold(_h, _inv.out_queue[_q2].dest);
+        }
+        for (var _y2 = 0; _y2 < array_length(_inv.serfs); _y2++) {
+            _h = net_hash_fold(_h, _inv.serfs[_y2]);
+        }
+    }
+    _out[13] = _h;
+
     return _out;
+}
+
+/// A GML bool folded to a number the hash can eat. Writing "true" into the fold
+/// works by accident; this says so on purpose.
+function net_bit(_v) {
+    if (_v) {
+        return 1;
+    }
+    return 0;
 }
 
 /// One digest per SLOT of the serf collection, holes included as zero so the
@@ -917,6 +1010,8 @@ function net_hash_part_name(_i) {
     case 9:  return "serf_counter";
     case 10: return "serf_tick";
     case 11: return "serf_slots";
+    case 12: return "serf_type";
+    case 13: return "inventories";
     }
     return "?";
 }
