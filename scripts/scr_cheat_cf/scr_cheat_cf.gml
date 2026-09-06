@@ -611,7 +611,7 @@ function cf_fx_update() {
         var _g = _detonate[_j];
         var _b = cf_fx_at(CfFx.boom, _g.pos2, _g.tx, _g.ty, 30, 0);
         if (_b != undefined && _g.boom_sound) {
-            cf_play(snd_cf_explosion);
+            cf_play(snd_cf_explosion, _g.pos2);
         }
     }
 }
@@ -690,23 +690,37 @@ function cf_fx_draw(_view, _ox, _oy) {
 }
 
 /// Sound effects go through the game's own sfx enable flag, so the options
-/// popup still turns them off.
-function cf_play(_snd) {
+/// popup still turns them off - and through the same four-voice mixer as
+/// everything else, so a siege on the far side of the map is a distant crackle
+/// rather than a firefight in your ear. _pos is the tile the noise comes from;
+/// a siege can be anywhere on the map, including nowhere near the view.
+function cf_play(_snd, _pos) {
     if (!audio_get_instance().sfx.is_enabled()) {
         return;
     }
-    audio_play_sound(_snd, 10, false);
+
+    var _s = sfx_screen_from_map_pos(_pos);
+    if (_s == undefined) {
+        sfx_start(_snd, 1, 0, false);
+        return;
+    }
+
+    var _place = sfx_place(_s[0], _s[1]);
+    if (_place == undefined) {
+        return;
+    }
+    sfx_start(_snd, _place[0], _place[1], false);
 }
 
 /// Rifle fire specifically: several assaults running at once would otherwise
 /// stack a shot per soldier into a wall of noise, so gunfire is rate-limited
 /// across the whole map. Everything else plays unthrottled.
-function cf_play_rifle() {
+function cf_play_rifle(_pos) {
     if (global.cf_shot_cool > 0) {
         return;
     }
     global.cf_shot_cool = 5;
-    cf_play(snd_cf_rifle);
+    cf_play(snd_cf_rifle, _pos);
 }
 
 // ---------------------------------------------------------------- shooting
@@ -726,7 +740,7 @@ function cf_shoot_at(_serf, _target_pos, _aim_y) {
     cf_fx_add(CfFx.tracer, _serf.pos, 0, CF_MUZZLE_Y,
               _target_pos, _spread, _aim_y, 5, 0);
     cf_fx_at(CfFx.impact, _target_pos, _spread, _aim_y, 6, 4);
-    cf_play_rifle();
+    cf_play_rifle(_serf.pos);
     _serf.cf_throwing = false;
     _serf.cf_last_shot = 0;
 }
@@ -740,7 +754,7 @@ function cf_throw_at(_serf, _target_pos, _aim_y) {
         _g.boom_on_end = true;
         _g.boom_sound = true;
     }
-    cf_play(snd_cf_grenade);
+    cf_play(snd_cf_grenade, _serf.pos);
     _serf.cf_throwing = true;
     _serf.cf_last_shot = 0;
 }
@@ -760,8 +774,8 @@ function cf_torch_building(_building) {
         cf_fx_at(CfFx.fire, _pos, cf_rand(17) - 8, -4 - cf_rand(12),
                  110 + cf_rand(80), 6 * _i);
     }
-    cf_play(snd_cf_explosion);
-    cf_play(snd_cf_fire);
+    cf_play(snd_cf_explosion, _pos);
+    cf_play(snd_cf_fire, _pos);
     _building.burnup();
     show_debug_message("cheat: building at " + string(_pos) + " levelled");
 }
@@ -778,7 +792,7 @@ function cf_kill_knight(_knight) {
     _knight.tick = _knight.game.get_tick() & 0xFFFF;
     _knight.set_type(SerfType.dead);
     cf_fx_at(CfFx.impact, _knight.pos, 0, -8, 8, 0);
-    cf_play(snd_cf_death);
+    cf_play(snd_cf_death, _knight.pos);
 }
 
 /// Is this serf something the lads should be shooting at?
@@ -1020,7 +1034,7 @@ function cf_on_fight_step(_attacker, _defender, _move) {
     cf_fx_at(CfFx.flash, _pos, 6, -12, 3, 0);
     var _tr = cf_fx_add(CfFx.tracer, _pos, 7, -12, _pos, -7, -14, 5, 0);
     cf_fx_at(CfFx.impact, _pos, -7, -14, 6, 4);
-    cf_play_rifle();
+    cf_play_rifle(_pos);
     if (cf_rand(3) == 0) {
         cf_on_hurt(_defender);
     }
@@ -1039,7 +1053,7 @@ function cf_on_fight_end(_attacker, _defender, _attacker_won) {
         _loser = _attacker;
     }
     cf_fx_at(CfFx.impact, _loser.pos, 0, -8, 8, 0);
-    cf_play(snd_cf_death);
+    cf_play(snd_cf_death, _loser.pos);
 }
 
 /// A hit that did not put the man down.
@@ -1048,9 +1062,9 @@ function cf_on_hurt(_serf) {
         return;
     }
     if (cf_rand(2) == 0) {
-        cf_play(snd_cf_hurt1);
+        cf_play(snd_cf_hurt1, _serf.pos);
     } else {
-        cf_play(snd_cf_hurt2);
+        cf_play(snd_cf_hurt2, _serf.pos);
     }
 }
 
