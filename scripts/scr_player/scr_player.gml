@@ -913,8 +913,10 @@ function Player(_game, _index) : GameObject(_game, _index) constructor {
     };
 
     /// C++ overload: get_flag_prio(res) -> int; get_flag_prio() -> the array.
+    /// argument_count is not dependable inside a static struct method, so the
+    /// no-argument form is detected from the default value instead.
     static get_flag_prio = function(_res = undefined) {
-        if (argument_count == 0) {
+        if (is_undefined(_res)) {
             return flag_prio;
         }
         return flag_prio[_res];
@@ -922,7 +924,7 @@ function Player(_game, _index) : GameObject(_game, _index) constructor {
 
     /// C++ overload: get_inventory_prio(type) -> int; get_inventory_prio() -> the array.
     static get_inventory_prio = function(_type = undefined) {
-        if (argument_count == 0) {
+        if (is_undefined(_type)) {
             return inventory_prio;
         }
         return inventory_prio[_type];
