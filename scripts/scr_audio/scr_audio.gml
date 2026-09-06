@@ -95,6 +95,18 @@ enum Sfx {
 /// distance model, whichever model the project happens to be using.
 #macro SFX_PAN_REF 1000000
 
+/// Whether voices go out through their emitters (which is the only way GML
+/// offers to pan a sound) or straight through audio_play_sound with the gain
+/// set on the handle.
+///
+/// The emitter path is the one that pans. The plain path cannot, but it is the
+/// dumbest thing the audio engine can be asked to do, so if effects ever go
+/// silent this is the switch that says whether the mixer or the emitters are
+/// at fault: set it to false, and if the sound comes back it was the
+/// emitters - positional audio needs mono samples and a listener at the
+/// origin, and a machine or a sound asset can fail either.
+#macro SFX_USE_EMITTERS true
+
 /// Where the ear is. The viewport refreshes this every time it redraws itself;
 /// until then, and on the start screen, there is no view and positional sounds
 /// fall back to playing centred.
@@ -219,10 +231,16 @@ function sfx_start(_asset, _gain, _pan, _force) {
        beyond SFX_PAN_DISTANCE, so moving the emitter changes which speaker the
        sound comes from and never how loud it is: distance is our business, not
        the audio engine's. */
-    var _emitter = global.sfx_voice_emitter[_slot];
-    audio_emitter_gain(_emitter, _gain * SFX_BASE_GAIN);
-    audio_emitter_position(_emitter, _pan * SFX_PAN_DISTANCE, 0, 0);
-    var _handle = audio_play_sound_on(_emitter, _asset, false, 10);
+    var _handle = -1;
+    if (SFX_USE_EMITTERS) {
+        var _emitter = global.sfx_voice_emitter[_slot];
+        audio_emitter_gain(_emitter, _gain * SFX_BASE_GAIN);
+        audio_emitter_position(_emitter, _pan * SFX_PAN_DISTANCE, 0, 0);
+        _handle = audio_play_sound_on(_emitter, _asset, false, 10);
+    } else {
+        _handle = audio_play_sound(_asset, 10, false);
+        audio_sound_gain(_handle, _gain * SFX_BASE_GAIN, 0);
+    }
 
     global.sfx_voice_handle[_slot] = _handle;
     global.sfx_voice_gain[_slot] = _gain;

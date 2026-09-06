@@ -619,6 +619,21 @@ function Viewport(_interface, _map) : GuiObject() constructor {
         play_sfx_at(_sound, _lx, _ly);
     };
 
+    /// The same, for a noise whose maker is known by map tile rather than by
+    /// screen position.
+    ///
+    /// serf_get_body() is where every serf's working noise is raised - the
+    /// hammering, the sawing, the axe - and it takes only the serf. It is
+    /// reached from draw_active_serf, which does know the screen position but
+    /// does not pass it down, and it is NOT the draw function its neighbours
+    /// in the file are, so `_lx` and `_ly` simply do not exist in there.
+    /// Rather than thread coordinates through it, the tile is converted here,
+    /// and only when a sound is really going to be played: this is not
+    /// something to run for every serf on the map every frame.
+    static play_sound_at_map_pos = function(_sound, _pos) {
+        play_sfx_at_map_pos(_sound, _pos);
+    };
+
     /// void switch_layer(Layer layer) { layers ^= layer; }
     static switch_layer = function(_layer) {
         layers ^= _layer;
@@ -1647,7 +1662,7 @@ function Viewport(_interface, _map) : GuiObject() constructor {
                 if (((_t & 7) == 4 && !_serf.playing_sfx()) ||
                     (_t & 7) == 3) {
                     _serf.start_playing_sfx();
-                    play_sound_at(Sfx.rowing, _lx, _ly);
+                    play_sound_at_map_pos(Sfx.rowing, _serf.get_pos());
                 } else {
                     _serf.stop_playing_sfx();
                 }
@@ -1661,7 +1676,7 @@ function Viewport(_interface, _map) : GuiObject() constructor {
                     if (((_t & 7) == 4 && !_serf.playing_sfx()) ||
                         (_t & 7) == 3) {
                         _serf.start_playing_sfx();
-                        play_sound_at(Sfx.rowing, _lx, _ly);
+                        play_sound_at_map_pos(Sfx.rowing, _serf.get_pos());
                     } else {
                         _serf.stop_playing_sfx();
                     }
@@ -1679,7 +1694,7 @@ function Viewport(_interface, _map) : GuiObject() constructor {
             } else if (_t == 0x83 || _t == 0x84) {
                 if (_t == 0x83 || !_serf.playing_sfx()) {
                     _serf.start_playing_sfx();
-                    play_sound_at(Sfx.digging, _lx, _ly);
+                    play_sound_at_map_pos(Sfx.digging, _serf.get_pos());
                 }
                 _t += 0x380;
             } else {
@@ -1693,7 +1708,7 @@ function Viewport(_interface, _map) : GuiObject() constructor {
             } else if ((_t & 7) == 4 || (_t & 7) == 5) {
                 if ((_t & 7) == 4 || !_serf.playing_sfx()) {
                     _serf.start_playing_sfx();
-                    play_sound_at(Sfx.hammer_blow, _lx, _ly);
+                    play_sound_at_map_pos(Sfx.hammer_blow, _serf.get_pos());
                 }
                 _t += 0x580;
             } else {
@@ -1721,12 +1736,12 @@ function Viewport(_interface, _map) : GuiObject() constructor {
             } else if ((_t == 0x86 && !_serf.playing_sfx()) ||
                        _t == 0x85) {
                 _serf.start_playing_sfx();
-                play_sound_at(Sfx.ax_blow, _lx, _ly);
+                play_sound_at_map_pos(Sfx.ax_blow, _serf.get_pos());
                 /* TODO Dangerous reference to unknown state vars.
                    It is probably free walking. */
                 if (_serf.get_free_walking_neg_dist2() == 0 &&
                     _serf.get_counter() < 64) {
-                    play_sound_at(Sfx.tree_fall, _lx, _ly);
+                    play_sound_at_map_pos(Sfx.tree_fall, _serf.get_pos());
                 }
                 _t += 0xe80;
             } else if (_t != 0x86) {
@@ -1748,7 +1763,7 @@ function Viewport(_interface, _map) : GuiObject() constructor {
                     (!_serf.playing_sfx() && (_t == 0xb7 || _t == 0xbf ||
                                               _t == 0xc7 || _t == 0xcf))) {
                     _serf.start_playing_sfx();
-                    play_sound_at(Sfx.sawing, _lx, _ly);
+                    play_sound_at_map_pos(Sfx.sawing, _serf.get_pos());
                 } else if (_t != 0xb7 && _t != 0xbf && _t != 0xc7 && _t != 0xcf) {
                     _serf.stop_playing_sfx();
                 }
@@ -1768,7 +1783,7 @@ function Viewport(_interface, _map) : GuiObject() constructor {
                 }
             } else if (_t == 0x85 || (_t == 0x86 && !_serf.playing_sfx())) {
                 _serf.start_playing_sfx();
-                play_sound_at(Sfx.pick_blow, _lx, _ly);
+                play_sound_at_map_pos(Sfx.pick_blow, _serf.get_pos());
                 _t += 0x1280;
             } else if (_t != 0x86) {
                 _serf.stop_playing_sfx();
@@ -1780,7 +1795,7 @@ function Viewport(_interface, _map) : GuiObject() constructor {
                 _t += 0xe00;
             } else if (_t == 0x86 || (_t == 0x87 && !_serf.playing_sfx())) {
                 _serf.start_playing_sfx();
-                play_sound_at(Sfx.planting, _lx, _ly);
+                play_sound_at_map_pos(Sfx.planting, _serf.get_pos());
                 _t += 0x1080;
             } else if (_t != 0x87) {
                 _serf.stop_playing_sfx();
@@ -1849,7 +1864,7 @@ function Viewport(_interface, _map) : GuiObject() constructor {
                 }
             } else {
                 if (_t != 0x80 && _t != 0x87 && _t != 0x88 && _t != 0x8f) {
-                    play_sound_at(Sfx.fishing_rod_reel, _lx, _ly);
+                    play_sound_at_map_pos(Sfx.fishing_rod_reel, _serf.get_pos());
                 }
 
                 /* TODO no check for state */
@@ -1885,7 +1900,7 @@ function Viewport(_interface, _map) : GuiObject() constructor {
                 if ((_t == 0xb2 || _t == 0xba || _t == 0xc2 || _t == 0xca) &&
                     !_serf.playing_sfx()) {
                     _serf.start_playing_sfx();
-                    play_sound_at(Sfx.backsword_blow, _lx, _ly);
+                    play_sound_at_map_pos(Sfx.backsword_blow, _serf.get_pos());
                 } else if (_t != 0xb2 && _t != 0xba && _t != 0xc2 && _t != 0xca) {
                     _serf.stop_playing_sfx();
                 }
@@ -1907,7 +1922,7 @@ function Viewport(_interface, _map) : GuiObject() constructor {
                     _t += 0x3d80;
                 } else if (_t == 0x83 || (_t == 0x84 && !_serf.playing_sfx())) {
                     _serf.start_playing_sfx();
-                    play_sound_at(Sfx.mowing, _lx, _ly);
+                    play_sound_at_map_pos(Sfx.mowing, _serf.get_pos());
                     _t += 0x3e80;
                 } else if (_t != 0x83 && _t != 0x84) {
                     _serf.stop_playing_sfx();
@@ -1952,7 +1967,7 @@ function Viewport(_interface, _map) : GuiObject() constructor {
             } else if (_t == 0x84 || _t == 0x85) {
                 if (_t == 0x84 || !_serf.playing_sfx()) {
                     _serf.start_playing_sfx();
-                    play_sound_at(Sfx.wood_hammering, _lx, _ly);
+                    play_sound_at_map_pos(Sfx.wood_hammering, _serf.get_pos());
                 }
                 _t += 0x4e80;
             } else {
@@ -1983,10 +1998,10 @@ function Viewport(_interface, _map) : GuiObject() constructor {
                 /* edi10 += 4; */
                 if (_t == 0x83 || (_t == 0xb2 && !_serf.playing_sfx())) {
                     _serf.start_playing_sfx();
-                    play_sound_at(Sfx.sawing, _lx, _ly);
+                    play_sound_at_map_pos(Sfx.sawing, _serf.get_pos());
                 } else if (_t == 0x87 || (_t == 0xb6 && !_serf.playing_sfx())) {
                     _serf.start_playing_sfx();
-                    play_sound_at(Sfx.wood_hammering, _lx, _ly);
+                    play_sound_at_map_pos(Sfx.wood_hammering, _serf.get_pos());
                 } else if (_t != 0xb2 && _t != 0xb6) {
                     _serf.stop_playing_sfx();
                 }
@@ -2009,7 +2024,7 @@ function Viewport(_interface, _map) : GuiObject() constructor {
                 /* edi10 += 4; */
                 if (_t == 0x83 || (_t == 0x84 && !_serf.playing_sfx())) {
                     _serf.start_playing_sfx();
-                    play_sound_at(Sfx.metal_hammering, _lx, _ly);
+                    play_sound_at_map_pos(Sfx.metal_hammering, _serf.get_pos());
                 } else if (_t != 0x84) {
                     _serf.stop_playing_sfx();
                 }
@@ -2022,13 +2037,13 @@ function Viewport(_interface, _map) : GuiObject() constructor {
             } else if (_t == 0x83 || _t == 0x84 || _t == 0x86) {
                 if (_t == 0x83 || !_serf.playing_sfx()) {
                     _serf.start_playing_sfx();
-                    play_sound_at(Sfx.geologist_sampling, _lx, _ly);
+                    play_sound_at_map_pos(Sfx.geologist_sampling, _serf.get_pos());
                 }
                 _t += 0x4c80;
             } else if (_t == 0x8c || _t == 0x8d) {
                 if (_t == 0x8c || !_serf.playing_sfx()) {
                     _serf.start_playing_sfx();
-                    play_sound_at(Sfx.resource_found, _lx, _ly);
+                    play_sound_at_map_pos(Sfx.resource_found, _serf.get_pos());
                 }
                 _t += 0x4c80;
             } else {
@@ -2054,12 +2069,12 @@ function Viewport(_interface, _map) : GuiObject() constructor {
                         _serf.start_playing_sfx();
                         if (_serf.get_attacking_field_D() == 0 ||
                             _serf.get_attacking_field_D() == 4) {
-                            play_sound_at(Sfx.fight01, _lx, _ly);
+                            play_sound_at_map_pos(Sfx.fight01, _serf.get_pos());
                         } else if (_serf.get_attacking_field_D() == 2) {
                             /* TODO when is TypeSfxFight02 played? */
-                            play_sound_at(Sfx.fight03, _lx, _ly);
+                            play_sound_at_map_pos(Sfx.fight03, _serf.get_pos());
                         } else {
-                            play_sound_at(Sfx.fight04, _lx, _ly);
+                            play_sound_at_map_pos(Sfx.fight04, _serf.get_pos());
                         }
                     }
                 }
@@ -2075,7 +2090,7 @@ function Viewport(_interface, _map) : GuiObject() constructor {
                  (_t == 2 || _t == 5)) ||
                 (_t == 1 || _t == 4)) {
                 _serf.start_playing_sfx();
-                play_sound_at(Sfx.serf_dying, _lx, _ly);
+                play_sound_at_map_pos(Sfx.serf_dying, _serf.get_pos());
             } else {
                 _serf.stop_playing_sfx();
             }
