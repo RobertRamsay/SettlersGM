@@ -752,6 +752,18 @@ function Interface(_game = undefined) : GuiObject() constructor {
     // ----------------------------------------------------------- game/player
 
     static set_game = function(_new_game) {
+        /* Any popup that was open belonged to the game being replaced - its
+           building, its inventory, its player's settings - and every one of
+           them reads through the interface's current game the next time it
+           draws. A save loaded with a box still up is a box describing
+           something that no longer exists. This is the one funnel every switch
+           goes through: the start screen's LOAD (via request_game), the F9
+           quick load, starting a mission, and the end of a game - so closing it
+           here covers the lot. Harmless during construction, where popup is
+           still undefined and close_popup returns immediately. The panel is
+           left alone: it is part of the frame, not of the game. */
+        close_popup();
+
         if (viewport != undefined) {
             del_float(viewport);
             viewport = undefined;
