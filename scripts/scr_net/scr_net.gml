@@ -474,15 +474,24 @@ function net_receive_check(_b) {
         _parts[_i] = buffer_read(_b, buffer_u32);
     }
 
-    var _snap = {
-        parts:     _parts,
-        serfs:     net_read_u32_array(_b),
-        buildings: net_read_u32_array(_b),
-        flags:     net_read_u32_array(_b),
-        invs:      net_read_u32_array(_b)
-    };
+    /* Read into locals FIRST, in order.
+       These four calls each advance the buffer, and GML does not evaluate a
+       struct literal's fields in source order - written as a literal, the peer's
+       serf digests came back holding the inventory array and vice versa, which
+       made every object look different from its opposite number. Side effects
+       do not belong inside a struct literal. */
+    var _serfs = net_read_u32_array(_b);
+    var _blds  = net_read_u32_array(_b);
+    var _flgs  = net_read_u32_array(_b);
+    var _invs  = net_read_u32_array(_b);
 
-    ds_map_set(global.net_checks, string(_turn), _snap);
+    ds_map_set(global.net_checks, string(_turn), {
+        parts:     _parts,
+        serfs:     _serfs,
+        buildings: _blds,
+        flags:     _flgs,
+        invs:      _invs
+    });
 }
 
 // ---------------------------------------------------------------- lockstep
@@ -518,7 +527,15 @@ function net_ticks_available() {
 /// Queue a command the local player just issued. It executes NET_TURN_DELAY
 /// turns from now, on both machines.
 function net_queue_command(_kind, _a, _b, _dirs = []) {
-    array_push(global.net_outbox, { kind: _kind, a: _a, b: _b, dirs: _dirs });
+    /* Copy the directions. The caller's Road is still live and its dirs array
+       is mutated in place by extend() and undo(); a command that holds the
+       caller's array can have the road edited out from under it between being
+       queued and being sent. */
+    var _copy = [];
+    for (var _i = 0; _i < array_length(_dirs); _i++) {
+        array_push(_copy, _dirs[_i]);
+    }
+    array_push(global.net_outbox, { kind: _kind, a: _a, b: _b, dirs: _copy });
 }
 
 /// Called immediately before each simulation tick while networked. Does the
@@ -1130,7 +1147,7 @@ function net_building_line(_game, _i) {
                 " burning=" + string(net_bit(_b.burning)) +
                 " serf_requested=" + string(net_bit(_b.serf_requested)) +
                 " req_failed=" + string(net_bit(_b.serf_request_failed)) +
-                " knights=" + string(_b.first_knight);
+                " first_knight=#" + string(_b.first_knight);
     for (var _k = 0; _k < BUILDING_MAX_STOCK; _k++) {
         var _st = _b.stock[_k];
         _line += " | stock" + string(_k) + " type=" + string(_st.type) +

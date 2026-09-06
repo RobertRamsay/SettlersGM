@@ -930,7 +930,28 @@ function Interface(_game = undefined) : GuiObject() constructor {
         }
 
         if (game.get_map().get_obj(_dest) == MapObject.flag) {
-            /* Existing flag at destination, try to connect. */
+            /* Existing flag at destination, try to connect.
+
+               THIS IS A COMMAND, and it was the one that got away. Dragging a
+               road onto an existing flag finishes it here rather than through
+               build_road() below, and this path went straight into the local
+               game - so the road appeared on the machine that dragged it and
+               nowhere else. It is also the ordinary way to connect a new
+               building to the castle, which is why every session desynced
+               within a few hundred turns: with no road, the peer's building
+               could not reach an inventory, its serf request failed, and the
+               serfs it was waiting for stayed in the castle.
+
+               Queue it before build_road_end(), which invalidates the road. */
+            if (net_is_running()) {
+                net_queue_command(NetCmd.build_road, building_road.get_source(),
+                                  0, building_road.get_dirs());
+                play_sound(Sfx.click);
+                build_road_end();
+                update_map_cursor_pos(_dest);
+                return 1;
+            }
+
             if (!game.build_road(building_road, player)) {
                 build_road_end();
                 return -1;
