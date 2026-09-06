@@ -80,7 +80,20 @@ enum Sfx {
 #macro SFX_CUTOFF 1.15
 
 /// Hard left/right at the edge of the view would be seasick; this caps it.
+/// Set it to 0 to turn stereo placement off entirely - everything then plays
+/// dead centre and only the volume falloff remains.
 #macro SFX_PAN_MAX 0.8
+
+/// How far to either side of the listener a fully panned voice's emitter sits,
+/// in the audio engine's own units. Any value well inside SFX_PAN_REF gives the
+/// same answer, because the whole point is that this distance must not affect
+/// the gain - only the direction.
+#macro SFX_PAN_DISTANCE 64
+
+/// Falloff reference and maximum distance given to every voice emitter. Far
+/// enough away that no emitter is ever attenuated by the engine's own
+/// distance model, whichever model the project happens to be using.
+#macro SFX_PAN_REF 1000000
 
 /// Where the ear is. The viewport refreshes this every time it redraws itself;
 /// until then, and on the start screen, there is no view and positional sounds
@@ -197,10 +210,19 @@ function sfx_start(_asset, _gain, _pan, _force) {
         _slot = _worst;
     }
 
-    /* Gain goes in as an argument rather than being set on the handle
-       afterwards, so nothing is ever heard at full level for a frame first. */
-    var _handle = audio_play_sound(_asset, 10, false, _gain * SFX_BASE_GAIN);
-    audio_sound_pan(_handle, _pan);
+    /* There is no audio_sound_pan() in GML - panning comes from where an
+       emitter sits relative to the listener, and nowhere else. Each voice
+       therefore owns an emitter, which is moved left or right of the listener
+       and given the voice's gain BEFORE the sound starts on it, so nothing is
+       ever heard at full level or in the wrong ear for a frame first.
+       audio_emitter_falloff() has already put the reference distance far
+       beyond SFX_PAN_DISTANCE, so moving the emitter changes which speaker the
+       sound comes from and never how loud it is: distance is our business, not
+       the audio engine's. */
+    var _emitter = global.sfx_voice_emitter[_slot];
+    audio_emitter_gain(_emitter, _gain * SFX_BASE_GAIN);
+    audio_emitter_position(_emitter, _pan * SFX_PAN_DISTANCE, 0, 0);
+    var _handle = audio_play_sound_on(_emitter, _asset, false, 10);
 
     global.sfx_voice_handle[_slot] = _handle;
     global.sfx_voice_gain[_slot] = _gain;
@@ -275,6 +297,26 @@ function audio_init() {
     global.sfx_recent_asset = array_create(SFX_RECENT, -1);
     global.sfx_recent_time = array_create(SFX_RECENT, -100000);
     global.sfx_recent_next = 0;
+
+    /* One emitter per voice. GML has no function that pans a playing sound;
+       stereo placement comes only from where an emitter sits relative to the
+       listener, so a voice that can be panned has to own one. The falloff
+       reference is pushed far beyond any position we will ever use, which
+       takes the engine's distance model out of the gain entirely - the
+       emitter's position decides the ear, sfx_place() decides the level, and
+       the two never argue. Created once and kept for the life of the process;
+       there are four of them. */
+    global.sfx_voice_emitter = array_create(SFX_VOICES, -1);
+    for (var _v = 0; _v < SFX_VOICES; _v++) {
+        var _em = audio_emitter_create();
+        /* max is deliberately not equal to ref: the linear falloff model
+           divides by (max - ref), and this project never sets a model, so it
+           must be safe under whichever one is the default. */
+        audio_emitter_falloff(_em, SFX_PAN_REF, SFX_PAN_REF * 2, 1);
+        audio_emitter_position(_em, 0, 0, 0);
+        audio_emitter_gain(_em, 1);
+        global.sfx_voice_emitter[_v] = _em;
+    }
 
     /* No view yet: positional sounds play centred until the viewport says
        otherwise. */
