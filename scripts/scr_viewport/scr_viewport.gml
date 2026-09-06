@@ -2677,10 +2677,11 @@ function Viewport(_interface, _map) : GuiObject() constructor {
     };
 
     static handle_dbl_click = function(_lx, _ly, _button) {
-        if (_button != EventButton.left) {
-            return false;
-        }
-
+        /* Any button. This used to be left only, which meant a right double
+           click on the map did nothing at all - and the both-buttons chord,
+           which arrives here as EventButton.middle when the click it stands for
+           went unhandled, would have been thrown away too. What the double click
+           MEANS does not depend on which button made it. */
         set_redraw();
 
         var _player = interface.get_player();
@@ -2727,6 +2728,13 @@ function Viewport(_interface, _map) : GuiObject() constructor {
                     play_sound(Sfx.not_accepted);
                 }
             }
+
+            /* Handled. Freeserf returned false from every path here, which cost
+               nothing when a double click was the only thing that could arrive.
+               Now that an unhandled double click falls through to the
+               both-buttons action, saying "nobody wanted this" after opening a
+               popup would open a second one on top of it. */
+            return true;
         } else {
             /* Fast building click: the first click already moved the cursor and
                refreshed the panel, so a second click on a spot showing a build
@@ -2756,8 +2764,13 @@ function Viewport(_interface, _map) : GuiObject() constructor {
                     } else {
                         interface.open_popup(PopupType.transport_info);
                     }
+
+                    _player.temp_index = map.get_obj_index(_clk_pos);
+                    return true;
                 }
 
+                /* Somebody else's flag: nothing happened, so let the
+                   both-buttons action have a go at it. */
                 _player.temp_index = map.get_obj_index(_clk_pos);
             } else { /* Building */
                 var _building = interface.get_game().get_building_at_pos(_clk_pos);
@@ -2788,6 +2801,7 @@ function Viewport(_interface, _map) : GuiObject() constructor {
                     }
 
                     _player.temp_index = map.get_obj_index(_clk_pos);
+                    return true;
                 } else { /* Foreign building */
                     /* TODO handle coop mode*/
                     _player.building_attacked = _building.get_index();
@@ -2841,6 +2855,7 @@ function Viewport(_interface, _map) : GuiObject() constructor {
                         var _knights = _player.knights_available_for_attack(_building.get_position());
                         _player.knights_attacking = min(_knights, _max_knights);
                         interface.open_popup(PopupType.start_attack);
+                        return true;
                     }
                 }
             }

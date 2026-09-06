@@ -212,8 +212,21 @@ for (var _b = 1; _b <= 3; _b++) {
         }
         if (both_buttons_active) {
             both_buttons_active = false;
-            interface.handle_event(gui_make_event(EventType.click, _mx, _my, 0, 0,
-                                                  EventButton.middle));
+
+            /* The both-buttons chord, and a double click, are interchangeable.
+               Anything that answers one answers the other, so nobody has to
+               remember which gesture a particular thing wanted.
+
+               The fallback runs only when the first gesture went UNHANDLED, so
+               neither shadows the other: double clicking your own flag still
+               starts a road rather than also opening the geologist box, and the
+               chord on the panel's map icon still jumps to the castle. */
+            var _chord = interface.handle_event(gui_make_event(EventType.click,
+                                                _mx, _my, 0, 0, EventButton.middle));
+            if (_chord == false) {
+                interface.handle_event(gui_make_event(EventType.dbl_click,
+                                       _mx, _my, 0, 0, EventButton.middle));
+            }
         }
         if (suppress_click[_b]) {
             suppress_click[_b] = false;
@@ -223,7 +236,14 @@ for (var _b = 1; _b <= 3; _b++) {
         if (current_time - last_click_time[_b] < MOUSE_TIME_SENSITIVITY
             && _mx >= last_click_x - MOUSE_MOVE_SENSITIVITY && _mx <= last_click_x + MOUSE_MOVE_SENSITIVITY
             && _my >= last_click_y - MOUSE_MOVE_SENSITIVITY && _my <= last_click_y + MOUSE_MOVE_SENSITIVITY) {
-            interface.handle_event(gui_make_event(EventType.dbl_click, _mx, _my, 0, 0, _b));
+            /* And the other way round: a double click that nothing wanted is
+               offered to whatever the both-buttons chord would have done. */
+            var _dbl = interface.handle_event(gui_make_event(EventType.dbl_click,
+                                              _mx, _my, 0, 0, _b));
+            if (_dbl == false) {
+                interface.handle_event(gui_make_event(EventType.click, _mx, _my,
+                                       0, 0, EventButton.middle));
+            }
         }
         last_click_time[_b] = current_time;
         last_click_x = _mx;
