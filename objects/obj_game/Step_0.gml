@@ -39,6 +39,7 @@ for (var _t = 0; _t < _ticks; _t++) {
     net_after_tick();
 }
 
+net_age_status();
 net_late_checks(interface.get_game());
 
 // A start the host sent while the async event was running. Handled here for the
@@ -103,7 +104,7 @@ if (global.net_ip_prompt) {
         if (_ip == "") {
             /* Enter on an empty box used to close it silently, which is
                indistinguishable from a prompt that did not work. */
-            global.net_status = "no address typed - press F8 and enter the HOST pc's IPv4";
+            net_set_status("no address typed - press F8 and enter the HOST pc's IPv4");
             show_debug_message("net: " + global.net_status);
         } else {
             net_save_host_ip(_ip);
@@ -111,7 +112,7 @@ if (global.net_ip_prompt) {
         }
     } else if (keyboard_check_pressed(vk_escape)) {
         global.net_ip_prompt = false;
-        global.net_status = "";
+        net_set_status("");
     }
 }
 
@@ -149,7 +150,12 @@ if (keyboard_check_pressed(vk_f5)) {
     savegame_save_slot(global.save_slot, interface.get_game());
 }
 
-if (keyboard_check_pressed(vk_f9)) {
+if (keyboard_check_pressed(vk_f9) && !net_is_active()) {
+    /* Loading swaps the whole Game object out from under lockstep: this machine
+       would carry on from a saved world while the peer carries on from the live
+       one, with the turn numbers still lining up. There is no version of that
+       which ends well, so F9 simply does nothing during a networked session.
+       F5 is left alone - writing a save changes nothing in the world. */
     var _loaded = savegame_load_slot(global.save_slot);
     if (_loaded == undefined) {
         show_debug_message("savegame: slot " + string(global.save_slot) + " did not load");

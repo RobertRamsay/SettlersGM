@@ -71,7 +71,10 @@ enum NetCmd {
     demolish_building = 5,
     demolish_road = 6,
     build_road = 7,       // dirs carries the road, one Direction per step
-    player_setting = 8    // a = NetSetting, b = value, dirs = small extra ints
+    player_setting = 8,   // a = NetSetting, b = value, dirs = small extra ints
+    send_geologist = 9,   // a = the flag's position
+    inv_res_mode = 10,    // a = building index, b = mode
+    inv_serf_mode = 11    // a = building index, b = mode
 }
 
 /// The player settings. Every one of these changes how the simulation behaves -
@@ -185,6 +188,55 @@ function net_init() {
        simulation but made the on-screen notice flicker. It is only worth saying
        when the wait is long enough to be a wait. */
     global.net_wait_frames = 0;
+
+    /* Frames since the status line last changed. The status is worth reading
+       when it has just changed and is clutter for the rest of the session, so
+       it shows for NET_STATUS_SHOW_FRAMES and then gets out of the way. */
+    global.net_status_frames = 0;
+
+    /* Which slice of the map the next world hash covers. Set from the turn
+       number so the two machines always hash the same tiles. */
+    global.net_map_slice = 0;
+}
+
+#macro NET_STATUS_SHOW_FRAMES 600   // ten seconds at 60fps
+
+/// How many turns it takes to hash the whole map - see part 14 of the world
+/// hash. Sixteen turns is under two seconds, which is soon enough to be useful
+/// and cheap enough to run every turn.
+#macro NET_MAP_SLICES 16
+
+/// The one place the status line is set, so its clock always restarts with it.
+function net_set_status(_line) {
+    global.net_status = _line;
+    global.net_status_frames = 0;
+}
+
+/// Called once a frame, whether or not a game is running.
+function net_age_status() {
+    global.net_status_frames += 1;
+}
+
+/// The part of the notice that is about right now rather than about something
+/// that happened: never aged out, because it stops being true on its own.
+function net_live_notice(_game) {
+    if (!net_is_running()) {
+        return "";
+    }
+
+    var _out = net_placing_status(_game);
+    if (net_is_waiting()) {
+        _out += "  [waiting for the other player]";
+    }
+    return _out;
+}
+
+/// Whether the status line has anything left to say.
+function net_status_visible() {
+    if (global.net_status == "") {
+        return false;
+    }
+    return (global.net_status_frames < NET_STATUS_SHOW_FRAMES);
 }
 
 #macro NET_WAIT_SHOW_FRAMES 15   // about a quarter of a second at 60fps
@@ -251,8 +303,8 @@ function net_host() {
     global.net_server = network_create_server(network_socket_tcp, NET_PORT, 1);
     show_debug_message("net: network_create_server -> " + string(global.net_server));
     if (global.net_server < 0) {
-        global.net_status = "could not listen on port " + string(NET_PORT) +
-                            " (already in use?)";
+        net_set_status("could not listen on port " + string(NET_PORT) +
+                            " (already in use?)");
         show_debug_message("net: " + global.net_status);
         return false;
     }
@@ -263,9 +315,9 @@ function net_host() {
     ds_map_clear(global.net_turns);
     ds_map_clear(global.net_checks);
     global.net_outbox = [];
-    global.net_status = "hosting on port " + string(NET_PORT) +
+    net_set_status("hosting on port " + string(NET_PORT) +
                         " - on the OTHER pc press F8 and type THIS pc's IPv4" +
-                        " (ipconfig) - waiting";
+                        " (ipconfig) - waiting");
     net_log(global.net_status);
     return true;
 }
@@ -304,7 +356,7 @@ function net_join(_ip) {
         global.net_socket = network_create_socket(network_socket_tcp);
         show_debug_message("net: network_create_socket -> " + string(global.net_socket));
         if (global.net_socket < 0) {
-            global.net_status = "could not open a socket";
+            net_set_status("could not open a socket");
             show_debug_message("net: " + global.net_status);
             return false;
         }
@@ -327,7 +379,7 @@ function net_join(_ip) {
     if (global.net_socket < 0) {
         /* The return codes go on screen, not only in the log: which spelling
            failed and with what is the whole diagnosis. */
-        global.net_status = "no answer on port " + string(NET_PORT) + " [" + _tried + "]";
+        net_set_status("no answer on port " + string(NET_PORT) + " [" + _tried + "]");
         show_debug_message("net: " + global.net_status);
         return false;
     }
@@ -338,7 +390,7 @@ function net_join(_ip) {
     ds_map_clear(global.net_turns);
     ds_map_clear(global.net_checks);
     global.net_outbox = [];
-    global.net_status = "connected to " + string(_ip) + " - waiting for start";
+    net_set_status("connected to " + string(_ip) + " - waiting for start");
     show_debug_message("net: " + global.net_status);
     return true;
 }
@@ -355,7 +407,7 @@ function net_close(_why) {
 
     global.net_role  = NetRole.off;
     global.net_phase = NetPhase.idle;
-    global.net_status = _why;
+    net_set_status(_why);
 
     ds_map_clear(global.net_turns);
     ds_map_clear(global.net_checks);
@@ -369,7 +421,7 @@ function net_close(_why) {
 /// winning.
 function net_fail(_why) {
     global.net_phase  = NetPhase.dead;
-    global.net_status = _why;
+    net_set_status(_why);
     net_log("STOPPED - " + string(_why));
 }
 
@@ -460,7 +512,7 @@ function net_handle_async(_async) {
         show_debug_message("net: connect event, socket " + string(_async[? "socket"]));
         if (global.net_role == NetRole.host && global.net_phase == NetPhase.listening) {
             global.net_socket = _async[? "socket"];
-            global.net_status = "player 2 joined";
+            net_set_status("player 2 joined");
             show_debug_message("net: " + global.net_status);
         }
         return;
@@ -750,6 +802,27 @@ function net_run_commands(_game, _cmds, _player_index) {
         case NetCmd.demolish_road:
             _game.demolish_road(_c.a, _player);
             break;
+        case NetCmd.send_geologist: {
+            var _gf = _game.get_flag_at_pos(_c.a);
+            if (_gf != undefined) {
+                _game.send_geologist(_gf);
+            }
+            break;
+        }
+        case NetCmd.inv_res_mode: {
+            var _rb = _game.get_building(_c.a);
+            if (_rb != undefined && _rb.get_inventory() != undefined) {
+                _game.set_inventory_resource_mode(_rb.get_inventory(), _c.b);
+            }
+            break;
+        }
+        case NetCmd.inv_serf_mode: {
+            var _sb = _game.get_building(_c.a);
+            if (_sb != undefined && _sb.get_inventory() != undefined) {
+                _game.set_inventory_serf_mode(_sb.get_inventory(), _c.b);
+            }
+            break;
+        }
         case NetCmd.player_setting:
             net_apply_setting(_player, _c.a, _c.b, _c.dirs);
             break;
@@ -921,7 +994,7 @@ function net_speed_locked() {
 /// numbers are doubles, exact only to 2^53, so a 32-bit FNV-style hash would
 /// silently lose its low bits the moment it multiplied. 31 against a 31-bit
 /// accumulator stays well inside what a double represents exactly.
-#macro NET_HASH_PARTS 14
+#macro NET_HASH_PARTS 15
 
 function net_hash_parts(_game) {
     var _out = array_create(NET_HASH_PARTS, 0);
@@ -1019,7 +1092,12 @@ function net_hash_parts(_game) {
            they were commands nothing watched them - so a knights-menu click
            showed up much later as serfs in the wrong state, which reads like a
            simulation bug and is not one. Watch the thing that actually moved. */
-        _h = net_hash_fold(_h, _player.flags);
+        /* Bit 3 is "a message is waiting", and it is the one bit of player.flags
+           that is SUPPOSED to differ: the simulation sets it on both machines,
+           and each machine's own interface clears it when that player reads the
+           message. Nothing in the simulation ever reads it. Hashing it would
+           report a desync the first time somebody dismissed a notification. */
+        _h = net_hash_fold(_h, _player.flags & ~(1 << 3));
         _h = net_hash_fold(_h, _player.build);
         _h = net_hash_fold(_h, _player.castle_knights_wanted);
         _h = net_hash_fold(_h, _player.serf_to_knight_rate);
@@ -1172,6 +1250,37 @@ function net_hash_parts(_game) {
     }
     _out[13] = _h;
 
+    /* 14: the map, a slice at a time.
+
+       Nothing has ever watched the map, which is the last big hole: ownership
+       and borders, the paths a road actually laid down, tree growth, mineral
+       amounts, fish, and which serf each tile thinks it is holding. A divergence
+       in any of those has only ever surfaced later and indirectly, as serfs
+       walking somewhere different.
+
+       It cannot be hashed whole - tens of thousands of tiles, twelve times a
+       second, in GML. So each turn hashes one slice of NET_MAP_SLICES, chosen by
+       the turn number, and the whole map is covered every NET_MAP_SLICES turns.
+       A divergence is then caught within a couple of seconds instead of never,
+       for a sixteenth of the cost. Both machines pick the same slice because
+       they agree about the turn. */
+    _h = 0;
+    var _map = _game.map;
+    if (_map != undefined) {
+        var _n_tiles = array_length(_map.owner);
+        var _slice = global.net_map_slice;
+        _h = net_hash_fold(_h, _slice);
+        for (var _t2 = _slice; _t2 < _n_tiles; _t2 += NET_MAP_SLICES) {
+            _h = net_hash_fold(_h, _map.paths[_t2]);
+            _h = net_hash_fold(_h, _map.obj[_t2]);
+            _h = net_hash_fold(_h, _map.obj_index[_t2]);
+            _h = net_hash_fold(_h, _map.owner[_t2]);
+            _h = net_hash_fold(_h, _map.serf[_t2]);
+            _h = net_hash_fold(_h, _map.res_amount[_t2]);
+        }
+    }
+    _out[14] = _h;
+
     return _out;
 }
 
@@ -1322,7 +1431,11 @@ function net_inventory_digests(_game) {
 /// Everything this machine knows about the world, hashed two ways: the coarse
 /// parts that say WHETHER we agree, and the per-object digests that say WHICH
 /// object we disagree about.
-function net_world_snapshot(_game) {
+function net_world_snapshot(_game, _turn) {
+    /* Which slice of the map this turn hashes. Both machines are hashing the
+       same turn, so both pick the same slice. */
+    global.net_map_slice = _turn mod NET_MAP_SLICES;
+
     return {
         parts:     net_hash_parts(_game),
         serfs:     net_serf_digests(_game),
@@ -1473,6 +1586,7 @@ function net_hash_part_name(_i) {
     case 11: return "serf_slots";
     case 12: return "serf_type";
     case 13: return "inventories";
+    case 14: return "map";
     }
     return "?";
 }
@@ -1488,7 +1602,7 @@ function net_hash_fold(_h, _v) {
 /// Compare this turn's component hashes with the peer's, and name the first
 /// component that differs.
 function net_compare_check(_game, _turn) {
-    var _mine = net_world_snapshot(_game);
+    var _mine = net_world_snapshot(_game, _turn);
     net_send_check(_turn, _mine);
 
     var _key = string(_turn);
@@ -1790,6 +1904,6 @@ function net_begin(_interface, _game, _local_player) {
     }
 
     global.net_phase = NetPhase.running;
-    global.net_status = "in game as player " + string(_local_player + 1);
+    net_set_status("in game as player " + string(_local_player + 1));
     net_log(global.net_status);
 }

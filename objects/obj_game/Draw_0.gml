@@ -42,14 +42,19 @@ if (global.net_ip_prompt) {
     draw_set_colour(c_yellow);
     draw_text_ext(4, 4, _prompt, NET_TEXT_LINE, NET_TEXT_WIDTH);
     draw_set_colour(c_white);
-} else if (net_status_line() != "") {
-    var _msg = "NET: " + net_status_line();
-    if (net_is_running()) {
-        _msg += net_placing_status(interface.get_game());
-        if (net_is_waiting()) {
-            _msg += "  [waiting for the other player]";
-        }
+} else if (net_status_visible() || net_live_notice(interface.get_game()) != "") {
+    /* Two different things share this line. The status ("player 2 joined", "in
+       game as player 2") is news: worth reading once, clutter for the rest of
+       the session, so it ages out after ten seconds. The live notice - whose
+       turn it is to place a castle, and whether we are actually held up waiting
+       for the peer - is a statement about right now, so it stays for exactly as
+       long as it is true. */
+    var _msg = "";
+    if (net_status_visible()) {
+        _msg = "NET: " + net_status_line();
     }
+    _msg += net_live_notice(interface.get_game());
+
     draw_set_colour(c_black);
     draw_text_ext(5, 5, _msg, NET_TEXT_LINE, NET_TEXT_WIDTH);
     draw_set_colour(c_white);

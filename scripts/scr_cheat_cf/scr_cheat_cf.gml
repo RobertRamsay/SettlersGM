@@ -131,6 +131,16 @@ function cf_is_active() {
 }
 
 function cf_set_active(_on) {
+    /* Not in a networked game. The cheat is not only cosmetic - it hooks the
+       serf state machine in four places (siege ticks, fight steps, fight end,
+       and burning an enemy building instead of capturing it), and it is armed
+       locally by typing a name. Two machines that disagree about whether it is
+       on are running two different simulations of the same battle. */
+    if (_on && net_is_running()) {
+        show_debug_message("cf: not arming during a networked game");
+        return;
+    }
+
     if (global.cf_active == _on) {
         return;
     }

@@ -482,6 +482,20 @@ function popup_handle_send_geologist(_popup) {
   var _pos = _popup.interface.get_map_cursor_pos();
   var _flag = _popup.interface.get_game().get_flag_at_pos(_pos);
 
+  /* Dispatching a geologist calls the same send_serf_to_flag that every other
+     serf request goes through - it runs a flag search and takes a serf out of an
+     inventory. A command, not a click. */
+  if (net_is_running()) {
+    if (_flag == undefined) {
+      _popup.play_sound(Sfx.not_accepted);
+      return;
+    }
+    net_queue_command(NetCmd.send_geologist, _pos, 0);
+    _popup.play_sound(Sfx.click);
+    _popup.interface.close_popup();
+    return;
+  }
+
   if (!_popup.interface.get_game().send_geologist(_flag)) {
     _popup.play_sound(Sfx.not_accepted);
   } else {
@@ -513,16 +527,32 @@ function popup_sett_8_train(_popup, _number) {
 
 /* PopupBox::set_inventory_resource_mode */
 function popup_set_inventory_resource_mode(_popup, _mode) {
-  var _building = _popup.interface.get_game().get_building(
-                                     _popup.interface.get_player().temp_index);
+  /* The building index is the same on both machines; temp_index is the local
+     interface's idea of which one the popup is about, so it is resolved here and
+     the index is what travels. set_inventory_resource_mode stops the flag taking
+     resources and clears every serf heading there - simulation, all of it. */
+  var _index = _popup.interface.get_player().temp_index;
+
+  if (net_is_running()) {
+    net_queue_command(NetCmd.inv_res_mode, _index, _mode);
+    return;
+  }
+
+  var _building = _popup.interface.get_game().get_building(_index);
   var _inventory = _building.get_inventory();
   _popup.interface.get_game().set_inventory_resource_mode(_inventory, _mode);
 }
 
 /* PopupBox::set_inventory_serf_mode */
 function popup_set_inventory_serf_mode(_popup, _mode) {
-  var _building = _popup.interface.get_game().get_building(
-                                     _popup.interface.get_player().temp_index);
+  var _index = _popup.interface.get_player().temp_index;
+
+  if (net_is_running()) {
+    net_queue_command(NetCmd.inv_serf_mode, _index, _mode);
+    return;
+  }
+
+  var _building = _popup.interface.get_game().get_building(_index);
   var _inventory = _building.get_inventory();
   _popup.interface.get_game().set_inventory_serf_mode(_inventory, _mode);
 }
@@ -1236,6 +1266,12 @@ function popup_handle_action(_popup, _action, _x, _y) {
        point of that choice. */
     var _game = _popup.interface.get_game();
     if (_game != undefined) {
+      /* Leaving for the menu ends a networked session. Both of the lines below
+         change the simulation on this machine only - the speed most of all -
+         so the session has to be over before they run, not after. */
+      if (net_is_active()) {
+        net_fail("you left the game");
+      }
       cf_stand_down(_game);
       _game.set_speed(0);
     }

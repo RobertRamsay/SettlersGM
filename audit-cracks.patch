@@ -1,0 +1,704 @@
+From 7a1b4c3f7a02edb3c1b062dc4cd4675d5840743a Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 6 Sep 2026 07:19:12 +0000
+Subject: [PATCH] Audit: eight more cracks of the same three kinds
+
+An audit for the bug classes the last week produced, rather than waiting
+for each one to cost a session.
+
+UNROUTED COMMANDS - three more, all in the settings popups:
+  send_geologist         runs a flag search and takes a serf out of an
+                         inventory, same as any other serf request
+  set_inventory_resource_mode / set_inventory_serf_mode
+                         stop the flag taking resources and clear every
+                         serf already heading there
+Now NetCmd.send_geologist, inv_res_mode and inv_serf_mode. The inventory
+ones resolve player.temp_index locally - that is the local interface's
+idea of which building the popup is about - and send the building index,
+which both machines agree on.
+
+LOCAL SPEED CHANGES - two:
+  ord("p") called game.pause() with no guard, while every other speed
+  control had one. game_speed is what Game.update adds to the clock, and
+  net_enforce_speed only pins it back at turn boundaries, so up to four
+  ticks run at the wrong rate first.
+  Exiting to the menu from the options popup called set_speed(0) and
+  cf_stand_down() on the live game. That now ends the networked session
+  first, which is what leaving means anyway.
+
+LOADING A SAVE mid-session (F9) swapped the whole Game out from under
+lockstep while the turn numbers carried on lining up. Disabled while
+networked. F5 stays - writing a save changes nothing.
+
+THE CHEAT IS NOT COSMETIC. cf_active is armed locally by typing a name
+and never crosses the wire, and it hooks the serf state machine in four
+places - siege ticks, fight steps, fight end, and burning an enemy
+building instead of capturing it. Two machines disagreeing about it are
+running two different fights. It will not arm during a networked game.
+
+DRAW CODE WRITING SIMULATION STATE - the class that produced the
+peek_serf_at_pos fix. Two more, both in draw_burning_building and
+draw_unharmed_building:
+  The burning building drained burning_counter and set Building.u from
+  the draw path. burning_counter decides the tick the building is
+  deleted on and u is hashed, so a fire you were looking at would burn
+  out sooner than the same fire on the peer. Freeserf's own TODO admits
+  the duplication. Removing it changes nothing even offline:
+  update_buildings sets u = tick every tick for every burning building,
+  so the delta here was always zero and both writes were no-ops.
+  Building.playing_sfx was set and cleared from the draw path for mills,
+  smelters and fires. On a weapon smith that bit is not a sound flag at
+  all - the state machine uses it to remember sword-or-shield and
+  whether the resources are already taken. The draw code does not touch
+  a smith today, so nothing was broken, but it is one added case from
+  "what you are looking at changes what the factory makes", and no hash
+  would catch it. Sound is the viewport's business and now lives there.
+  The mine's elevator read stays a real read: a mine's playing_sfx IS
+  set by the simulation, by the miner going down the shaft.
+
+DETECTION - the map, which nothing has ever hashed: ownership and
+borders, the paths a road laid, tree growth, mineral amounts, fish, and
+which serf each tile holds. Too big to hash whole twelve times a second,
+so each turn hashes one sixteenth, chosen by the turn number, and the
+whole map is covered every sixteen turns - under two seconds.
+
+And a correction to my own last patch: it added player.flags to the
+hash, and bit 3 of that is "a message is waiting". The simulation sets
+it on both machines and each interface clears it when its own player
+reads the message; nothing in the simulation ever reads it. Hashing it
+would have reported a desync the first time anyone dismissed a
+notification. Masked out.
+
+Also, per Bob: the status line now ages out after ten seconds. The live
+half of that notice - whose turn it is to place a castle, and whether we
+are actually held up - is a statement about right now, so it stays for
+as long as it is true.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DFktm5o1kLnS2Pgvyp8tD4
+---
+ objects/obj_game/Draw_0.gml             |  19 +--
+ objects/obj_game/Step_0.gml             |  12 +-
+ scripts/scr_cheat_cf/scr_cheat_cf.gml   |  10 ++
+ scripts/scr_interface/scr_interface.gml |  11 +-
+ scripts/scr_net/scr_net.gml             | 146 +++++++++++++++++++++---
+ scripts/scr_popup_c/scr_popup_c.gml     |  44 ++++++-
+ scripts/scr_viewport/scr_viewport.gml   |  82 ++++++++++---
+ 7 files changed, 274 insertions(+), 50 deletions(-)
+
+diff --git a/objects/obj_game/Draw_0.gml b/objects/obj_game/Draw_0.gml
+index 373bc4f7..d87c3132 100644
+--- a/objects/obj_game/Draw_0.gml
++++ b/objects/obj_game/Draw_0.gml
+@@ -42,14 +42,19 @@ if (global.net_ip_prompt) {
+     draw_set_colour(c_yellow);
+     draw_text_ext(4, 4, _prompt, NET_TEXT_LINE, NET_TEXT_WIDTH);
+     draw_set_colour(c_white);
+-} else if (net_status_line() != "") {
+-    var _msg = "NET: " + net_status_line();
+-    if (net_is_running()) {
+-        _msg += net_placing_status(interface.get_game());
+-        if (net_is_waiting()) {
+-            _msg += "  [waiting for the other player]";
+-        }
++} else if (net_status_visible() || net_live_notice(interface.get_game()) != "") {
++    /* Two different things share this line. The status ("player 2 joined", "in
++       game as player 2") is news: worth reading once, clutter for the rest of
++       the session, so it ages out after ten seconds. The live notice - whose
++       turn it is to place a castle, and whether we are actually held up waiting
++       for the peer - is a statement about right now, so it stays for exactly as
++       long as it is true. */
++    var _msg = "";
++    if (net_status_visible()) {
++        _msg = "NET: " + net_status_line();
+     }
++    _msg += net_live_notice(interface.get_game());
++
+     draw_set_colour(c_black);
+     draw_text_ext(5, 5, _msg, NET_TEXT_LINE, NET_TEXT_WIDTH);
+     draw_set_colour(c_white);
+diff --git a/objects/obj_game/Step_0.gml b/objects/obj_game/Step_0.gml
+index 70a2e8a9..33fd053b 100644
+--- a/objects/obj_game/Step_0.gml
++++ b/objects/obj_game/Step_0.gml
+@@ -39,6 +39,7 @@ for (var _t = 0; _t < _ticks; _t++) {
+     net_after_tick();
+ }
+ 
++net_age_status();
+ net_late_checks(interface.get_game());
+ 
+ // A start the host sent while the async event was running. Handled here for the
+@@ -103,7 +104,7 @@ if (global.net_ip_prompt) {
+         if (_ip == "") {
+             /* Enter on an empty box used to close it silently, which is
+                indistinguishable from a prompt that did not work. */
+-            global.net_status = "no address typed - press F8 and enter the HOST pc's IPv4";
++            net_set_status("no address typed - press F8 and enter the HOST pc's IPv4");
+             show_debug_message("net: " + global.net_status);
+         } else {
+             net_save_host_ip(_ip);
+@@ -111,7 +112,7 @@ if (global.net_ip_prompt) {
+         }
+     } else if (keyboard_check_pressed(vk_escape)) {
+         global.net_ip_prompt = false;
+-        global.net_status = "";
++        net_set_status("");
+     }
+ }
+ 
+@@ -149,7 +150,12 @@ if (keyboard_check_pressed(vk_f5)) {
+     savegame_save_slot(global.save_slot, interface.get_game());
+ }
+ 
+-if (keyboard_check_pressed(vk_f9)) {
++if (keyboard_check_pressed(vk_f9) && !net_is_active()) {
++    /* Loading swaps the whole Game object out from under lockstep: this machine
++       would carry on from a saved world while the peer carries on from the live
++       one, with the turn numbers still lining up. There is no version of that
++       which ends well, so F9 simply does nothing during a networked session.
++       F5 is left alone - writing a save changes nothing in the world. */
+     var _loaded = savegame_load_slot(global.save_slot);
+     if (_loaded == undefined) {
+         show_debug_message("savegame: slot " + string(global.save_slot) + " did not load");
+diff --git a/scripts/scr_cheat_cf/scr_cheat_cf.gml b/scripts/scr_cheat_cf/scr_cheat_cf.gml
+index a9cd121c..d638053e 100644
+--- a/scripts/scr_cheat_cf/scr_cheat_cf.gml
++++ b/scripts/scr_cheat_cf/scr_cheat_cf.gml
+@@ -131,6 +131,16 @@ function cf_is_active() {
+ }
+ 
+ function cf_set_active(_on) {
++    /* Not in a networked game. The cheat is not only cosmetic - it hooks the
++       serf state machine in four places (siege ticks, fight steps, fight end,
++       and burning an enemy building instead of capturing it), and it is armed
++       locally by typing a name. Two machines that disagree about whether it is
++       on are running two different simulations of the same battle. */
++    if (_on && net_is_running()) {
++        show_debug_message("cf: not arming during a networked game");
++        return;
++    }
++
+     if (global.cf_active == _on) {
+         return;
+     }
+diff --git a/scripts/scr_interface/scr_interface.gml b/scripts/scr_interface/scr_interface.gml
+index 598e5415..3848fb9e 100644
+--- a/scripts/scr_interface/scr_interface.gml
++++ b/scripts/scr_interface/scr_interface.gml
+@@ -1353,7 +1353,16 @@ function Interface(_game = undefined) : GuiObject() constructor {
+                 break;
+             }
+             case ord("p"): {
+-                game.pause();
++                /* Pause is a speed change like any other: game.pause() sets
++                   game_speed to 0, and Game.update advances the clock by
++                   game_speed, so one machine pausing stops its simulation while
++                   the peer's runs on. net_enforce_speed only pins the speed back
++                   at turn boundaries, so up to four ticks would have already run
++                   at the wrong rate. Every other speed control was gated; this
++                   one was missed. */
++                if (!net_speed_locked()) {
++                    game.pause();
++                }
+                 break;
+             }
+ 
+diff --git a/scripts/scr_net/scr_net.gml b/scripts/scr_net/scr_net.gml
+index 9032642c..0bd0448d 100644
+--- a/scripts/scr_net/scr_net.gml
++++ b/scripts/scr_net/scr_net.gml
+@@ -71,7 +71,10 @@ enum NetCmd {
+     demolish_building = 5,
+     demolish_road = 6,
+     build_road = 7,       // dirs carries the road, one Direction per step
+-    player_setting = 8    // a = NetSetting, b = value, dirs = small extra ints
++    player_setting = 8,   // a = NetSetting, b = value, dirs = small extra ints
++    send_geologist = 9,   // a = the flag's position
++    inv_res_mode = 10,    // a = building index, b = mode
++    inv_serf_mode = 11    // a = building index, b = mode
+ }
+ 
+ /// The player settings. Every one of these changes how the simulation behaves -
+@@ -185,6 +188,55 @@ function net_init() {
+        simulation but made the on-screen notice flicker. It is only worth saying
+        when the wait is long enough to be a wait. */
+     global.net_wait_frames = 0;
++
++    /* Frames since the status line last changed. The status is worth reading
++       when it has just changed and is clutter for the rest of the session, so
++       it shows for NET_STATUS_SHOW_FRAMES and then gets out of the way. */
++    global.net_status_frames = 0;
++
++    /* Which slice of the map the next world hash covers. Set from the turn
++       number so the two machines always hash the same tiles. */
++    global.net_map_slice = 0;
++}
++
++#macro NET_STATUS_SHOW_FRAMES 600   // ten seconds at 60fps
++
++/// How many turns it takes to hash the whole map - see part 14 of the world
++/// hash. Sixteen turns is under two seconds, which is soon enough to be useful
++/// and cheap enough to run every turn.
++#macro NET_MAP_SLICES 16
++
++/// The one place the status line is set, so its clock always restarts with it.
++function net_set_status(_line) {
++    global.net_status = _line;
++    global.net_status_frames = 0;
++}
++
++/// Called once a frame, whether or not a game is running.
++function net_age_status() {
++    global.net_status_frames += 1;
++}
++
++/// The part of the notice that is about right now rather than about something
++/// that happened: never aged out, because it stops being true on its own.
++function net_live_notice(_game) {
++    if (!net_is_running()) {
++        return "";
++    }
++
++    var _out = net_placing_status(_game);
++    if (net_is_waiting()) {
++        _out += "  [waiting for the other player]";
++    }
++    return _out;
++}
++
++/// Whether the status line has anything left to say.
++function net_status_visible() {
++    if (global.net_status == "") {
++        return false;
++    }
++    return (global.net_status_frames < NET_STATUS_SHOW_FRAMES);
+ }
+ 
+ #macro NET_WAIT_SHOW_FRAMES 15   // about a quarter of a second at 60fps
+@@ -251,8 +303,8 @@ function net_host() {
+     global.net_server = network_create_server(network_socket_tcp, NET_PORT, 1);
+     show_debug_message("net: network_create_server -> " + string(global.net_server));
+     if (global.net_server < 0) {
+-        global.net_status = "could not listen on port " + string(NET_PORT) +
+-                            " (already in use?)";
++        net_set_status("could not listen on port " + string(NET_PORT) +
++                            " (already in use?)");
+         show_debug_message("net: " + global.net_status);
+         return false;
+     }
+@@ -263,9 +315,9 @@ function net_host() {
+     ds_map_clear(global.net_turns);
+     ds_map_clear(global.net_checks);
+     global.net_outbox = [];
+-    global.net_status = "hosting on port " + string(NET_PORT) +
++    net_set_status("hosting on port " + string(NET_PORT) +
+                         " - on the OTHER pc press F8 and type THIS pc's IPv4" +
+-                        " (ipconfig) - waiting";
++                        " (ipconfig) - waiting");
+     net_log(global.net_status);
+     return true;
+ }
+@@ -304,7 +356,7 @@ function net_join(_ip) {
+         global.net_socket = network_create_socket(network_socket_tcp);
+         show_debug_message("net: network_create_socket -> " + string(global.net_socket));
+         if (global.net_socket < 0) {
+-            global.net_status = "could not open a socket";
++            net_set_status("could not open a socket");
+             show_debug_message("net: " + global.net_status);
+             return false;
+         }
+@@ -327,7 +379,7 @@ function net_join(_ip) {
+     if (global.net_socket < 0) {
+         /* The return codes go on screen, not only in the log: which spelling
+            failed and with what is the whole diagnosis. */
+-        global.net_status = "no answer on port " + string(NET_PORT) + " [" + _tried + "]";
++        net_set_status("no answer on port " + string(NET_PORT) + " [" + _tried + "]");
+         show_debug_message("net: " + global.net_status);
+         return false;
+     }
+@@ -338,7 +390,7 @@ function net_join(_ip) {
+     ds_map_clear(global.net_turns);
+     ds_map_clear(global.net_checks);
+     global.net_outbox = [];
+-    global.net_status = "connected to " + string(_ip) + " - waiting for start";
++    net_set_status("connected to " + string(_ip) + " - waiting for start");
+     show_debug_message("net: " + global.net_status);
+     return true;
+ }
+@@ -355,7 +407,7 @@ function net_close(_why) {
+ 
+     global.net_role  = NetRole.off;
+     global.net_phase = NetPhase.idle;
+-    global.net_status = _why;
++    net_set_status(_why);
+ 
+     ds_map_clear(global.net_turns);
+     ds_map_clear(global.net_checks);
+@@ -369,7 +421,7 @@ function net_close(_why) {
+ /// winning.
+ function net_fail(_why) {
+     global.net_phase  = NetPhase.dead;
+-    global.net_status = _why;
++    net_set_status(_why);
+     net_log("STOPPED - " + string(_why));
+ }
+ 
+@@ -460,7 +512,7 @@ function net_handle_async(_async) {
+         show_debug_message("net: connect event, socket " + string(_async[? "socket"]));
+         if (global.net_role == NetRole.host && global.net_phase == NetPhase.listening) {
+             global.net_socket = _async[? "socket"];
+-            global.net_status = "player 2 joined";
++            net_set_status("player 2 joined");
+             show_debug_message("net: " + global.net_status);
+         }
+         return;
+@@ -750,6 +802,27 @@ function net_run_commands(_game, _cmds, _player_index) {
+         case NetCmd.demolish_road:
+             _game.demolish_road(_c.a, _player);
+             break;
++        case NetCmd.send_geologist: {
++            var _gf = _game.get_flag_at_pos(_c.a);
++            if (_gf != undefined) {
++                _game.send_geologist(_gf);
++            }
++            break;
++        }
++        case NetCmd.inv_res_mode: {
++            var _rb = _game.get_building(_c.a);
++            if (_rb != undefined && _rb.get_inventory() != undefined) {
++                _game.set_inventory_resource_mode(_rb.get_inventory(), _c.b);
++            }
++            break;
++        }
++        case NetCmd.inv_serf_mode: {
++            var _sb = _game.get_building(_c.a);
++            if (_sb != undefined && _sb.get_inventory() != undefined) {
++                _game.set_inventory_serf_mode(_sb.get_inventory(), _c.b);
++            }
++            break;
++        }
+         case NetCmd.player_setting:
+             net_apply_setting(_player, _c.a, _c.b, _c.dirs);
+             break;
+@@ -921,7 +994,7 @@ function net_speed_locked() {
+ /// numbers are doubles, exact only to 2^53, so a 32-bit FNV-style hash would
+ /// silently lose its low bits the moment it multiplied. 31 against a 31-bit
+ /// accumulator stays well inside what a double represents exactly.
+-#macro NET_HASH_PARTS 14
++#macro NET_HASH_PARTS 15
+ 
+ function net_hash_parts(_game) {
+     var _out = array_create(NET_HASH_PARTS, 0);
+@@ -1019,7 +1092,12 @@ function net_hash_parts(_game) {
+            they were commands nothing watched them - so a knights-menu click
+            showed up much later as serfs in the wrong state, which reads like a
+            simulation bug and is not one. Watch the thing that actually moved. */
+-        _h = net_hash_fold(_h, _player.flags);
++        /* Bit 3 is "a message is waiting", and it is the one bit of player.flags
++           that is SUPPOSED to differ: the simulation sets it on both machines,
++           and each machine's own interface clears it when that player reads the
++           message. Nothing in the simulation ever reads it. Hashing it would
++           report a desync the first time somebody dismissed a notification. */
++        _h = net_hash_fold(_h, _player.flags & ~(1 << 3));
+         _h = net_hash_fold(_h, _player.build);
+         _h = net_hash_fold(_h, _player.castle_knights_wanted);
+         _h = net_hash_fold(_h, _player.serf_to_knight_rate);
+@@ -1172,6 +1250,37 @@ function net_hash_parts(_game) {
+     }
+     _out[13] = _h;
+ 
++    /* 14: the map, a slice at a time.
++
++       Nothing has ever watched the map, which is the last big hole: ownership
++       and borders, the paths a road actually laid down, tree growth, mineral
++       amounts, fish, and which serf each tile thinks it is holding. A divergence
++       in any of those has only ever surfaced later and indirectly, as serfs
++       walking somewhere different.
++
++       It cannot be hashed whole - tens of thousands of tiles, twelve times a
++       second, in GML. So each turn hashes one slice of NET_MAP_SLICES, chosen by
++       the turn number, and the whole map is covered every NET_MAP_SLICES turns.
++       A divergence is then caught within a couple of seconds instead of never,
++       for a sixteenth of the cost. Both machines pick the same slice because
++       they agree about the turn. */
++    _h = 0;
++    var _map = _game.map;
++    if (_map != undefined) {
++        var _n_tiles = array_length(_map.owner);
++        var _slice = global.net_map_slice;
++        _h = net_hash_fold(_h, _slice);
++        for (var _t2 = _slice; _t2 < _n_tiles; _t2 += NET_MAP_SLICES) {
++            _h = net_hash_fold(_h, _map.paths[_t2]);
++            _h = net_hash_fold(_h, _map.obj[_t2]);
++            _h = net_hash_fold(_h, _map.obj_index[_t2]);
++            _h = net_hash_fold(_h, _map.owner[_t2]);
++            _h = net_hash_fold(_h, _map.serf[_t2]);
++            _h = net_hash_fold(_h, _map.res_amount[_t2]);
++        }
++    }
++    _out[14] = _h;
++
+     return _out;
+ }
+ 
+@@ -1322,7 +1431,11 @@ function net_inventory_digests(_game) {
+ /// Everything this machine knows about the world, hashed two ways: the coarse
+ /// parts that say WHETHER we agree, and the per-object digests that say WHICH
+ /// object we disagree about.
+-function net_world_snapshot(_game) {
++function net_world_snapshot(_game, _turn) {
++    /* Which slice of the map this turn hashes. Both machines are hashing the
++       same turn, so both pick the same slice. */
++    global.net_map_slice = _turn mod NET_MAP_SLICES;
++
+     return {
+         parts:     net_hash_parts(_game),
+         serfs:     net_serf_digests(_game),
+@@ -1473,6 +1586,7 @@ function net_hash_part_name(_i) {
+     case 11: return "serf_slots";
+     case 12: return "serf_type";
+     case 13: return "inventories";
++    case 14: return "map";
+     }
+     return "?";
+ }
+@@ -1488,7 +1602,7 @@ function net_hash_fold(_h, _v) {
+ /// Compare this turn's component hashes with the peer's, and name the first
+ /// component that differs.
+ function net_compare_check(_game, _turn) {
+-    var _mine = net_world_snapshot(_game);
++    var _mine = net_world_snapshot(_game, _turn);
+     net_send_check(_turn, _mine);
+ 
+     var _key = string(_turn);
+@@ -1790,6 +1904,6 @@ function net_begin(_interface, _game, _local_player) {
+     }
+ 
+     global.net_phase = NetPhase.running;
+-    global.net_status = "in game as player " + string(_local_player + 1);
++    net_set_status("in game as player " + string(_local_player + 1));
+     net_log(global.net_status);
+ }
+diff --git a/scripts/scr_popup_c/scr_popup_c.gml b/scripts/scr_popup_c/scr_popup_c.gml
+index 42d81f0c..dc66eaaa 100644
+--- a/scripts/scr_popup_c/scr_popup_c.gml
++++ b/scripts/scr_popup_c/scr_popup_c.gml
+@@ -482,6 +482,20 @@ function popup_handle_send_geologist(_popup) {
+   var _pos = _popup.interface.get_map_cursor_pos();
+   var _flag = _popup.interface.get_game().get_flag_at_pos(_pos);
+ 
++  /* Dispatching a geologist calls the same send_serf_to_flag that every other
++     serf request goes through - it runs a flag search and takes a serf out of an
++     inventory. A command, not a click. */
++  if (net_is_running()) {
++    if (_flag == undefined) {
++      _popup.play_sound(Sfx.not_accepted);
++      return;
++    }
++    net_queue_command(NetCmd.send_geologist, _pos, 0);
++    _popup.play_sound(Sfx.click);
++    _popup.interface.close_popup();
++    return;
++  }
++
+   if (!_popup.interface.get_game().send_geologist(_flag)) {
+     _popup.play_sound(Sfx.not_accepted);
+   } else {
+@@ -513,16 +527,32 @@ function popup_sett_8_train(_popup, _number) {
+ 
+ /* PopupBox::set_inventory_resource_mode */
+ function popup_set_inventory_resource_mode(_popup, _mode) {
+-  var _building = _popup.interface.get_game().get_building(
+-                                     _popup.interface.get_player().temp_index);
++  /* The building index is the same on both machines; temp_index is the local
++     interface's idea of which one the popup is about, so it is resolved here and
++     the index is what travels. set_inventory_resource_mode stops the flag taking
++     resources and clears every serf heading there - simulation, all of it. */
++  var _index = _popup.interface.get_player().temp_index;
++
++  if (net_is_running()) {
++    net_queue_command(NetCmd.inv_res_mode, _index, _mode);
++    return;
++  }
++
++  var _building = _popup.interface.get_game().get_building(_index);
+   var _inventory = _building.get_inventory();
+   _popup.interface.get_game().set_inventory_resource_mode(_inventory, _mode);
+ }
+ 
+ /* PopupBox::set_inventory_serf_mode */
+ function popup_set_inventory_serf_mode(_popup, _mode) {
+-  var _building = _popup.interface.get_game().get_building(
+-                                     _popup.interface.get_player().temp_index);
++  var _index = _popup.interface.get_player().temp_index;
++
++  if (net_is_running()) {
++    net_queue_command(NetCmd.inv_serf_mode, _index, _mode);
++    return;
++  }
++
++  var _building = _popup.interface.get_game().get_building(_index);
+   var _inventory = _building.get_inventory();
+   _popup.interface.get_game().set_inventory_serf_mode(_inventory, _mode);
+ }
+@@ -1236,6 +1266,12 @@ function popup_handle_action(_popup, _action, _x, _y) {
+        point of that choice. */
+     var _game = _popup.interface.get_game();
+     if (_game != undefined) {
++      /* Leaving for the menu ends a networked session. Both of the lines below
++         change the simulation on this machine only - the speed most of all -
++         so the session has to be over before they run, not after. */
++      if (net_is_active()) {
++        net_fail("you left the game");
++      }
+       cf_stand_down(_game);
+       _game.set_speed(0);
+     }
+diff --git a/scripts/scr_viewport/scr_viewport.gml b/scripts/scr_viewport/scr_viewport.gml
+index 2caba35e..08ab7af6 100644
+--- a/scripts/scr_viewport/scr_viewport.gml
++++ b/scripts/scr_viewport/scr_viewport.gml
+@@ -488,6 +488,42 @@ function Viewport(_interface, _map) : GuiObject() constructor {
+     offset_x = 0;
+     offset_y = 0;
+     last_tick = 0;
++
++    /* Which buildings this viewport currently has a looping sound going for,
++       indexed by building index.
++
++       This used to live on the Building itself, as Building.playing_sfx, set and
++       cleared from the draw code. Two problems with that. It is per-machine by
++       construction - only on-screen buildings get drawn - so two machines end up
++       holding different values in a simulation object. And on a weapon smith
++       that same bit is not a sound flag at all: the state machine uses it to
++       remember whether the next weapon is a sword or a shield and whether the
++       resources for it have already been taken - see the TODO in
++       serf_handle_serf_making_weapon_state, which is Freeserf noting the overlap
++       and living with it. The draw code happens not to touch a smith today, so
++       nothing is broken; but "what you are looking at changes what the factory
++       makes" is one added case away, and no hash would catch it. Sound is this
++       viewport's business, so it is kept here. */
++    sfx_playing = [];
++
++    static is_sfx_playing = function(_building) {
++        var _i = _building.get_index();
++        if (_i < 0 || _i >= array_length(sfx_playing)) {
++            return false;
++        }
++        return sfx_playing[_i];
++    };
++
++    static set_sfx_playing = function(_building, _on) {
++        var _i = _building.get_index();
++        if (_i < 0) {
++            return;
++        }
++        while (array_length(sfx_playing) <= _i) {
++            array_push(sfx_playing, false);
++        }
++        sfx_playing[_i] = _on;
++    };
+     layers = ViewportLayer.all_layers;
+     // Landscape tile cache: surface per tile id (or -1)
+     horiz_tiles = map.geom.cols div MAP_TILE_COLS;
+@@ -1285,6 +1321,11 @@ function Viewport(_interface, _map) : GuiObject() constructor {
+                 if (_building.is_active()) { /* Draw elevator up */
+                     draw_game_sprite(_lx - 6, _ly - 39, 152);
+                 }
++                /* NOT the viewport's flag. A mine's playing_sfx is set by the
++                   SIMULATION - the miner sets it on the way down the shaft
++                   (serf_handle_serf_mining_state) and clears it coming back up -
++                   so both machines agree on it and it is what says whether the
++                   elevator is down. This one is a genuine read of game state. */
+                 if (_building.is_playing_sfx()) { /* Draw elevator down */
+                     draw_game_sprite(_lx - 6, _ly - 39, 153);
+                     var _bpos = _building.get_position();
+@@ -1322,9 +1363,9 @@ function Viewport(_interface, _map) : GuiObject() constructor {
+             case BuildingType.mill:
+                 if (_building.is_active()) {
+                     if (((_tick >> 4) & 3) != 0) {
+-                        _building.stop_playing_sfx();
+-                    } else if (!_building.is_playing_sfx()) {
+-                        _building.start_playing_sfx();
++                        set_sfx_playing(_building, false);
++                    } else if (!is_sfx_playing(_building)) {
++                        set_sfx_playing(_building, true);
+                         play_sound(Sfx.mill_grinding);
+                     }
+                     draw_shadow_and_building_sprite(_lx, _ly, global.viewport_map_building_sprite[_type] +
+@@ -1343,11 +1384,11 @@ function Viewport(_interface, _map) : GuiObject() constructor {
+                 draw_shadow_and_building_sprite(_lx, _ly, global.viewport_map_building_sprite[_type], c_white);
+                 if (_building.is_active()) {
+                     var _i = (_tick >> 3) & 7;
+-                    if (_i == 0 || (_i == 7 && !_building.is_playing_sfx())) {
+-                        _building.start_playing_sfx();
++                    if (_i == 0 || (_i == 7 && !is_sfx_playing(_building))) {
++                        set_sfx_playing(_building, true);
+                         play_sound(Sfx.gold_boils);
+                     } else if (_i != 7) {
+-                        _building.stop_playing_sfx();
++                        set_sfx_playing(_building, false);
+                     }
+ 
+                     draw_game_sprite(_lx + 6, _ly - 32, 128 + _i);
+@@ -1376,11 +1417,11 @@ function Viewport(_interface, _map) : GuiObject() constructor {
+                 draw_shadow_and_building_sprite(_lx, _ly, global.viewport_map_building_sprite[_type], c_white);
+                 if (_building.is_active()) {
+                     var _i = (_tick >> 3) & 7;
+-                    if (_i == 0 || (_i == 7 && !_building.is_playing_sfx())) {
+-                        _building.start_playing_sfx();
++                    if (_i == 0 || (_i == 7 && !is_sfx_playing(_building))) {
++                        set_sfx_playing(_building, true);
+                         play_sound(Sfx.gold_boils);
+                     } else if (_i != 7) {
+-                        _building.stop_playing_sfx();
++                        set_sfx_playing(_building, false);
+                     }
+ 
+                     draw_game_sprite(_lx - 7, _ly - 33, 128 + _i);
+@@ -1405,19 +1446,24 @@ function Viewport(_interface, _map) : GuiObject() constructor {
+ 
+         /* Play sound effect. */
+         if (((_building.get_burning_counter() >> 3) & 3) == 3 &&
+-            !_building.is_playing_sfx()) {
+-            _building.start_playing_sfx();
++            !is_sfx_playing(_building)) {
++            set_sfx_playing(_building, true);
+             play_sound(Sfx.burning);
+         } else {
+-            _building.stop_playing_sfx();
++            set_sfx_playing(_building, false);
+         }
+ 
+-        var _delta = (interface.get_game().get_tick() - _building.get_tick()) & 0xFFFF;
+-        _building.set_tick(interface.get_game().get_tick());
++        /* Freeserf drains the burning counter here as well as in
++           update_buildings(), and its own TODO said so. Draw code must not touch
++           the simulation in a lockstep game: burning_counter decides the tick on
++           which the building is deleted, and Building.u is hashed - so a fire
++           you happened to be looking at would burn out sooner than the same fire
++           on the other machine.
+ 
+-        if (_building.get_burning_counter() >= _delta) {
+-            _building.decrease_burning_counter(_delta);  // TODO(jonls): this is also
+-                                                         // done in update_buildings().
++           Removing it costs nothing even offline. update_buildings sets u = tick
++           for every burning building every tick, so by the time this runs the
++           delta is always zero and both of the writes were no-ops. */
++        if (_building.get_burning_counter() > 0) {
+             draw_unharmed_building(_building, _lx, _ly);
+ 
+             var _type = 0;
+@@ -1435,8 +1481,6 @@ function Viewport(_interface, _map) : GuiObject() constructor {
+                 _offset = (_offset + 3) & 7;
+                 _anim += 3;
+             }
+-        } else {
+-            _building.set_burning_counter(0);
+         }
+     };
+ 
+-- 
+2.43.0
+

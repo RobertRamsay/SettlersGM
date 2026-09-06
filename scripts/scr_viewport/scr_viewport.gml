@@ -488,6 +488,42 @@ function Viewport(_interface, _map) : GuiObject() constructor {
     offset_x = 0;
     offset_y = 0;
     last_tick = 0;
+
+    /* Which buildings this viewport currently has a looping sound going for,
+       indexed by building index.
+
+       This used to live on the Building itself, as Building.playing_sfx, set and
+       cleared from the draw code. Two problems with that. It is per-machine by
+       construction - only on-screen buildings get drawn - so two machines end up
+       holding different values in a simulation object. And on a weapon smith
+       that same bit is not a sound flag at all: the state machine uses it to
+       remember whether the next weapon is a sword or a shield and whether the
+       resources for it have already been taken - see the TODO in
+       serf_handle_serf_making_weapon_state, which is Freeserf noting the overlap
+       and living with it. The draw code happens not to touch a smith today, so
+       nothing is broken; but "what you are looking at changes what the factory
+       makes" is one added case away, and no hash would catch it. Sound is this
+       viewport's business, so it is kept here. */
+    sfx_playing = [];
+
+    static is_sfx_playing = function(_building) {
+        var _i = _building.get_index();
+        if (_i < 0 || _i >= array_length(sfx_playing)) {
+            return false;
+        }
+        return sfx_playing[_i];
+    };
+
+    static set_sfx_playing = function(_building, _on) {
+        var _i = _building.get_index();
+        if (_i < 0) {
+            return;
+        }
+        while (array_length(sfx_playing) <= _i) {
+            array_push(sfx_playing, false);
+        }
+        sfx_playing[_i] = _on;
+    };
     layers = ViewportLayer.all_layers;
     // Landscape tile cache: surface per tile id (or -1)
     horiz_tiles = map.geom.cols div MAP_TILE_COLS;
@@ -1285,6 +1321,11 @@ function Viewport(_interface, _map) : GuiObject() constructor {
                 if (_building.is_active()) { /* Draw elevator up */
                     draw_game_sprite(_lx - 6, _ly - 39, 152);
                 }
+                /* NOT the viewport's flag. A mine's playing_sfx is set by the
+                   SIMULATION - the miner sets it on the way down the shaft
+                   (serf_handle_serf_mining_state) and clears it coming back up -
+                   so both machines agree on it and it is what says whether the
+                   elevator is down. This one is a genuine read of game state. */
                 if (_building.is_playing_sfx()) { /* Draw elevator down */
                     draw_game_sprite(_lx - 6, _ly - 39, 153);
                     var _bpos = _building.get_position();
@@ -1322,9 +1363,9 @@ function Viewport(_interface, _map) : GuiObject() constructor {
             case BuildingType.mill:
                 if (_building.is_active()) {
                     if (((_tick >> 4) & 3) != 0) {
-                        _building.stop_playing_sfx();
-                    } else if (!_building.is_playing_sfx()) {
-                        _building.start_playing_sfx();
+                        set_sfx_playing(_building, false);
+                    } else if (!is_sfx_playing(_building)) {
+                        set_sfx_playing(_building, true);
                         play_sound(Sfx.mill_grinding);
                     }
                     draw_shadow_and_building_sprite(_lx, _ly, global.viewport_map_building_sprite[_type] +
@@ -1343,11 +1384,11 @@ function Viewport(_interface, _map) : GuiObject() constructor {
                 draw_shadow_and_building_sprite(_lx, _ly, global.viewport_map_building_sprite[_type], c_white);
                 if (_building.is_active()) {
                     var _i = (_tick >> 3) & 7;
-                    if (_i == 0 || (_i == 7 && !_building.is_playing_sfx())) {
-                        _building.start_playing_sfx();
+                    if (_i == 0 || (_i == 7 && !is_sfx_playing(_building))) {
+                        set_sfx_playing(_building, true);
                         play_sound(Sfx.gold_boils);
                     } else if (_i != 7) {
-                        _building.stop_playing_sfx();
+                        set_sfx_playing(_building, false);
                     }
 
                     draw_game_sprite(_lx + 6, _ly - 32, 128 + _i);
@@ -1376,11 +1417,11 @@ function Viewport(_interface, _map) : GuiObject() constructor {
                 draw_shadow_and_building_sprite(_lx, _ly, global.viewport_map_building_sprite[_type], c_white);
                 if (_building.is_active()) {
                     var _i = (_tick >> 3) & 7;
-                    if (_i == 0 || (_i == 7 && !_building.is_playing_sfx())) {
-                        _building.start_playing_sfx();
+                    if (_i == 0 || (_i == 7 && !is_sfx_playing(_building))) {
+                        set_sfx_playing(_building, true);
                         play_sound(Sfx.gold_boils);
                     } else if (_i != 7) {
-                        _building.stop_playing_sfx();
+                        set_sfx_playing(_building, false);
                     }
 
                     draw_game_sprite(_lx - 7, _ly - 33, 128 + _i);
@@ -1405,19 +1446,24 @@ function Viewport(_interface, _map) : GuiObject() constructor {
 
         /* Play sound effect. */
         if (((_building.get_burning_counter() >> 3) & 3) == 3 &&
-            !_building.is_playing_sfx()) {
-            _building.start_playing_sfx();
+            !is_sfx_playing(_building)) {
+            set_sfx_playing(_building, true);
             play_sound(Sfx.burning);
         } else {
-            _building.stop_playing_sfx();
+            set_sfx_playing(_building, false);
         }
 
-        var _delta = (interface.get_game().get_tick() - _building.get_tick()) & 0xFFFF;
-        _building.set_tick(interface.get_game().get_tick());
+        /* Freeserf drains the burning counter here as well as in
+           update_buildings(), and its own TODO said so. Draw code must not touch
+           the simulation in a lockstep game: burning_counter decides the tick on
+           which the building is deleted, and Building.u is hashed - so a fire
+           you happened to be looking at would burn out sooner than the same fire
+           on the other machine.
 
-        if (_building.get_burning_counter() >= _delta) {
-            _building.decrease_burning_counter(_delta);  // TODO(jonls): this is also
-                                                         // done in update_buildings().
+           Removing it costs nothing even offline. update_buildings sets u = tick
+           for every burning building every tick, so by the time this runs the
+           delta is always zero and both of the writes were no-ops. */
+        if (_building.get_burning_counter() > 0) {
             draw_unharmed_building(_building, _lx, _ly);
 
             var _type = 0;
@@ -1435,8 +1481,6 @@ function Viewport(_interface, _map) : GuiObject() constructor {
                 _offset = (_offset + 3) & 7;
                 _anim += 3;
             }
-        } else {
-            _building.set_burning_counter(0);
         }
     };
 

@@ -1353,7 +1353,16 @@ function Interface(_game = undefined) : GuiObject() constructor {
                 break;
             }
             case ord("p"): {
-                game.pause();
+                /* Pause is a speed change like any other: game.pause() sets
+                   game_speed to 0, and Game.update advances the clock by
+                   game_speed, so one machine pausing stops its simulation while
+                   the peer's runs on. net_enforce_speed only pins the speed back
+                   at turn boundaries, so up to four ticks would have already run
+                   at the wrong rate. Every other speed control was gated; this
+                   one was missed. */
+                if (!net_speed_locked()) {
+                    game.pause();
+                }
                 break;
             }
 
