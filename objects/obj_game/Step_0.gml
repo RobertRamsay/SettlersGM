@@ -18,6 +18,7 @@ if (net_is_active()) {
     if (_ticks > _allowed) {
         _ticks = _allowed;
     }
+    net_note_wait(_allowed);
 }
 
 // Charged for what is actually run, not for what was wanted. The accumulator

@@ -1,0 +1,155 @@
+From 1a2b86d0bbdd33a0c739ce6847d07aa0ac573a95 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 6 Sep 2026 06:22:38 +0000
+Subject: [PATCH] The second unrouted command: a flag placed to finish a road
+
+Turn 697, and everything agrees except one thing:
+
+  flag slots: mine=6 theirs=7
+
+Buildings, serfs, inventories, players, the RNG - all identical, and all
+six flags both machines share are identical too. One machine simply has a
+flag the other has never heard of.
+
+Clicking the cursor's own square while building a road means "put a flag
+here and finish the road on it", and the viewport did the first half by
+calling game.build_flag() straight into the local game. My earlier sweep
+missed it because it was written as interface.get_game().build_flag(),
+not game.build_flag() - the audit matched the receiver instead of the
+method, which is the wrong thing to match. Now swept by method name across
+every UI file: this was the last one. The panel's destroy_road was already
+routed, and everything in the popups goes through the Interface.
+
+It is two commands, so both are queued, flag first. A player's commands
+keep the order they were queued in, so the flag is always built before the
+road that lands on it, and whether either succeeds is the simulation's
+business - it answers the same on both machines, so there is nothing to
+test locally first.
+
+Also, net_log_obj_diff only walked the shorter of the two arrays, so the
+extra flag was never named - "mine=6 theirs=7" and not one word about
+which flag. Slots past the common length are now dumped and marked ONLY
+ON THIS MACHINE.
+
+And the notice: [waiting for the other player] was shown whenever the
+tick budget was zero, which lockstep does for a frame or two at almost
+every turn boundary - hence the flicker. It now needs a quarter second of
+continuous waiting before it says anything.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DFktm5o1kLnS2Pgvyp8tD4
+---
+ objects/obj_game/Draw_0.gml           |  2 +-
+ objects/obj_game/Step_0.gml           |  1 +
+ scripts/scr_net/scr_net.gml           | 35 +++++++++++++++++++++++++++
+ scripts/scr_viewport/scr_viewport.gml | 16 ++++++++++++
+ 4 files changed, 53 insertions(+), 1 deletion(-)
+
+diff --git a/objects/obj_game/Draw_0.gml b/objects/obj_game/Draw_0.gml
+index f6af1ee4..373bc4f7 100644
+--- a/objects/obj_game/Draw_0.gml
++++ b/objects/obj_game/Draw_0.gml
+@@ -46,7 +46,7 @@ if (global.net_ip_prompt) {
+     var _msg = "NET: " + net_status_line();
+     if (net_is_running()) {
+         _msg += net_placing_status(interface.get_game());
+-        if (net_ticks_available() <= 0) {
++        if (net_is_waiting()) {
+             _msg += "  [waiting for the other player]";
+         }
+     }
+diff --git a/objects/obj_game/Step_0.gml b/objects/obj_game/Step_0.gml
+index 15f9d358..70a2e8a9 100644
+--- a/objects/obj_game/Step_0.gml
++++ b/objects/obj_game/Step_0.gml
+@@ -18,6 +18,7 @@ if (net_is_active()) {
+     if (_ticks > _allowed) {
+         _ticks = _allowed;
+     }
++    net_note_wait(_allowed);
+ }
+ 
+ // Charged for what is actually run, not for what was wanted. The accumulator
+diff --git a/scripts/scr_net/scr_net.gml b/scripts/scr_net/scr_net.gml
+index 49ed96ea..e117bef5 100644
+--- a/scripts/scr_net/scr_net.gml
++++ b/scripts/scr_net/scr_net.gml
+@@ -136,6 +136,28 @@ function net_init() {
+        ARRIVED, because a turn is five ticks long and stays the current turn for
+        all five - see net_before_tick. */
+     global.net_executed_turn = -1;
++
++    /* Consecutive frames spent with no ticks to run. Lockstep waits a frame or
++       two at almost every turn boundary, which is normal and invisible in the
++       simulation but made the on-screen notice flicker. It is only worth saying
++       when the wait is long enough to be a wait. */
++    global.net_wait_frames = 0;
++}
++
++#macro NET_WAIT_SHOW_FRAMES 15   // about a quarter of a second at 60fps
++
++/// Called once a frame with the tick budget lockstep allowed.
++function net_note_wait(_allowed) {
++    if (_allowed > 0) {
++        global.net_wait_frames = 0;
++        return;
++    }
++    global.net_wait_frames += 1;
++}
++
++/// True when the game has been held up long enough to be worth saying so.
++function net_is_waiting() {
++    return (global.net_wait_frames >= NET_WAIT_SHOW_FRAMES);
+ }
+ 
+ function net_is_active() {
+@@ -1386,6 +1408,19 @@ function net_log_obj_diff(_game, _turn, _kind, _mine, _theirs, _line_fn) {
+         }
+     }
+ 
++    /* Slots past the end of the shorter array are a difference too, and the
++       walk above cannot see them. A flag that exists on one machine and not the
++       other showed up only as "flag slots: mine=6 theirs=7" with nothing named,
++       which is half an answer. */
++    var _extra = array_length(_mine);
++    for (var _e = _n; _e < _extra; _e++) {
++        _found += 1;
++        if (_found <= 12) {
++            _list += string(_e) + "! ";
++        }
++        net_log("** " + _line_fn(_game, _e) + "   (ONLY ON THIS MACHINE)");
++    }
++
+     if (_found == 0) {
+         return;
+     }
+diff --git a/scripts/scr_viewport/scr_viewport.gml b/scripts/scr_viewport/scr_viewport.gml
+index 9b07f0aa..2caba35e 100644
+--- a/scripts/scr_viewport/scr_viewport.gml
++++ b/scripts/scr_viewport/scr_viewport.gml
+@@ -2659,6 +2659,22 @@ function Viewport(_interface, _map) : GuiObject() constructor {
+                 } else {
+                     play_sound(Sfx.not_accepted);
+                 }
++            } else if (net_is_running()) {
++                /* Clicking the cursor's own square while building a road means
++                   "put a flag here and finish the road on it". That is TWO
++                   commands, and this went straight into the local game - so the
++                   flag appeared only on the machine that clicked. One extra flag
++                   on one side and nothing else different is exactly what the
++                   logs showed.
++
++                   Queue both, in order. A player's commands keep the order they
++                   were queued in, so the flag is always built before the road
++                   that lands on it. Whether it succeeds is the simulation's
++                   business and it answers the same way on both machines, so
++                   there is nothing to test locally first. */
++                net_queue_command(NetCmd.build_flag,
++                                  interface.get_map_cursor_pos(), 0);
++                interface.build_road();
+             } else {
+                 var _r = interface.get_game().build_flag(interface.get_map_cursor_pos(), _player);
+                 if (_r) {
+-- 
+2.43.0
+

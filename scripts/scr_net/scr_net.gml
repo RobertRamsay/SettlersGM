@@ -136,6 +136,28 @@ function net_init() {
        ARRIVED, because a turn is five ticks long and stays the current turn for
        all five - see net_before_tick. */
     global.net_executed_turn = -1;
+
+    /* Consecutive frames spent with no ticks to run. Lockstep waits a frame or
+       two at almost every turn boundary, which is normal and invisible in the
+       simulation but made the on-screen notice flicker. It is only worth saying
+       when the wait is long enough to be a wait. */
+    global.net_wait_frames = 0;
+}
+
+#macro NET_WAIT_SHOW_FRAMES 15   // about a quarter of a second at 60fps
+
+/// Called once a frame with the tick budget lockstep allowed.
+function net_note_wait(_allowed) {
+    if (_allowed > 0) {
+        global.net_wait_frames = 0;
+        return;
+    }
+    global.net_wait_frames += 1;
+}
+
+/// True when the game has been held up long enough to be worth saying so.
+function net_is_waiting() {
+    return (global.net_wait_frames >= NET_WAIT_SHOW_FRAMES);
 }
 
 function net_is_active() {
@@ -1384,6 +1406,19 @@ function net_log_obj_diff(_game, _turn, _kind, _mine, _theirs, _line_fn) {
                other, not with the digest. */
             net_log("** " + _line_fn(_game, _i) + "   (state now)");
         }
+    }
+
+    /* Slots past the end of the shorter array are a difference too, and the
+       walk above cannot see them. A flag that exists on one machine and not the
+       other showed up only as "flag slots: mine=6 theirs=7" with nothing named,
+       which is half an answer. */
+    var _extra = array_length(_mine);
+    for (var _e = _n; _e < _extra; _e++) {
+        _found += 1;
+        if (_found <= 12) {
+            _list += string(_e) + "! ";
+        }
+        net_log("** " + _line_fn(_game, _e) + "   (ONLY ON THIS MACHINE)");
     }
 
     if (_found == 0) {

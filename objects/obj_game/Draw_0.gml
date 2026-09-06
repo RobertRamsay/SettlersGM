@@ -46,7 +46,7 @@ if (global.net_ip_prompt) {
     var _msg = "NET: " + net_status_line();
     if (net_is_running()) {
         _msg += net_placing_status(interface.get_game());
-        if (net_ticks_available() <= 0) {
+        if (net_is_waiting()) {
             _msg += "  [waiting for the other player]";
         }
     }

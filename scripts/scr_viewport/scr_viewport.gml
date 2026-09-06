@@ -2659,6 +2659,22 @@ function Viewport(_interface, _map) : GuiObject() constructor {
                 } else {
                     play_sound(Sfx.not_accepted);
                 }
+            } else if (net_is_running()) {
+                /* Clicking the cursor's own square while building a road means
+                   "put a flag here and finish the road on it". That is TWO
+                   commands, and this went straight into the local game - so the
+                   flag appeared only on the machine that clicked. One extra flag
+                   on one side and nothing else different is exactly what the
+                   logs showed.
+
+                   Queue both, in order. A player's commands keep the order they
+                   were queued in, so the flag is always built before the road
+                   that lands on it. Whether it succeeds is the simulation's
+                   business and it answers the same way on both machines, so
+                   there is nothing to test locally first. */
+                net_queue_command(NetCmd.build_flag,
+                                  interface.get_map_cursor_pos(), 0);
+                interface.build_road();
             } else {
                 var _r = interface.get_game().build_flag(interface.get_map_cursor_pos(), _player);
                 if (_r) {
