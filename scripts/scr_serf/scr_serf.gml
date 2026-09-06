@@ -787,21 +787,36 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
 
     /// C++: bool path_splited(flag_1, dir_1, flag_2, dir_2, int *select)
     /// Returns struct { result: bool, select: int }.
-    /// NOTE: the C++ writes `select = 0` (the pointer, not *select) in the
-    /// first branches, so `select` is only actually written (to 1) in the
-    /// second branches; that behaviour is preserved here (select unchanged
-    /// from its input value in the "0" branches).
+    ///
+    /// `select` names the half of the split road this serf is NOT going to
+    /// serve, and build_flag_split_path cancels the transporter request on
+    /// that half - the request nobody is ever going to fulfil.
+    ///
+    /// Freeserf writes `select = 0` in the first branch of each pair instead
+    /// of `*select = 0`: it assigns the POINTER, so the caller's value stays
+    /// at its -1 default and path 1 was always the one cancelled, whichever
+    /// half the serf was really heading for. When the serf was heading for
+    /// path 1 that cancels the live request and leaves path 2 marked
+    /// "transporter requested" with no transporter and nobody on the way - a
+    /// state Flag.update cannot recover from, because the request bit blocks
+    /// call_transporter and the missing carrier blocks the transporter bit.
+    /// That segment then drops out of every RESOURCE FlagSearch for good
+    /// (they all pass transporter = true) while still carrying serfs
+    /// perfectly well (serf searches pass transporter = false) - which is a
+    /// construction site that never receives a plank though the builder
+    /// walked there, the castle is full and the carriers sit idle. The port
+    /// used to preserve the C++ behaviour deliberately; it does not any more.
     static path_splited = function(_flag_1, _dir_1, _flag_2, _dir_2, _select) {
         if (state == SerfState.walking) {
             if (s.walking_dest == _flag_1 && s.walking_dir1 == _dir_1) {
-                return { result: true, select: _select };
+                return { result: true, select: 0 };
             } else if (s.walking_dest == _flag_2 && s.walking_dir1 == _dir_2) {
                 return { result: true, select: 1 };
             }
         } else if (state == SerfState.ready_to_leave_inventory) {
             if (s.ready_to_leave_inventory_dest == _flag_1 &&
                 s.ready_to_leave_inventory_mode == _dir_1) {
-                return { result: true, select: _select };
+                return { result: true, select: 0 };
             } else if (s.ready_to_leave_inventory_dest == _flag_2 &&
                        s.ready_to_leave_inventory_mode == _dir_2) {
                 return { result: true, select: 1 };
@@ -810,7 +825,7 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
                    s.leaving_building_next_state == SerfState.walking) {
             if (s.leaving_building_dest == _flag_1 &&
                 s.leaving_building_field_B == _dir_1) {
-                return { result: true, select: _select };
+                return { result: true, select: 0 };
             } else if (s.leaving_building_dest == _flag_2 &&
                        s.leaving_building_field_B == _dir_2) {
                 return { result: true, select: 1 };

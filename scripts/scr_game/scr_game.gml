@@ -1437,13 +1437,27 @@ function Game() constructor {
                 }
             }
 
-            var _path_data = _path_1_data;
-            if (_select == 0) {
-                _path_data = _path_2_data;
-            }
+            if (_select < 0) {
+                /* Nobody at all is walking towards either half - the serf that
+                   was called for this road has since been killed or diverted.
+                   Both halves are then carrying a request no serf will ever
+                   complete, so clear both and let Flag.update ask again. Left
+                   set, either half becomes a road that resource searches
+                   refuse to cross for the rest of the game. */
+                var _flag_1_ = flags.get(_path_1_data.flag_index);
+                _flag_1_.cancel_serf_request(_path_1_data.flag_dir);
+                var _flag_2_ = flags.get(_path_2_data.flag_index);
+                _flag_2_.cancel_serf_request(_path_2_data.flag_dir);
+            } else {
+                /* select names the half this serf is NOT serving. */
+                var _path_data = _path_1_data;
+                if (_select == 0) {
+                    _path_data = _path_2_data;
+                }
 
-            var _selected_flag = flags.get(_path_data.flag_index);
-            _selected_flag.cancel_serf_request(_path_data.flag_dir);
+                var _selected_flag = flags.get(_path_data.flag_index);
+                _selected_flag.cancel_serf_request(_path_data.flag_dir);
+            }
         }
 
         var _flag = flags.get(map.get_obj_index(_pos));
@@ -2702,6 +2716,24 @@ function Game() constructor {
         }
 
         return _result;
+    };
+
+    /// get_serfs_related_to() when all that is wanted is "is there one?".
+    /// Flag.update's stuck-request watchdog asks this and nothing else, and
+    /// it asks about roads rather than about serfs, so the answer is almost
+    /// always no - building and returning an array every time would be pure
+    /// garbage.
+    static has_serf_related_to = function(_dest, _dir) {
+        for (var _i = 0; _i < array_length(serfs.objects); _i++) {
+            var _serf = serfs.objects[_i];
+            if (_serf != undefined) {
+                if (_serf.is_related_to(_dest, _dir)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     };
 
     static get_next_player = function(_player) {

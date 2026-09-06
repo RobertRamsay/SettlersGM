@@ -381,6 +381,12 @@ function Flag(_game, _index) : GameObject(_game, _index) constructor {
     other_endpoint = array_create(6, undefined);
     other_end_dir = array_create(6, 0);
 
+    /// How many updates each direction has spent waiting on a transporter it
+    /// asked for and never got. Feeds the stuck-request watchdog in update().
+    /// Not part of the original flag state; a save written before this
+    /// existed simply starts the count again from zero on load.
+    serf_request_age = array_create(6, 0);
+
     bld_flags = 0;
     bld2_flags = 0;
 
@@ -1154,13 +1160,19 @@ function Flag(_game, _index) : GameObject(_game, _index) constructor {
         // cycle_directions_ccw()
         for (var _j = Direction.up; _j >= Direction.right; _j--) {
             if (has_path(_j)) {
+                if (!serf_requested(_j)) {
+                    serf_request_age[_j] = 0;
+                }
                 if (serf_requested(_j)) {
                     if ((_res_waiting[2] & (1 << _j)) != 0) {
                         if (_waiting_count >= 7) {
                             transporter &= (1 << _j);
                         }
                     } else if (free_transporter_count(_j) != 0) {
+                        serf_request_age[_j] = 0;
                         transporter |= (1 << _j);
+                    } else {
+                        watch_stuck_serf_request(_j);
                     }
                 } else if (free_transporter_count(_j) == 0 ||
                            (_res_waiting[2] & (1 << _j)) != 0) {
@@ -1180,6 +1192,60 @@ function Flag(_game, _index) : GameObject(_game, _index) constructor {
                 }
             }
         }
+    };
+
+    /// One direction of this flag has been asking for a transporter, has none,
+    /// and got no new one this update. That pairing is a dead end in the
+    /// original design: update() only calls call_transporter() in the branch
+    /// where no serf has been requested, and only sets the transporter bit in
+    /// the branch where a carrier has already arrived. So a direction left
+    /// holding a request nobody will ever fulfil never asks again and never
+    /// gets its transporter bit - and since every RESOURCE FlagSearch runs
+    /// with transporter = true while every SERF search runs with
+    /// transporter = false, that road silently stops carrying goods while
+    /// still carrying people. A construction site behind it starves with the
+    /// castle full, the builder standing there and the carriers idle, and
+    /// nothing recovers it but demolishing the road or building another one.
+    ///
+    /// The known cause is fixed (Serf.path_splited used to cancel the request
+    /// on the wrong half of a split road), but the same state can be reached
+    /// any time the serf walking out to a road is destroyed rather than lost -
+    /// a burning castle, a demolished stock - so this is the net underneath.
+    /// is_related_to() covers every state a carrier on its way can be in, and
+    /// call_transporter dispatches the serf in the same call that sets the
+    /// bits, so "no serf is related to either end of this road" is a definite
+    /// answer, not a guess. The age counter is only there to keep the scan off
+    /// the hot path; a false positive would cost one spare carrier, which
+    /// max_transporters caps anyway.
+    static watch_stuck_serf_request = function(_dir) {
+        serf_request_age[_dir] += 1;
+        if (serf_request_age[_dir] < 600) {
+            return;
+        }
+        if ((serf_request_age[_dir] & 63) != 0) {
+            return;
+        }
+
+        var _other = other_endpoint[_dir];
+        if (_other == undefined) {
+            return;
+        }
+        var _other_dir = get_other_end_dir(_dir);
+
+        if (game.has_serf_related_to(index, _dir)) {
+            return;
+        }
+        if (game.has_serf_related_to(_other.get_index(), _other_dir)) {
+            return;
+        }
+
+        show_debug_message("flag: dropping a stuck transporter request on flag " +
+                           string(index) + " dir " + string(_dir));
+        cancel_serf_request(_dir);
+        _other.cancel_serf_request(_other_dir);
+        serf_request_clear();
+        _other.serf_request_clear();
+        serf_request_age[_dir] = 0;
     };
 
     static call_transporter = function(_dir, _water) {
@@ -1202,6 +1268,15 @@ function Flag(_game, _index) : GameObject(_game, _index) constructor {
         }
 
         var _serf = _data.inventory.call_transporter(_water);
+        if (_serf == undefined) {
+            /* The C++ dereferences this without checking and crashes. Bail out
+               BEFORE the two "serf requested" bits below are set: setting them
+               and then failing to dispatch anybody is exactly the dead-road
+               state watch_stuck_serf_request() exists to clean up. Reporting
+               failure here makes update() set the serf_request_fail bit, so
+               the flag backs off and tries again later. */
+            return false;
+        }
 
         var _dest_flag = game.get_flag(_inventory.get_flag_index());
 
