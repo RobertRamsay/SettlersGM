@@ -1,0 +1,343 @@
+From ffa22751294e6f7930c405f15a3d130af1c1c2cf Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 5 Sep 2026 22:30:49 +0000
+Subject: [PATCH] Name the serf: per-slot digests and a slot-layout hash
+
+The last three desyncs all read the same way: serf_count, tick, rnd,
+buildings, flags and players identical, and all five serf field hashes
+adrift. Reasoning about that signature has now been wrong twice, so this
+stops reasoning and makes the log say which serf.
+
+net_serf_digests sends one u32 per SLOT of the serf collection, holes
+included as zero so the two machines' arrays line up index for index. On
+a desync the log names every differing slot and writes this machine's
+full state - type, owner, state, pos, animation, counter, tick - for the
+first four. The two logs side by side are the answer rather than a
+hypothesis.
+
+The new serf_slots hash part is the reason the signature has been
+misleading. Parts 6..10 fold the slot index into the hash, so a serf
+sitting in a DIFFERENT SLOT on the two machines breaks all five at once
+while serf_count stays equal - indistinguishable, from the outside, from
+the serf logic diverging. serf_slots hashes the occupancy set and the
+free list alone, contents ignored: if it differs, the simulations agree
+about the serfs and disagree about where they are kept, and the fault is
+in Collection allocate/erase order. The free list is folded in too, so
+the drift is caught one allocation before it reaches the serfs.
+
+net_report_check and net_late_checks take the game so they can write
+those lines; the late path labels its dump "state now", since it runs up
+to NET_TURN_DELAY turns after the digests were taken.
+
+Instrumentation, not a fix.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DFktm5o1kLnS2Pgvyp8tD4
+---
+ objects/obj_game/Step_0.gml |   2 +-
+ scripts/scr_net/scr_net.gml | 198 +++++++++++++++++++++++++++++++-----
+ 2 files changed, 172 insertions(+), 28 deletions(-)
+
+diff --git a/objects/obj_game/Step_0.gml b/objects/obj_game/Step_0.gml
+index f90d7c71..15f9d358 100644
+--- a/objects/obj_game/Step_0.gml
++++ b/objects/obj_game/Step_0.gml
+@@ -38,7 +38,7 @@ for (var _t = 0; _t < _ticks; _t++) {
+     net_after_tick();
+ }
+ 
+-net_late_checks();
++net_late_checks(interface.get_game());
+ 
+ // A start the host sent while the async event was running. Handled here for the
+ // same reason apply_pending_game is: switching the game rebuilds the float list.
+diff --git a/scripts/scr_net/scr_net.gml b/scripts/scr_net/scr_net.gml
+index 23ef7102..8e3d3676 100644
+--- a/scripts/scr_net/scr_net.gml
++++ b/scripts/scr_net/scr_net.gml
+@@ -352,7 +352,7 @@ function net_send_turn(_turn, _cmds) {
+     network_send_packet(net_peer_socket(), _b, buffer_tell(_b));
+ }
+ 
+-function net_send_check(_turn, _parts) {
++function net_send_check(_turn, _parts, _digests) {
+     var _b = global.net_send;
+     buffer_seek(_b, buffer_seek_start, 0);
+     buffer_write(_b, buffer_u8,  NetMsg.check);
+@@ -360,6 +360,12 @@ function net_send_check(_turn, _parts) {
+     for (var _i = 0; _i < NET_HASH_PARTS; _i++) {
+         buffer_write(_b, buffer_u32, _parts[_i]);
+     }
++
++    buffer_write(_b, buffer_u16, array_length(_digests));
++    for (var _j = 0; _j < array_length(_digests); _j++) {
++        buffer_write(_b, buffer_u32, _digests[_j]);
++    }
++
+     network_send_packet(net_peer_socket(), _b, buffer_tell(_b));
+ }
+ 
+@@ -451,7 +457,14 @@ function net_receive_check(_b) {
+     for (var _i = 0; _i < NET_HASH_PARTS; _i++) {
+         _parts[_i] = buffer_read(_b, buffer_u32);
+     }
+-    ds_map_set(global.net_checks, string(_turn), _parts);
++
++    var _n = buffer_read(_b, buffer_u16);
++    var _digests = array_create(_n, 0);
++    for (var _j = 0; _j < _n; _j++) {
++        _digests[_j] = buffer_read(_b, buffer_u32);
++    }
++
++    ds_map_set(global.net_checks, string(_turn), { parts: _parts, digests: _digests });
+ }
+ 
+ // ---------------------------------------------------------------- lockstep
+@@ -705,7 +718,7 @@ function net_speed_locked() {
+ /// numbers are doubles, exact only to 2^53, so a 32-bit FNV-style hash would
+ /// silently lose its low bits the moment it multiplied. 31 against a 31-bit
+ /// accumulator stays well inside what a double represents exactly.
+-#macro NET_HASH_PARTS 11
++#macro NET_HASH_PARTS 12
+ 
+ function net_hash_parts(_game) {
+     var _out = array_create(NET_HASH_PARTS, 0);
+@@ -805,9 +818,91 @@ function net_hash_parts(_game) {
+     _out[9]  = _h_counter;
+     _out[10] = _h_tick;
+ 
++    /* 11: the slot LAYOUT, contents ignored - which indexes are occupied, and
++       how long the array is.
++
++       Parts 6..10 fold the slot index in, so a serf sitting in a different slot
++       on the two machines breaks all five at once while serf_count stays equal.
++       That is exactly what the logs have been showing, and it looks identical to
++       a state-machine divergence. This part tells the two apart: if serf_slots
++       differs, the simulations agree about the serfs and disagree about where
++       they are stored, and the fault is in Collection allocate/erase order, not
++       in the serf logic. */
++    _h = net_hash_fold(0, array_length(_serfs));
++    for (var _q = 0; _q < array_length(_serfs); _q++) {
++        if (_serfs[_q] == undefined) {
++            continue;
++        }
++        _h = net_hash_fold(_h, _q);
++    }
++
++    /* The free list too, in order: two machines whose free lists have drifted
++       will hand the next serf a different slot, so this catches the problem one
++       allocation BEFORE it shows up in the serfs themselves. */
++    var _free = _game.serfs.free_object_indexes;
++    _h = net_hash_fold(_h, array_length(_free));
++    for (var _r = 0; _r < array_length(_free); _r++) {
++        _h = net_hash_fold(_h, _free[_r]);
++    }
++    _out[11] = _h;
++
+     return _out;
+ }
+ 
++/// One digest per SLOT of the serf collection, holes included as zero so the
++/// two machines' arrays line up index for index.
++///
++/// The component hashes say the serfs differ; this says WHICH serf, which is the
++/// difference between a theory and a fact. Forty-odd serfs is a couple of
++/// hundred bytes a turn - there is no reason to be frugal on a LAN.
++function net_serf_digests(_game) {
++    if (_game == undefined) {
++        return [];
++    }
++
++    var _serfs = _game.serfs.objects;
++    var _n = array_length(_serfs);
++    var _out = array_create(_n, 0);
++
++    for (var _i = 0; _i < _n; _i++) {
++        var _s = _serfs[_i];
++        if (_s == undefined) {
++            continue;
++        }
++        var _h = net_hash_fold(0, _s.pos);
++        _h = net_hash_fold(_h, _s.state);
++        _h = net_hash_fold(_h, _s.animation);
++        _h = net_hash_fold(_h, _s.counter);
++        _out[_i] = net_hash_fold(_h, _s.tick);
++    }
++
++    return _out;
++}
++
++/// Everything about one serf, in a line, for the log. Both machines write their
++/// own; the two logs side by side are the whole answer.
++function net_serf_line(_game, _i) {
++    if (_game == undefined) {
++        return "serf " + string(_i) + ": no game";
++    }
++    var _serfs = _game.serfs.objects;
++    if (_i < 0 || _i >= array_length(_serfs)) {
++        return "serf " + string(_i) + ": out of range";
++    }
++    var _s = _serfs[_i];
++    if (_s == undefined) {
++        return "serf " + string(_i) + ": EMPTY SLOT";
++    }
++    return "serf " + string(_i) +
++           ": type=" + string(_s.get_type()) +
++           " owner=" + string(_s.get_owner()) +
++           " state=" + string(_s.state) +
++           " pos=" + string(_s.pos) +
++           " anim=" + string(_s.animation) +
++           " counter=" + string(_s.counter) +
++           " tick=" + string(_s.tick);
++}
++
+ function net_hash_part_name(_i) {
+     switch (_i) {
+     case 0:  return "tick";
+@@ -821,6 +916,7 @@ function net_hash_part_name(_i) {
+     case 8:  return "serf_anim";
+     case 9:  return "serf_counter";
+     case 10: return "serf_tick";
++    case 11: return "serf_slots";
+     }
+     return "?";
+ }
+@@ -836,42 +932,49 @@ function net_hash_fold(_h, _v) {
+ /// Compare this turn's component hashes with the peer's, and name the first
+ /// component that differs.
+ function net_compare_check(_game, _turn) {
+-    var _mine = net_hash_parts(_game);
+-    net_send_check(_turn, _mine);
++    var _mine = { parts: net_hash_parts(_game), digests: net_serf_digests(_game) };
++    net_send_check(_turn, _mine.parts, _mine.digests);
+ 
+     var _key = string(_turn);
+     if (!ds_map_exists(global.net_checks, _key)) {
+-        /* Theirs has not arrived yet - keep ours for net_late_checks. */
+         ds_map_set(global.net_checks, "M" + _key, _mine);
+         return;
+     }
+ 
+     var _theirs = ds_map_find_value(global.net_checks, _key);
+     ds_map_delete(global.net_checks, _key);
+-    net_report_check(_turn, _mine, _theirs);
++    net_report_check(_game, _turn, _mine, _theirs);
+ }
+ 
+-function net_report_check(_turn, _mine, _theirs) {
++function net_report_check(_game, _turn, _mine, _theirs) {
++    var _first = -1;
+     for (var _i = 0; _i < NET_HASH_PARTS; _i++) {
+-        if (_mine[_i] != _theirs[_i]) {
+-            /* Every part, both sides, into the log - the summary on screen has
+-               to stay short but the file does not. */
+-            for (var _j = 0; _j < NET_HASH_PARTS; _j++) {
+-                var _mark = "  ";
+-                if (_mine[_j] != _theirs[_j]) {
+-                    _mark = "**";
+-                }
+-                net_log(_mark + " turn " + string(_turn) + " " +
+-                        net_hash_part_name(_j) + ": mine=" + string(_mine[_j]) +
+-                        " theirs=" + string(_theirs[_j]));
+-            }
+-            net_fail("DESYNC turn " + string(_turn) + " in " +
+-                     net_hash_part_name(_i) + " (" + string(_mine[_i]) +
+-                     " vs " + string(_theirs[_i]) + ")" +
+-                     net_parts_summary(_mine, _theirs));
+-            return;
++        if (_mine.parts[_i] != _theirs.parts[_i]) {
++            _first = _i;
++            break;
+         }
+     }
++
++    if (_first < 0) {
++        return;   /* in step */
++    }
++
++    for (var _j = 0; _j < NET_HASH_PARTS; _j++) {
++        var _mark = "  ";
++        if (_mine.parts[_j] != _theirs.parts[_j]) {
++            _mark = "**";
++        }
++        net_log(_mark + " turn " + string(_turn) + " " + net_hash_part_name(_j) +
++                ": mine=" + string(_mine.parts[_j]) +
++                " theirs=" + string(_theirs.parts[_j]));
++    }
++
++    net_log_serf_diff(_game, _turn, _mine.digests, _theirs.digests);
++
++    net_fail("DESYNC turn " + string(_turn) + " in " + net_hash_part_name(_first) +
++             " (" + string(_mine.parts[_first]) + " vs " +
++             string(_theirs.parts[_first]) + ")" +
++             net_parts_summary(_mine.parts, _theirs.parts));
+ }
+ 
+ /// Every component's verdict, so one screenshot says whether it is one thing or
+@@ -889,12 +992,53 @@ function net_parts_summary(_mine, _theirs) {
+     return "  [differ: " + _diff + "| same: " + _same + "]";
+ }
+ 
++/// Name every serf whose digest differs, and write this machine's full state for
++/// the first few. Run the two logs side by side and the disagreement is right
++/// there in the numbers instead of being reasoned about.
++function net_log_serf_diff(_game, _turn, _mine, _theirs) {
++    var _n = array_length(_mine);
++    if (array_length(_theirs) < _n) {
++        _n = array_length(_theirs);
++    }
++
++    net_log("   turn " + string(_turn) + " serf slots: mine=" +
++            string(array_length(_mine)) +
++            " theirs=" + string(array_length(_theirs)));
++
++    var _found = 0;
++    var _list = "";
++    for (var _i = 0; _i < _n; _i++) {
++        if (_mine[_i] == _theirs[_i]) {
++            continue;
++        }
++        _found += 1;
++        if (_found <= 12) {
++            _list += string(_i) + " ";
++        }
++        if (_found <= 4) {
++            /* The digests were taken at the check turn; this line is read off
++               the game as it stands now, which on the late-check path is up to
++               NET_TURN_DELAY turns later. Compare the two logs' lines with each
++               other, not with the digest. */
++            net_log("** " + net_serf_line(_game, _i) + "   (state now)");
++        }
++    }
++
++    if (_found == 0) {
++        net_log("   every serf digest matches - the difference is in a field the "
++                + "digest does not cover, or in the slot layout");
++        return;
++    }
++
++    net_log("   " + string(_found) + " serf(s) differ, first few: " + _list);
++}
++
+ /// Compare any hashes whose partner arrived after we made ours.
+ ///
+ /// The keys are collected before anything is deleted: ds_map_find_next after
+ /// deleting the key it was standing on is not defined, and this walk deletes as
+ /// it goes.
+-function net_late_checks() {
++function net_late_checks(_game) {
+     if (!net_is_running()) {
+         return;
+     }
+@@ -920,7 +1064,7 @@ function net_late_checks() {
+         ds_map_delete(global.net_checks, _mine_key);
+         ds_map_delete(global.net_checks, _turn_key);
+ 
+-        net_report_check(real(_turn_key), _mine, _theirs);
++        net_report_check(_game, real(_turn_key), _mine, _theirs);
+         if (!net_is_running()) {
+             return;   /* net_fail has stopped us */
+         }
+-- 
+2.43.0
+

@@ -38,7 +38,7 @@ for (var _t = 0; _t < _ticks; _t++) {
     net_after_tick();
 }
 
-net_late_checks();
+net_late_checks(interface.get_game());
 
 // A start the host sent while the async event was running. Handled here for the
 // same reason apply_pending_game is: switching the game rebuilds the float list.
