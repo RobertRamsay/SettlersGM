@@ -70,7 +70,50 @@ enum NetCmd {
     demolish_flag = 4,
     demolish_building = 5,
     demolish_road = 6,
-    build_road = 7        // dirs carries the road, one Direction per step
+    build_road = 7,       // dirs carries the road, one Direction per step
+    player_setting = 8    // a = NetSetting, b = value, dirs = small extra ints
+}
+
+/// The player settings. Every one of these changes how the simulation behaves -
+/// what gets built, who gets fed, which serfs become knights - so every one of
+/// them is a command, not a local click.
+///
+/// They are one NetCmd rather than thirty because the shape is identical: a
+/// setting, a value, and occasionally a small index. b carries the value (a u32,
+/// so a map position fits); dirs carries the indices, which are all tiny.
+enum NetSetting {
+    food_stonemine = 0,
+    food_coalmine,
+    food_ironmine,
+    food_goldmine,
+    planks_construction,
+    planks_boatbuilder,
+    planks_toolmaker,
+    steel_toolmaker,
+    steel_weaponsmith,
+    coal_steelsmelter,
+    coal_goldsmelter,
+    coal_weaponsmith,
+    wheat_pigfarm,
+    wheat_mill,
+    tool_prio,             // b = priority, dirs[0] = tool index
+    serf_to_knight_rate,
+    knight_occupation,     // dirs = [index, adjust_max, delta + 1]
+    castle_knights_inc,
+    castle_knights_dec,
+    send_strongest_set,
+    send_strongest_drop,
+    cycle_knights,
+    promote_knights,       // b = how many
+    start_attack,          // b = target building index, dirs[0] = knights
+    reset_food,
+    reset_planks,
+    reset_steel,
+    reset_coal,
+    reset_wheat,
+    reset_tool,
+    reset_flag_prio,
+    reset_inventory_prio
 }
 
 // ---------------------------------------------------------------- logging
@@ -707,6 +750,9 @@ function net_run_commands(_game, _cmds, _player_index) {
         case NetCmd.demolish_road:
             _game.demolish_road(_c.a, _player);
             break;
+        case NetCmd.player_setting:
+            net_apply_setting(_player, _c.a, _c.b, _c.dirs);
+            break;
         case NetCmd.build_road: {
             /* Rebuilt from the wire rather than sent as an object: a Road is a
                start position and a list of hex steps, and that is all the far
@@ -723,6 +769,106 @@ function net_run_commands(_game, _cmds, _player_index) {
             show_debug_message("net: unknown command " + string(_c.kind));
             break;
         }
+    }
+}
+
+/// Apply a player setting, or send it if we are networked.
+///
+/// Every settings popup calls this instead of touching the player. The whole
+/// family used to go straight into the local player, which is why a session
+/// could run four thousand turns clean and then part company the moment someone
+/// opened the knights menu: fifteen serfs became knights on one machine and
+/// stayed generic on the other.
+function net_player_setting(_player, _setting, _value = 0, _extra = []) {
+    if (net_is_running()) {
+        net_queue_command(NetCmd.player_setting, _setting, _value, _extra);
+        return;
+    }
+    net_apply_setting(_player, _setting, _value, _extra);
+}
+
+/// The one place a setting is actually applied, so the local path and the
+/// networked path cannot drift into meaning different things.
+function net_apply_setting(_player, _setting, _value, _extra) {
+    if (_player == undefined) {
+        return;
+    }
+
+    switch (_setting) {
+    case NetSetting.food_stonemine:      _player.set_food_stonemine(_value); break;
+    case NetSetting.food_coalmine:       _player.set_food_coalmine(_value); break;
+    case NetSetting.food_ironmine:       _player.set_food_ironmine(_value); break;
+    case NetSetting.food_goldmine:       _player.set_food_goldmine(_value); break;
+    case NetSetting.planks_construction: _player.set_planks_construction(_value); break;
+    case NetSetting.planks_boatbuilder:  _player.set_planks_boatbuilder(_value); break;
+    case NetSetting.planks_toolmaker:    _player.set_planks_toolmaker(_value); break;
+    case NetSetting.steel_toolmaker:     _player.set_steel_toolmaker(_value); break;
+    case NetSetting.steel_weaponsmith:   _player.set_steel_weaponsmith(_value); break;
+    case NetSetting.coal_steelsmelter:   _player.set_coal_steelsmelter(_value); break;
+    case NetSetting.coal_goldsmelter:    _player.set_coal_goldsmelter(_value); break;
+    case NetSetting.coal_weaponsmith:    _player.set_coal_weaponsmith(_value); break;
+    case NetSetting.wheat_pigfarm:       _player.set_wheat_pigfarm(_value); break;
+    case NetSetting.wheat_mill:          _player.set_wheat_mill(_value); break;
+
+    case NetSetting.tool_prio:
+        _player.set_tool_prio(_extra[0], _value);
+        break;
+
+    case NetSetting.serf_to_knight_rate:
+        _player.set_serf_to_knight_rate(_value);
+        break;
+
+    case NetSetting.knight_occupation:
+        /* delta is -1 or +1 and dirs carries unsigned bytes, so it travels as
+           delta + 1 and comes back the same way round on both machines. */
+        _player.change_knight_occupation(_extra[0], _extra[1], _extra[2] - 1);
+        break;
+
+    case NetSetting.castle_knights_inc:  _player.increase_castle_knights_wanted(); break;
+    case NetSetting.castle_knights_dec:  _player.decrease_castle_knights_wanted(); break;
+    case NetSetting.send_strongest_set:  _player.set_send_strongest(); break;
+    case NetSetting.send_strongest_drop: _player.drop_send_strongest(); break;
+    case NetSetting.cycle_knights:       _player.cycle_knights(); break;
+
+    case NetSetting.promote_knights:
+        _player.promote_serfs_to_knights(_value);
+        break;
+
+    case NetSetting.start_attack:
+        /* Rebuilt rather than trusted: knights_available_for_attack fills in the
+           target and the list of buildings that can reach it, and it is what
+           start_attack reads. Running it here means both machines work that list
+           out themselves from the same world, and the only things that had to
+           cross the wire are which building and how many knights.
+
+           It also re-syncs those fields. The attack box sets them locally so it
+           has something to draw, which leaves them adrift on the two machines
+           until an attack actually happens - harmless, because nothing but
+           start_attack reads them, and this puts them back in step. */
+        var _target = _player.game.get_building(_value);
+        if (_target != undefined) {
+            _player.knights_available_for_attack(_target.get_position());
+            _player.knights_attacking = min(_extra[0],
+                                            _player.total_attacking_knights);
+            if (_player.knights_attacking > 0 &&
+                _player.attacking_building_count > 0) {
+                _player.start_attack();
+            }
+        }
+        break;
+
+    case NetSetting.reset_food:           _player.reset_food_priority(); break;
+    case NetSetting.reset_planks:         _player.reset_planks_priority(); break;
+    case NetSetting.reset_steel:          _player.reset_steel_priority(); break;
+    case NetSetting.reset_coal:           _player.reset_coal_priority(); break;
+    case NetSetting.reset_wheat:          _player.reset_wheat_priority(); break;
+    case NetSetting.reset_tool:           _player.reset_tool_priority(); break;
+    case NetSetting.reset_flag_prio:      _player.reset_flag_priority(); break;
+    case NetSetting.reset_inventory_prio: _player.reset_inventory_priority(); break;
+
+    default:
+        show_debug_message("net: unknown player setting " + string(_setting));
+        break;
     }
 }
 
@@ -868,6 +1014,45 @@ function net_hash_parts(_game) {
         _h = net_hash_fold(_h, _player.total_land_area);
         _h = net_hash_fold(_h, _player.total_building_score);
         _h = net_hash_fold(_h, _player.total_military_score);
+
+        /* The settings themselves. These are what the popups change, and until
+           they were commands nothing watched them - so a knights-menu click
+           showed up much later as serfs in the wrong state, which reads like a
+           simulation bug and is not one. Watch the thing that actually moved. */
+        _h = net_hash_fold(_h, _player.flags);
+        _h = net_hash_fold(_h, _player.build);
+        _h = net_hash_fold(_h, _player.castle_knights_wanted);
+        _h = net_hash_fold(_h, _player.serf_to_knight_rate);
+        _h = net_hash_fold(_h, _player.serf_to_knight_counter);
+        _h = net_hash_fold(_h, _player.knights_to_spawn);
+        _h = net_hash_fold(_h, _player.reproduction_counter);
+        _h = net_hash_fold(_h, _player.send_generic_delay);
+        _h = net_hash_fold(_h, _player.food_stonemine);
+        _h = net_hash_fold(_h, _player.food_coalmine);
+        _h = net_hash_fold(_h, _player.food_ironmine);
+        _h = net_hash_fold(_h, _player.food_goldmine);
+        _h = net_hash_fold(_h, _player.planks_construction);
+        _h = net_hash_fold(_h, _player.planks_boatbuilder);
+        _h = net_hash_fold(_h, _player.planks_toolmaker);
+        _h = net_hash_fold(_h, _player.steel_toolmaker);
+        _h = net_hash_fold(_h, _player.steel_weaponsmith);
+        _h = net_hash_fold(_h, _player.coal_steelsmelter);
+        _h = net_hash_fold(_h, _player.coal_goldsmelter);
+        _h = net_hash_fold(_h, _player.coal_weaponsmith);
+        _h = net_hash_fold(_h, _player.wheat_pigfarm);
+        _h = net_hash_fold(_h, _player.wheat_mill);
+        for (var _ko = 0; _ko < array_length(_player.knight_occupation); _ko++) {
+            _h = net_hash_fold(_h, _player.knight_occupation[_ko]);
+        }
+        for (var _tp = 0; _tp < array_length(_player.tool_prio); _tp++) {
+            _h = net_hash_fold(_h, _player.tool_prio[_tp]);
+        }
+        for (var _fp = 0; _fp < array_length(_player.flag_prio); _fp++) {
+            _h = net_hash_fold(_h, _player.flag_prio[_fp]);
+        }
+        for (var _ip = 0; _ip < array_length(_player.inventory_prio); _ip++) {
+            _h = net_hash_fold(_h, _player.inventory_prio[_ip]);
+        }
     }
     _out[4] = _h;
 

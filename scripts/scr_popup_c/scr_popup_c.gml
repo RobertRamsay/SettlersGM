@@ -492,7 +492,17 @@ function popup_handle_send_geologist(_popup) {
 
 /* PopupBox::sett_8_train */
 function popup_sett_8_train(_popup, _number) {
-  var _r = _popup.interface.get_player().promote_serfs_to_knights(_number);
+  var _player = _popup.interface.get_player();
+
+  /* This is the one that ended a four-thousand-turn game: fifteen serfs became
+     knights here on one machine and stayed generic on the other. */
+  if (net_is_running()) {
+    net_player_setting(_player, NetSetting.promote_knights, _number);
+    _popup.play_sound(Sfx.click);
+    return;
+  }
+
+  var _r = _player.promote_serfs_to_knights(_number);
 
   if (_r == 0) {
     _popup.play_sound(Sfx.not_accepted);
@@ -740,7 +750,11 @@ function popup_handle_action(_popup, _action, _x, _y) {
     if (_player.knights_attacking > 0) {
       if (_player.attacking_building_count > 0) {
         _popup.play_sound(Sfx.accepted);
-        _player.start_attack();
+        /* The target and the knight count are all the far side needs; it works
+           out which of its own buildings can reach the target itself. */
+        net_player_setting(_player, NetSetting.start_attack,
+                           _player.building_attacked,
+                           [_player.knights_attacking]);
       }
       _interface.close_popup();
     } else {
@@ -774,159 +788,159 @@ function popup_handle_action(_popup, _action, _x, _y) {
     break;
   case Action.sett_1_adjust_stonemine:
     _interface.open_popup(PopupType.sett_1);
-    _player.set_food_stonemine(gui_get_slider_click_value(_x));
+    net_player_setting(_player, NetSetting.food_stonemine, gui_get_slider_click_value(_x));
     break;
   case Action.sett_1_adjust_coalmine:
     _interface.open_popup(PopupType.sett_1);
-    _player.set_food_coalmine(gui_get_slider_click_value(_x));
+    net_player_setting(_player, NetSetting.food_coalmine, gui_get_slider_click_value(_x));
     break;
   case Action.sett_1_adjust_ironmine:
     _interface.open_popup(PopupType.sett_1);
-    _player.set_food_ironmine(gui_get_slider_click_value(_x));
+    net_player_setting(_player, NetSetting.food_ironmine, gui_get_slider_click_value(_x));
     break;
   case Action.sett_1_adjust_goldmine:
     _interface.open_popup(PopupType.sett_1);
-    _player.set_food_goldmine(gui_get_slider_click_value(_x));
+    net_player_setting(_player, NetSetting.food_goldmine, gui_get_slider_click_value(_x));
     break;
   case Action.sett_2_adjust_construction:
     _interface.open_popup(PopupType.sett_2);
-    _player.set_planks_construction(gui_get_slider_click_value(_x));
+    net_player_setting(_player, NetSetting.planks_construction, gui_get_slider_click_value(_x));
     break;
   case Action.sett_2_adjust_boatbuilder:
     _interface.open_popup(PopupType.sett_2);
-    _player.set_planks_boatbuilder(gui_get_slider_click_value(_x));
+    net_player_setting(_player, NetSetting.planks_boatbuilder, gui_get_slider_click_value(_x));
     break;
   case Action.sett_2_adjust_toolmaker_planks:
     _interface.open_popup(PopupType.sett_2);
-    _player.set_planks_toolmaker(gui_get_slider_click_value(_x));
+    net_player_setting(_player, NetSetting.planks_toolmaker, gui_get_slider_click_value(_x));
     break;
   case Action.sett_2_adjust_toolmaker_steel:
     _interface.open_popup(PopupType.sett_2);
-    _player.set_steel_toolmaker(gui_get_slider_click_value(_x));
+    net_player_setting(_player, NetSetting.steel_toolmaker, gui_get_slider_click_value(_x));
     break;
   case Action.sett_2_adjust_weaponsmith:
     _interface.open_popup(PopupType.sett_2);
-    _player.set_steel_weaponsmith(gui_get_slider_click_value(_x));
+    net_player_setting(_player, NetSetting.steel_weaponsmith, gui_get_slider_click_value(_x));
     break;
   case Action.sett_3_adjust_steelsmelter:
     _interface.open_popup(PopupType.sett_3);
-    _player.set_coal_steelsmelter(gui_get_slider_click_value(_x));
+    net_player_setting(_player, NetSetting.coal_steelsmelter, gui_get_slider_click_value(_x));
     break;
   case Action.sett_3_adjust_goldsmelter:
     _interface.open_popup(PopupType.sett_3);
-    _player.set_coal_goldsmelter(gui_get_slider_click_value(_x));
+    net_player_setting(_player, NetSetting.coal_goldsmelter, gui_get_slider_click_value(_x));
     break;
   case Action.sett_3_adjust_weaponsmith:
     _interface.open_popup(PopupType.sett_3);
-    _player.set_coal_weaponsmith(gui_get_slider_click_value(_x));
+    net_player_setting(_player, NetSetting.coal_weaponsmith, gui_get_slider_click_value(_x));
     break;
   case Action.sett_3_adjust_pigfarm:
     _interface.open_popup(PopupType.sett_3);
-    _player.set_wheat_pigfarm(gui_get_slider_click_value(_x));
+    net_player_setting(_player, NetSetting.wheat_pigfarm, gui_get_slider_click_value(_x));
     break;
   case Action.sett_3_adjust_mill:
     _interface.open_popup(PopupType.sett_3);
-    _player.set_wheat_mill(gui_get_slider_click_value(_x));
+    net_player_setting(_player, NetSetting.wheat_mill, gui_get_slider_click_value(_x));
     break;
   case Action.knight_level_closest_min_dec:
-    _player.change_knight_occupation(3, 0, -1);
+    net_player_setting(_player, NetSetting.knight_occupation, 0, [3, 0, 0]);
     _interface.open_popup(PopupType.knight_level);
     break;
   case Action.knight_level_closest_min_inc:
-    _player.change_knight_occupation(3, 0, 1);
+    net_player_setting(_player, NetSetting.knight_occupation, 0, [3, 0, 2]);
     _interface.open_popup(PopupType.knight_level);
     break;
   case Action.knight_level_closest_max_dec:
-    _player.change_knight_occupation(3, 1, -1);
+    net_player_setting(_player, NetSetting.knight_occupation, 0, [3, 1, 0]);
     _interface.open_popup(PopupType.knight_level);
     break;
   case Action.knight_level_closest_max_inc:
-    _player.change_knight_occupation(3, 1, 1);
+    net_player_setting(_player, NetSetting.knight_occupation, 0, [3, 1, 2]);
     _interface.open_popup(PopupType.knight_level);
     break;
   case Action.knight_level_close_min_dec:
-    _player.change_knight_occupation(2, 0, -1);
+    net_player_setting(_player, NetSetting.knight_occupation, 0, [2, 0, 0]);
     _interface.open_popup(PopupType.knight_level);
     break;
   case Action.knight_level_close_min_inc:
-    _player.change_knight_occupation(2, 0, 1);
+    net_player_setting(_player, NetSetting.knight_occupation, 0, [2, 0, 2]);
     _interface.open_popup(PopupType.knight_level);
     break;
   case Action.knight_level_close_max_dec:
-    _player.change_knight_occupation(2, 1, -1);
+    net_player_setting(_player, NetSetting.knight_occupation, 0, [2, 1, 0]);
     _interface.open_popup(PopupType.knight_level);
     break;
   case Action.knight_level_close_max_inc:
-    _player.change_knight_occupation(2, 1, 1);
+    net_player_setting(_player, NetSetting.knight_occupation, 0, [2, 1, 2]);
     _interface.open_popup(PopupType.knight_level);
     break;
   case Action.knight_level_far_min_dec:
-    _player.change_knight_occupation(1, 0, -1);
+    net_player_setting(_player, NetSetting.knight_occupation, 0, [1, 0, 0]);
     _interface.open_popup(PopupType.knight_level);
     break;
   case Action.knight_level_far_min_inc:
-    _player.change_knight_occupation(1, 0, 1);
+    net_player_setting(_player, NetSetting.knight_occupation, 0, [1, 0, 2]);
     _interface.open_popup(PopupType.knight_level);
     break;
   case Action.knight_level_far_max_dec:
-    _player.change_knight_occupation(1, 1, -1);
+    net_player_setting(_player, NetSetting.knight_occupation, 0, [1, 1, 0]);
     _interface.open_popup(PopupType.knight_level);
     break;
   case Action.knight_level_far_max_inc:
-    _player.change_knight_occupation(1, 1, 1);
+    net_player_setting(_player, NetSetting.knight_occupation, 0, [1, 1, 2]);
     _interface.open_popup(PopupType.knight_level);
     break;
   case Action.knight_level_farthest_min_dec:
-    _player.change_knight_occupation(0, 0, -1);
+    net_player_setting(_player, NetSetting.knight_occupation, 0, [0, 0, 0]);
     _interface.open_popup(PopupType.knight_level);
     break;
   case Action.knight_level_farthest_min_inc:
-    _player.change_knight_occupation(0, 0, 1);
+    net_player_setting(_player, NetSetting.knight_occupation, 0, [0, 0, 2]);
     _interface.open_popup(PopupType.knight_level);
     break;
   case Action.knight_level_farthest_max_dec:
-    _player.change_knight_occupation(0, 1, -1);
+    net_player_setting(_player, NetSetting.knight_occupation, 0, [0, 1, 0]);
     _interface.open_popup(PopupType.knight_level);
     break;
   case Action.knight_level_farthest_max_inc:
-    _player.change_knight_occupation(0, 1, 1);
+    net_player_setting(_player, NetSetting.knight_occupation, 0, [0, 1, 2]);
     _interface.open_popup(PopupType.knight_level);
     break;
   case Action.sett_4_adjust_shovel:
     _interface.open_popup(PopupType.sett_4);
-    _player.set_tool_prio(0, gui_get_slider_click_value(_x));
+    net_player_setting(_player, NetSetting.tool_prio, gui_get_slider_click_value(_x), [0]);
     break;
   case Action.sett_4_adjust_hammer:
     _interface.open_popup(PopupType.sett_4);
-    _player.set_tool_prio(1, gui_get_slider_click_value(_x));
+    net_player_setting(_player, NetSetting.tool_prio, gui_get_slider_click_value(_x), [1]);
     break;
   case Action.sett_4_adjust_axe:
     _interface.open_popup(PopupType.sett_4);
-    _player.set_tool_prio(5, gui_get_slider_click_value(_x));
+    net_player_setting(_player, NetSetting.tool_prio, gui_get_slider_click_value(_x), [5]);
     break;
   case Action.sett_4_adjust_saw:
     _interface.open_popup(PopupType.sett_4);
-    _player.set_tool_prio(6, gui_get_slider_click_value(_x));
+    net_player_setting(_player, NetSetting.tool_prio, gui_get_slider_click_value(_x), [6]);
     break;
   case Action.sett_4_adjust_scythe:
     _interface.open_popup(PopupType.sett_4);
-    _player.set_tool_prio(4, gui_get_slider_click_value(_x));
+    net_player_setting(_player, NetSetting.tool_prio, gui_get_slider_click_value(_x), [4]);
     break;
   case Action.sett_4_adjust_pick:
     _interface.open_popup(PopupType.sett_4);
-    _player.set_tool_prio(7, gui_get_slider_click_value(_x));
+    net_player_setting(_player, NetSetting.tool_prio, gui_get_slider_click_value(_x), [7]);
     break;
   case Action.sett_4_adjust_pincer:
     _interface.open_popup(PopupType.sett_4);
-    _player.set_tool_prio(8, gui_get_slider_click_value(_x));
+    net_player_setting(_player, NetSetting.tool_prio, gui_get_slider_click_value(_x), [8]);
     break;
   case Action.sett_4_adjust_cleaver:
     _interface.open_popup(PopupType.sett_4);
-    _player.set_tool_prio(3, gui_get_slider_click_value(_x));
+    net_player_setting(_player, NetSetting.tool_prio, gui_get_slider_click_value(_x), [3]);
     break;
   case Action.sett_4_adjust_rod:
     _interface.open_popup(PopupType.sett_4);
-    _player.set_tool_prio(2, gui_get_slider_click_value(_x));
+    net_player_setting(_player, NetSetting.tool_prio, gui_get_slider_click_value(_x), [2]);
     break;
   case Action.sett_5_6_item_1:
   case Action.sett_5_6_item_2:
@@ -992,7 +1006,7 @@ function popup_handle_action(_popup, _action, _x, _y) {
     break;
     /* TODO */
   case Action.sett_8_cycle:
-    _player.cycle_knights();
+    net_player_setting(_player, NetSetting.cycle_knights);
     _popup.play_sound(Sfx.accepted);
     break;
   case Action.close_options:
@@ -1015,20 +1029,20 @@ function popup_handle_action(_popup, _action, _x, _y) {
     break;
   case Action.default_sett_1:
     _interface.open_popup(PopupType.sett_1);
-    _player.reset_food_priority();
+    net_player_setting(_player, NetSetting.reset_food);
     break;
   case Action.default_sett_2:
     _interface.open_popup(PopupType.sett_2);
-    _player.reset_planks_priority();
-    _player.reset_steel_priority();
+    net_player_setting(_player, NetSetting.reset_planks);
+    net_player_setting(_player, NetSetting.reset_steel);
     break;
   case Action.default_sett_5_6:
     switch (_popup.box) {
       case PopupType.sett_5:
-        _player.reset_flag_priority();
+        net_player_setting(_player, NetSetting.reset_flag_prio);
         break;
       case PopupType.sett_6:
-        _player.reset_inventory_priority();
+        net_player_setting(_player, NetSetting.reset_inventory_prio);
         break;
       default:
         throw ("popup_handle_action: NOT_REACHED (default_sett_5_6)");
@@ -1071,7 +1085,7 @@ function popup_handle_action(_popup, _action, _x, _y) {
     _popup.set_box(PopupType.sett_6);
     break;
   case Action.sett_8_adjust_rate:
-    _player.set_serf_to_knight_rate(gui_get_slider_click_value(_x));
+    net_player_setting(_player, NetSetting.serf_to_knight_rate, gui_get_slider_click_value(_x));
     break;
   case Action.sett_8_train_1:
     popup_sett_8_train(_popup, 1);
@@ -1087,15 +1101,15 @@ function popup_handle_action(_popup, _action, _x, _y) {
     break;
   case Action.default_sett_3:
     _interface.open_popup(PopupType.sett_3);
-    _player.reset_coal_priority();
-    _player.reset_wheat_priority();
+    net_player_setting(_player, NetSetting.reset_coal);
+    net_player_setting(_player, NetSetting.reset_wheat);
     break;
   case Action.sett_8_set_combat_mode_weak:
-    _player.drop_send_strongest();
+    net_player_setting(_player, NetSetting.send_strongest_drop);
     _popup.play_sound(Sfx.accepted);
     break;
   case Action.sett_8_set_combat_mode_strong:
-    _player.set_send_strongest();
+    net_player_setting(_player, NetSetting.send_strongest_set);
     _popup.play_sound(Sfx.accepted);
     break;
   case Action.attacking_select_all_1:
@@ -1158,7 +1172,7 @@ function popup_handle_action(_popup, _action, _x, _y) {
     break;
   case Action.default_sett_4:
     _interface.open_popup(PopupType.sett_4);
-    _player.reset_tool_priority();
+    net_player_setting(_player, NetSetting.reset_tool);
     break;
   case Action.show_player_faces:
     _popup.set_box(PopupType.player_faces);
@@ -1174,10 +1188,10 @@ function popup_handle_action(_popup, _action, _x, _y) {
     break;
     /* TODO */
   case Action.sett_8_castle_def_dec:
-    _player.decrease_castle_knights_wanted();
+    net_player_setting(_player, NetSetting.castle_knights_dec);
     break;
   case Action.sett_8_castle_def_inc:
-    _player.increase_castle_knights_wanted();
+    net_player_setting(_player, NetSetting.castle_knights_inc);
     break;
   case Action.options_music: {
     /* Audio::get_instance().get_music_player()->enable(!is_enabled()) */
