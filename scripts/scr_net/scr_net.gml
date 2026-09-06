@@ -352,19 +352,35 @@ function net_send_turn(_turn, _cmds) {
     network_send_packet(net_peer_socket(), _b, buffer_tell(_b));
 }
 
-function net_send_check(_turn, _parts, _digests) {
+function net_write_u32_array(_b, _a) {
+    buffer_write(_b, buffer_u16, array_length(_a));
+    for (var _i = 0; _i < array_length(_a); _i++) {
+        buffer_write(_b, buffer_u32, _a[_i]);
+    }
+}
+
+function net_read_u32_array(_b) {
+    var _n = buffer_read(_b, buffer_u16);
+    var _a = array_create(_n, 0);
+    for (var _i = 0; _i < _n; _i++) {
+        _a[_i] = buffer_read(_b, buffer_u32);
+    }
+    return _a;
+}
+
+function net_send_check(_turn, _snap) {
     var _b = global.net_send;
     buffer_seek(_b, buffer_seek_start, 0);
     buffer_write(_b, buffer_u8,  NetMsg.check);
     buffer_write(_b, buffer_u32, _turn);
     for (var _i = 0; _i < NET_HASH_PARTS; _i++) {
-        buffer_write(_b, buffer_u32, _parts[_i]);
+        buffer_write(_b, buffer_u32, _snap.parts[_i]);
     }
 
-    buffer_write(_b, buffer_u16, array_length(_digests));
-    for (var _j = 0; _j < array_length(_digests); _j++) {
-        buffer_write(_b, buffer_u32, _digests[_j]);
-    }
+    net_write_u32_array(_b, _snap.serfs);
+    net_write_u32_array(_b, _snap.buildings);
+    net_write_u32_array(_b, _snap.flags);
+    net_write_u32_array(_b, _snap.invs);
 
     network_send_packet(net_peer_socket(), _b, buffer_tell(_b));
 }
@@ -458,13 +474,15 @@ function net_receive_check(_b) {
         _parts[_i] = buffer_read(_b, buffer_u32);
     }
 
-    var _n = buffer_read(_b, buffer_u16);
-    var _digests = array_create(_n, 0);
-    for (var _j = 0; _j < _n; _j++) {
-        _digests[_j] = buffer_read(_b, buffer_u32);
-    }
+    var _snap = {
+        parts:     _parts,
+        serfs:     net_read_u32_array(_b),
+        buildings: net_read_u32_array(_b),
+        flags:     net_read_u32_array(_b),
+        invs:      net_read_u32_array(_b)
+    };
 
-    ds_map_set(global.net_checks, string(_turn), { parts: _parts, digests: _digests });
+    ds_map_set(global.net_checks, string(_turn), _snap);
 }
 
 // ---------------------------------------------------------------- lockstep
@@ -972,6 +990,225 @@ function net_serf_digests(_game) {
     return _out;
 }
 
+/// One digest per building slot: the same fields part 2 folds.
+function net_building_digests(_game) {
+    if (_game == undefined) {
+        return [];
+    }
+    var _a = _game.buildings.objects;
+    var _out = array_create(array_length(_a), 0);
+    for (var _i = 0; _i < array_length(_a); _i++) {
+        var _b = _a[_i];
+        if (_b == undefined) {
+            continue;
+        }
+        var _h = net_hash_fold(0, _b.pos);
+        _h = net_hash_fold(_h, _b.get_type());
+        _h = net_hash_fold(_h, _b.progress);
+        _h = net_hash_fold(_h, _b.owner);
+        _h = net_hash_fold(_h, _b.u);
+        _h = net_hash_fold(_h, _b.first_knight);
+        _h = net_hash_fold(_h, net_bit(_b.constructing));
+        _h = net_hash_fold(_h, net_bit(_b.holder));
+        _h = net_hash_fold(_h, net_bit(_b.active));
+        _h = net_hash_fold(_h, net_bit(_b.burning));
+        _h = net_hash_fold(_h, net_bit(_b.serf_requested));
+        _h = net_hash_fold(_h, net_bit(_b.serf_request_failed));
+        for (var _k = 0; _k < BUILDING_MAX_STOCK; _k++) {
+            var _st = _b.stock[_k];
+            _h = net_hash_fold(_h, _st.type);
+            _h = net_hash_fold(_h, _st.prio);
+            _h = net_hash_fold(_h, _st.available);
+            _h = net_hash_fold(_h, _st.requested);
+            _h = net_hash_fold(_h, _st.maximum);
+        }
+        _out[_i] = _h;
+    }
+    return _out;
+}
+
+/// One digest per flag slot: the same fields part 3 folds.
+function net_flag_digests(_game) {
+    if (_game == undefined) {
+        return [];
+    }
+    var _a = _game.flags.objects;
+    var _out = array_create(array_length(_a), 0);
+    for (var _i = 0; _i < array_length(_a); _i++) {
+        var _f = _a[_i];
+        if (_f == undefined) {
+            continue;
+        }
+        var _h = net_hash_fold(0, _f.pos);
+        _h = net_hash_fold(_h, _f.owner);
+        _h = net_hash_fold(_h, _f.path_con);
+        _h = net_hash_fold(_h, _f.endpoint);
+        _h = net_hash_fold(_h, _f.transporter);
+        _h = net_hash_fold(_h, _f.bld_flags);
+        _h = net_hash_fold(_h, _f.search_num);
+        _h = net_hash_fold(_h, _f.search_dir);
+        for (var _d = 0; _d < 6; _d++) {
+            _h = net_hash_fold(_h, _f.length[_d]);
+            _h = net_hash_fold(_h, _f.other_end_dir[_d]);
+        }
+        for (var _k = 0; _k < FLAG_MAX_RES_COUNT; _k++) {
+            var _sl = _f.slot[_k];
+            _h = net_hash_fold(_h, _sl.type);
+            _h = net_hash_fold(_h, _sl.dir);
+            _h = net_hash_fold(_h, _sl.dest);
+        }
+        _out[_i] = _h;
+    }
+    return _out;
+}
+
+/// One digest per inventory slot: the same fields part 13 folds.
+function net_inventory_digests(_game) {
+    if (_game == undefined) {
+        return [];
+    }
+    var _a = _game.inventories.objects;
+    var _out = array_create(array_length(_a), 0);
+    for (var _i = 0; _i < array_length(_a); _i++) {
+        var _v = _a[_i];
+        if (_v == undefined) {
+            continue;
+        }
+        var _h = net_hash_fold(0, _v.owner);
+        _h = net_hash_fold(_h, _v.flag);
+        _h = net_hash_fold(_h, _v.building);
+        _h = net_hash_fold(_h, _v.serfs_out);
+        _h = net_hash_fold(_h, _v.generic_count);
+        _h = net_hash_fold(_h, _v.res_dir);
+        for (var _r = 0; _r < ResourceType.types_count; _r++) {
+            _h = net_hash_fold(_h, _v.resources[_r]);
+        }
+        for (var _q = 0; _q < 2; _q++) {
+            _h = net_hash_fold(_h, _v.out_queue[_q].type);
+            _h = net_hash_fold(_h, _v.out_queue[_q].dest);
+        }
+        for (var _y = 0; _y < array_length(_v.serfs); _y++) {
+            _h = net_hash_fold(_h, _v.serfs[_y]);
+        }
+        _out[_i] = _h;
+    }
+    return _out;
+}
+
+/// Everything this machine knows about the world, hashed two ways: the coarse
+/// parts that say WHETHER we agree, and the per-object digests that say WHICH
+/// object we disagree about.
+function net_world_snapshot(_game) {
+    return {
+        parts:     net_hash_parts(_game),
+        serfs:     net_serf_digests(_game),
+        buildings: net_building_digests(_game),
+        flags:     net_flag_digests(_game),
+        invs:      net_inventory_digests(_game)
+    };
+}
+
+/// Everything about one building, in a line, for the log.
+function net_building_line(_game, _i) {
+    var _a = _game.buildings.objects;
+    if (_i < 0 || _i >= array_length(_a)) {
+        return "building " + string(_i) + ": out of range";
+    }
+    var _b = _a[_i];
+    if (_b == undefined) {
+        return "building " + string(_i) + ": EMPTY SLOT";
+    }
+    var _line = "building " + string(_i) +
+                ": type=" + string(_b.get_type()) +
+                " owner=" + string(_b.owner) +
+                " pos=" + string(_b.pos) +
+                " progress=" + string(_b.progress) +
+                " u=" + string(_b.u) +
+                " constructing=" + string(net_bit(_b.constructing)) +
+                " holder=" + string(net_bit(_b.holder)) +
+                " active=" + string(net_bit(_b.active)) +
+                " burning=" + string(net_bit(_b.burning)) +
+                " serf_requested=" + string(net_bit(_b.serf_requested)) +
+                " req_failed=" + string(net_bit(_b.serf_request_failed)) +
+                " knights=" + string(_b.first_knight);
+    for (var _k = 0; _k < BUILDING_MAX_STOCK; _k++) {
+        var _st = _b.stock[_k];
+        _line += " | stock" + string(_k) + " type=" + string(_st.type) +
+                 " avail=" + string(_st.available) +
+                 " req=" + string(_st.requested) +
+                 " max=" + string(_st.maximum) +
+                 " prio=" + string(_st.prio);
+    }
+    return _line;
+}
+
+/// Everything about one flag, in a line, for the log.
+function net_flag_line(_game, _i) {
+    var _a = _game.flags.objects;
+    if (_i < 0 || _i >= array_length(_a)) {
+        return "flag " + string(_i) + ": out of range";
+    }
+    var _f = _a[_i];
+    if (_f == undefined) {
+        return "flag " + string(_i) + ": EMPTY SLOT";
+    }
+    var _line = "flag " + string(_i) +
+                ": pos=" + string(_f.pos) +
+                " owner=" + string(_f.owner) +
+                " path_con=" + string(_f.path_con) +
+                " endpoint=" + string(_f.endpoint) +
+                " transporter=" + string(_f.transporter) +
+                " bld_flags=" + string(_f.bld_flags) +
+                " search_num=" + string(_f.search_num) +
+                " search_dir=" + string(_f.search_dir);
+    for (var _k = 0; _k < FLAG_MAX_RES_COUNT; _k++) {
+        var _sl = _f.slot[_k];
+        if (_sl.type == ResourceType.none) {
+            continue;
+        }
+        _line += " | slot" + string(_k) + " res=" + string(_sl.type) +
+                 " dir=" + string(_sl.dir) + " dest=" + string(_sl.dest);
+    }
+    return _line;
+}
+
+/// Everything about one inventory, in a line, for the log. The serfs-by-type
+/// table is the interesting half: it is what call_out_serf reads.
+function net_inventory_line(_game, _i) {
+    var _a = _game.inventories.objects;
+    if (_i < 0 || _i >= array_length(_a)) {
+        return "inventory " + string(_i) + ": out of range";
+    }
+    var _v = _a[_i];
+    if (_v == undefined) {
+        return "inventory " + string(_i) + ": EMPTY SLOT";
+    }
+    var _line = "inventory " + string(_i) +
+                ": owner=" + string(_v.owner) +
+                " building=" + string(_v.building) +
+                " flag=" + string(_v.flag) +
+                " serfs_out=" + string(_v.serfs_out) +
+                " generic=" + string(_v.generic_count) +
+                " res_dir=" + string(_v.res_dir) +
+                " out_queue=" + string(_v.out_queue[0].type) + "/" +
+                string(_v.out_queue[0].dest) + "," +
+                string(_v.out_queue[1].type) + "/" +
+                string(_v.out_queue[1].dest);
+    _line += " | serfs:";
+    for (var _y = 0; _y < array_length(_v.serfs); _y++) {
+        if (_v.serfs[_y] != 0) {
+            _line += " t" + string(_y) + "=#" + string(_v.serfs[_y]);
+        }
+    }
+    _line += " | res:";
+    for (var _r = 0; _r < ResourceType.types_count; _r++) {
+        if (_v.resources[_r] != 0) {
+            _line += " r" + string(_r) + "=" + string(_v.resources[_r]);
+        }
+    }
+    return _line;
+}
+
 /// Everything about one serf, in a line, for the log. Both machines write their
 /// own; the two logs side by side are the whole answer.
 function net_serf_line(_game, _i) {
@@ -1027,8 +1264,8 @@ function net_hash_fold(_h, _v) {
 /// Compare this turn's component hashes with the peer's, and name the first
 /// component that differs.
 function net_compare_check(_game, _turn) {
-    var _mine = { parts: net_hash_parts(_game), digests: net_serf_digests(_game) };
-    net_send_check(_turn, _mine.parts, _mine.digests);
+    var _mine = net_world_snapshot(_game);
+    net_send_check(_turn, _mine);
 
     var _key = string(_turn);
     if (!ds_map_exists(global.net_checks, _key)) {
@@ -1064,7 +1301,14 @@ function net_report_check(_game, _turn, _mine, _theirs) {
                 " theirs=" + string(_theirs.parts[_j]));
     }
 
-    net_log_serf_diff(_game, _turn, _mine.digests, _theirs.digests);
+    net_log_obj_diff(_game, _turn, "building", _mine.buildings, _theirs.buildings,
+                     net_building_line);
+    net_log_obj_diff(_game, _turn, "flag", _mine.flags, _theirs.flags,
+                     net_flag_line);
+    net_log_obj_diff(_game, _turn, "inventory", _mine.invs, _theirs.invs,
+                     net_inventory_line);
+    net_log_obj_diff(_game, _turn, "serf", _mine.serfs, _theirs.serfs,
+                     net_serf_line);
 
     net_fail("DESYNC turn " + string(_turn) + " in " + net_hash_part_name(_first) +
              " (" + string(_mine.parts[_first]) + " vs " +
@@ -1087,18 +1331,24 @@ function net_parts_summary(_mine, _theirs) {
     return "  [differ: " + _diff + "| same: " + _same + "]";
 }
 
-/// Name every serf whose digest differs, and write this machine's full state for
-/// the first few. Run the two logs side by side and the disagreement is right
-/// there in the numbers instead of being reasoned about.
-function net_log_serf_diff(_game, _turn, _mine, _theirs) {
+/// Name every object of one kind whose digest differs, and write this machine's
+/// full state for the first few.
+///
+/// _line_fn is the per-kind formatter, passed in so buildings, flags,
+/// inventories and serfs all report the same way. Run the two machines' logs
+/// side by side and the disagreement is right there in the numbers instead of
+/// being reasoned about.
+function net_log_obj_diff(_game, _turn, _kind, _mine, _theirs, _line_fn) {
+    if (array_length(_mine) != array_length(_theirs)) {
+        net_log("   turn " + string(_turn) + " " + _kind + " slots: mine=" +
+                string(array_length(_mine)) + " theirs=" +
+                string(array_length(_theirs)));
+    }
+
     var _n = array_length(_mine);
     if (array_length(_theirs) < _n) {
         _n = array_length(_theirs);
     }
-
-    net_log("   turn " + string(_turn) + " serf slots: mine=" +
-            string(array_length(_mine)) +
-            " theirs=" + string(array_length(_theirs)));
 
     var _found = 0;
     var _list = "";
@@ -1115,17 +1365,15 @@ function net_log_serf_diff(_game, _turn, _mine, _theirs) {
                the game as it stands now, which on the late-check path is up to
                NET_TURN_DELAY turns later. Compare the two logs' lines with each
                other, not with the digest. */
-            net_log("** " + net_serf_line(_game, _i) + "   (state now)");
+            net_log("** " + _line_fn(_game, _i) + "   (state now)");
         }
     }
 
     if (_found == 0) {
-        net_log("   every serf digest matches - the difference is in a field the "
-                + "digest does not cover, or in the slot layout");
         return;
     }
 
-    net_log("   " + string(_found) + " serf(s) differ, first few: " + _list);
+    net_log("   " + string(_found) + " " + _kind + "(s) differ, first few: " + _list);
 }
 
 /// Compare any hashes whose partner arrived after we made ours.
