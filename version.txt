@@ -1,0 +1,11 @@
+1.0.1.0
+
+The first line of this file is the newest released version of SettlersGM, and
+the running game compares it against its own (Game Options -> Version) to decide
+whether to say UPDATE on the start screen. Bump it when a new build goes out,
+not when the source changes - anyone running the previous build will see it
+within seconds of reaching the menu.
+
+Only the first line is read. Anything below it, including this, is ignored, so
+notes or a download link can be added here without breaking builds already out
+in the world.

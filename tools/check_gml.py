@@ -3,14 +3,26 @@
 import re, os, sys, glob
 from collections import defaultdict
 
-GML = '/home/claude/settlers/gml'
-OBJ = '/home/claude/settlers/objects'
-files = sorted(glob.glob(f'{GML}/*.gml')) + sorted(glob.glob(f'{OBJ}/*/*.gml'))
+# Relative to the project root, so run this from there. These used to be
+# absolute paths into a layout the project has not had for a long time, and
+# matched nothing at all - the checker reported a clean run because it read
+# zero files.
+GML = 'scripts'
+OBJ = 'objects'
+files = sorted(glob.glob(f'{GML}/*/*.gml')) + sorted(glob.glob(f'{OBJ}/*/*.gml'))
 
 def strip_comments(t):
+    # ORDER MATTERS: strings before line comments, not after. A URL inside a
+    # string literal contains "//", and stripping line comments first eats the
+    # rest of that line INCLUDING the closing quote. The next quote anywhere in
+    # the file then closes the string instead, and everything between - whole
+    # functions, enums, swathes of the file - drops out of the scan. It shows up
+    # as a couple of unrelated symbols suddenly being "not defined anywhere",
+    # which is a maddening thing to chase. The string pattern also stops at a
+    # newline now, so one stray quote can cost at most the line it sits on.
     t = re.sub(r'/\*.*?\*/', lambda m: ' ' * len(m.group(0)), t, flags=re.S)
+    t = re.sub(r'"(?:\\.|[^"\\\n])*"', '""', t)
     t = re.sub(r'//[^\n]*', '', t)
-    t = re.sub(r'"(?:\\.|[^"\\])*"', '""', t)
     return t
 
 src = {}

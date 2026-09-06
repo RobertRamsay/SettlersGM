@@ -1,0 +1,305 @@
+diff --git a/objects/obj_game/Create_0.gml b/objects/obj_game/Create_0.gml
+index 39e76163..1a0acadc 100644
+--- a/objects/obj_game/Create_0.gml
++++ b/objects/obj_game/Create_0.gml
+@@ -100,6 +100,13 @@ global.map_drag_invert = false;
+ // Slot the next F5 writes to / the last one loaded. 0..SAVEGAME_SLOTS-1.
+ global.save_slot = 0;
+ 
++// Ask the repository what the newest build is, for the line at the bottom of
++// the start screen. This only starts the request - the answer lands in the
++// Async HTTP event (Other_62) whenever it lands, or never, and either way the
++// game carries on. update_check_start() lays out its own globals first, so the
++// start screen can read them on the very first frame.
++update_check_start();
++
+ // Show the start screen over the freshly built game rather than dropping
+ // straight into it, so START and LOAD are reachable. Ctrl+N reopens it.
+ interface.open_game_init();
+diff --git a/objects/obj_game/Other_62.gml b/objects/obj_game/Other_62.gml
+new file mode 100644
+index 00000000..6d9b5473
+--- /dev/null
++++ b/objects/obj_game/Other_62.gml
+@@ -0,0 +1,11 @@
++/// obj_game Other 62 - Async HTTP. Every http_get reply arrives here.
++///
++/// THE FILE NAME IS LOAD-BEARING, exactly as for Other_68.gml: GameMaker
++/// matches an event's code to its declaration in obj_game.yy by file name,
++/// <category>_<number>.gml, and Async HTTP is eventType 7 (Other), eventNum 62.
++/// Named anything more readable, the event is declared with no code behind it -
++/// the game compiles and runs and simply never hears the answer.
++///
++/// The only request the game makes is the start screen's update check, and it
++/// checks the id before touching anything, so adding another later is safe.
++update_check_handle_async(async_load);
+diff --git a/objects/obj_game/obj_game.yy b/objects/obj_game/obj_game.yy
+index 85715503..0381e489 100644
+--- a/objects/obj_game/obj_game.yy
++++ b/objects/obj_game/obj_game.yy
+@@ -8,6 +8,7 @@
+     {"$GMEvent":"v1","%Name":"","collisionObjectId":null,"eventNum":0,"eventType":8,"isDnD":false,"name":"","resourceType":"GMEvent","resourceVersion":"2.0",},
+     {"$GMEvent":"v1","%Name":"","collisionObjectId":null,"eventNum":0,"eventType":3,"isDnD":false,"name":"","resourceType":"GMEvent","resourceVersion":"2.0",},
+     {"$GMEvent":"v1","%Name":"","collisionObjectId":null,"eventNum":68,"eventType":7,"isDnD":false,"name":"","resourceType":"GMEvent","resourceVersion":"2.0",},
++    {"$GMEvent":"v1","%Name":"","collisionObjectId":null,"eventNum":62,"eventType":7,"isDnD":false,"name":"","resourceType":"GMEvent","resourceVersion":"2.0",},
+   ],
+   "managed":true,
+   "name":"obj_game",
+diff --git a/scripts/scr_game_init/scr_game_init.gml b/scripts/scr_game_init/scr_game_init.gml
+index 2f4df065..b3f3e1b4 100644
+--- a/scripts/scr_game_init/scr_game_init.gml
++++ b/scripts/scr_game_init/scr_game_init.gml
+@@ -23,6 +23,177 @@
+ 
+ #macro GAME_INIT_VERSION "SettlersGM"
+ 
++// ---------------------------------------------------------------------------
++// Version, and the update check behind the line at the bottom of the start
++// screen.
++//
++// The running build's version is GM_version, which is the string set in Game
++// Options for the target platform - so bumping the version is done in the IDE
++// where it belongs, and nothing here has to be kept in step with it by hand.
++//
++// The latest available version is one line of text in the repository, fetched
++// over HTTP at startup. A plain text file rather than JSON on purpose: there is
++// nothing to parse, nothing to go wrong with a struct that turned out not to
++// have the field, and it is one keystroke to edit. Only the FIRST line is read,
++// so notes, a download URL or anything else can be added underneath later
++// without breaking a build that is already out in the world.
++// ---------------------------------------------------------------------------
++
++#macro UPDATE_CHECK_URL "https://raw.githubusercontent.com/RobertRamsay/SettlersGM/main/version.txt"
++
++/// The version this build reports, from Game Options.
++function game_version() {
++    return string(GM_version);
++}
++
++/// Everything the update check owns, laid out before anything can read it.
++/// Called from obj_game Create.
++function update_check_init() {
++    global.update_request_id = -1;
++    global.update_latest = "";
++    global.update_available = false;
++    global.update_checked = false;
++}
++
++/// Fire the request. Nothing waits on it: the answer turns up in obj_game's
++/// Async HTTP event whenever it turns up, and if it never does - no network, a
++/// proxy, GitHub having a bad day - the start screen simply never grows the
++/// extra word. An update check is not allowed to be a reason the game does not
++/// start.
++function update_check_start() {
++    update_check_init();
++    global.update_request_id = http_get(UPDATE_CHECK_URL);
++}
++
++/// First line of a fetched file, without its line ending or surrounding space.
++function update_first_line(_text) {
++    var _s = string(_text);
++    var _cut = string_length(_s);
++
++    var _nl = string_pos("\n", _s);
++    if (_nl > 0) {
++        _cut = _nl - 1;
++    }
++    var _cr = string_pos("\r", _s);
++    if (_cr > 0 && _cr - 1 < _cut) {
++        _cut = _cr - 1;
++    }
++
++    return string_trim(string_copy(_s, 1, _cut));
++}
++
++/// Is this a version and nothing else? Digits and dots, at least one digit, and
++/// short enough to be one. Anything else - a 404 page, a login redirect, an
++/// error from a captive portal - is thrown away rather than displayed.
++function update_looks_like_version(_str) {
++    var _n = string_length(_str);
++    if (_n < 1 || _n > 24) {
++        return false;
++    }
++
++    /* string_pos against a set of characters rather than `_c >= "0"`: the
++       relational operators are for numbers, and what GML does with them on two
++       strings is not something worth finding out at a customer's machine. */
++    var _digits = 0;
++    for (var _i = 1; _i <= _n; _i++) {
++        var _c = string_char_at(_str, _i);
++        if (_c == ".") {
++            continue;
++        }
++        if (string_pos(_c, "0123456789") == 0) {
++            return false;
++        }
++        _digits += 1;
++    }
++
++    return (_digits > 0);
++}
++
++/// The _index'th dot-separated number of a version string, or 0 past the end.
++/// Hand-rolled rather than string_split so that a version with any number of
++/// parts compares against one with any other: "1.2" and "1.2.0.0" are equal.
++function update_version_part(_str, _index) {
++    var _from = 1;
++    var _n = string_length(_str);
++    var _part = 0;
++
++    while (_part <= _index) {
++        var _to = _from;
++        while (_to <= _n && string_char_at(_str, _to) != ".") {
++            _to += 1;
++        }
++        if (_part == _index) {
++            if (_to == _from) {
++                return 0;
++            }
++            return real(string_copy(_str, _from, _to - _from));
++        }
++        if (_to > _n) {
++            return 0;
++        }
++        _from = _to + 1;
++        _part += 1;
++    }
++
++    return 0;
++}
++
++/// Is _latest newer than _current? Compared number by number, never as strings,
++/// because "1.0.10.0" sorts BEFORE "1.0.9.0" alphabetically and that would
++/// announce an update that is really a downgrade.
++function update_version_is_newer(_latest, _current) {
++    for (var _i = 0; _i < 6; _i++) {
++        var _l = update_version_part(_latest, _i);
++        var _c = update_version_part(_current, _i);
++        if (_l > _c) {
++            return true;
++        }
++        if (_l < _c) {
++            return false;
++        }
++    }
++
++    return false;
++}
++
++/// obj_game's Async HTTP event hands the map straight here.
++function update_check_handle_async(_async) {
++    if (global.update_request_id < 0) {
++        return;
++    }
++    if (_async[? "id"] != global.update_request_id) {
++        return;
++    }
++
++    var _status = _async[? "status"];
++    if (_status == 1) {
++        /* Still downloading. */
++        return;
++    }
++
++    global.update_request_id = -1;
++    global.update_checked = true;
++
++    if (_status != 0) {
++        show_debug_message("update: check failed, status " + string(_status));
++        return;
++    }
++    if (_async[? "http_status"] != 200) {
++        show_debug_message("update: check got HTTP " + string(_async[? "http_status"]));
++        return;
++    }
++
++    var _latest = update_first_line(_async[? "result"]);
++    if (!update_looks_like_version(_latest)) {
++        show_debug_message("update: ignoring unrecognised version file");
++        return;
++    }
++
++    global.update_latest = _latest;
++    global.update_available = update_version_is_newer(_latest, game_version());
++    show_debug_message("update: running " + game_version() + ", latest " + _latest);
++}
++
+ /// GameInitBox::Action
+ enum GameInitAction {
+     start_game = 0,
+@@ -408,7 +579,22 @@ function GameInitBox(_interface) : GuiObject() constructor {
+         }
+ 
+         /* Display program name and version in caption */
+-        draw_box_string(0, 212, GAME_INIT_VERSION);
++        draw_box_string(0, 212, GAME_INIT_VERSION + " " + game_version());
++
++        /* And, when the repository says there is a newer build than this one,
++           a word about it on the same line. Right-aligned against the exit
++           icon (column 38, so the last column it may use is 37) rather than
++           placed at a fixed column, because the length depends on how many
++           parts the new version number has. Clamped so it can never back into
++           the name on the left. */
++        if (global.update_available) {
++            var _note = "UPDATE " + global.update_latest;
++            var _col = 37 - string_length(_note);
++            if (_col < 19) {
++                _col = 19;
++            }
++            draw_box_string(_col, 212, _note);
++        }
+ 
+         draw_box_icon(38, 208, 60); /* exit */
+     };
+diff --git a/tools/check_gml.py b/tools/check_gml.py
+index 642fdafb..e07f19a4 100644
+--- a/tools/check_gml.py
++++ b/tools/check_gml.py
+@@ -3,14 +3,26 @@
+ import re, os, sys, glob
+ from collections import defaultdict
+ 
+-GML = '/home/claude/settlers/gml'
+-OBJ = '/home/claude/settlers/objects'
+-files = sorted(glob.glob(f'{GML}/*.gml')) + sorted(glob.glob(f'{OBJ}/*/*.gml'))
++# Relative to the project root, so run this from there. These used to be
++# absolute paths into a layout the project has not had for a long time, and
++# matched nothing at all - the checker reported a clean run because it read
++# zero files.
++GML = 'scripts'
++OBJ = 'objects'
++files = sorted(glob.glob(f'{GML}/*/*.gml')) + sorted(glob.glob(f'{OBJ}/*/*.gml'))
+ 
+ def strip_comments(t):
++    # ORDER MATTERS: strings before line comments, not after. A URL inside a
++    # string literal contains "//", and stripping line comments first eats the
++    # rest of that line INCLUDING the closing quote. The next quote anywhere in
++    # the file then closes the string instead, and everything between - whole
++    # functions, enums, swathes of the file - drops out of the scan. It shows up
++    # as a couple of unrelated symbols suddenly being "not defined anywhere",
++    # which is a maddening thing to chase. The string pattern also stops at a
++    # newline now, so one stray quote can cost at most the line it sits on.
+     t = re.sub(r'/\*.*?\*/', lambda m: ' ' * len(m.group(0)), t, flags=re.S)
++    t = re.sub(r'"(?:\\.|[^"\\\n])*"', '""', t)
+     t = re.sub(r'//[^\n]*', '', t)
+-    t = re.sub(r'"(?:\\.|[^"\\])*"', '""', t)
+     return t
+ 
+ src = {}
+diff --git a/version.txt b/version.txt
+new file mode 100644
+index 00000000..44f8752a
+--- /dev/null
++++ b/version.txt
+@@ -0,0 +1,11 @@
++1.0.1.0
++
++The first line of this file is the newest released version of SettlersGM, and
++the running game compares it against its own (Game Options -> Version) to decide
++whether to say UPDATE on the start screen. Bump it when a new build goes out,
++not when the source changes - anyone running the previous build will see it
++within seconds of reaching the menu.
++
++Only the first line is read. Anything below it, including this, is ignored, so
++notes or a download link can be added here without breaking builds already out
++in the world.

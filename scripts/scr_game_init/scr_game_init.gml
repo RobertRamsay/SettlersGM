@@ -23,6 +23,177 @@
 
 #macro GAME_INIT_VERSION "SettlersGM"
 
+// ---------------------------------------------------------------------------
+// Version, and the update check behind the line at the bottom of the start
+// screen.
+//
+// The running build's version is GM_version, which is the string set in Game
+// Options for the target platform - so bumping the version is done in the IDE
+// where it belongs, and nothing here has to be kept in step with it by hand.
+//
+// The latest available version is one line of text in the repository, fetched
+// over HTTP at startup. A plain text file rather than JSON on purpose: there is
+// nothing to parse, nothing to go wrong with a struct that turned out not to
+// have the field, and it is one keystroke to edit. Only the FIRST line is read,
+// so notes, a download URL or anything else can be added underneath later
+// without breaking a build that is already out in the world.
+// ---------------------------------------------------------------------------
+
+#macro UPDATE_CHECK_URL "https://raw.githubusercontent.com/RobertRamsay/SettlersGM/main/version.txt"
+
+/// The version this build reports, from Game Options.
+function game_version() {
+    return string(GM_version);
+}
+
+/// Everything the update check owns, laid out before anything can read it.
+/// Called from obj_game Create.
+function update_check_init() {
+    global.update_request_id = -1;
+    global.update_latest = "";
+    global.update_available = false;
+    global.update_checked = false;
+}
+
+/// Fire the request. Nothing waits on it: the answer turns up in obj_game's
+/// Async HTTP event whenever it turns up, and if it never does - no network, a
+/// proxy, GitHub having a bad day - the start screen simply never grows the
+/// extra word. An update check is not allowed to be a reason the game does not
+/// start.
+function update_check_start() {
+    update_check_init();
+    global.update_request_id = http_get(UPDATE_CHECK_URL);
+}
+
+/// First line of a fetched file, without its line ending or surrounding space.
+function update_first_line(_text) {
+    var _s = string(_text);
+    var _cut = string_length(_s);
+
+    var _nl = string_pos("\n", _s);
+    if (_nl > 0) {
+        _cut = _nl - 1;
+    }
+    var _cr = string_pos("\r", _s);
+    if (_cr > 0 && _cr - 1 < _cut) {
+        _cut = _cr - 1;
+    }
+
+    return string_trim(string_copy(_s, 1, _cut));
+}
+
+/// Is this a version and nothing else? Digits and dots, at least one digit, and
+/// short enough to be one. Anything else - a 404 page, a login redirect, an
+/// error from a captive portal - is thrown away rather than displayed.
+function update_looks_like_version(_str) {
+    var _n = string_length(_str);
+    if (_n < 1 || _n > 24) {
+        return false;
+    }
+
+    /* string_pos against a set of characters rather than `_c >= "0"`: the
+       relational operators are for numbers, and what GML does with them on two
+       strings is not something worth finding out at a customer's machine. */
+    var _digits = 0;
+    for (var _i = 1; _i <= _n; _i++) {
+        var _c = string_char_at(_str, _i);
+        if (_c == ".") {
+            continue;
+        }
+        if (string_pos(_c, "0123456789") == 0) {
+            return false;
+        }
+        _digits += 1;
+    }
+
+    return (_digits > 0);
+}
+
+/// The _index'th dot-separated number of a version string, or 0 past the end.
+/// Hand-rolled rather than string_split so that a version with any number of
+/// parts compares against one with any other: "1.2" and "1.2.0.0" are equal.
+function update_version_part(_str, _index) {
+    var _from = 1;
+    var _n = string_length(_str);
+    var _part = 0;
+
+    while (_part <= _index) {
+        var _to = _from;
+        while (_to <= _n && string_char_at(_str, _to) != ".") {
+            _to += 1;
+        }
+        if (_part == _index) {
+            if (_to == _from) {
+                return 0;
+            }
+            return real(string_copy(_str, _from, _to - _from));
+        }
+        if (_to > _n) {
+            return 0;
+        }
+        _from = _to + 1;
+        _part += 1;
+    }
+
+    return 0;
+}
+
+/// Is _latest newer than _current? Compared number by number, never as strings,
+/// because "1.0.10.0" sorts BEFORE "1.0.9.0" alphabetically and that would
+/// announce an update that is really a downgrade.
+function update_version_is_newer(_latest, _current) {
+    for (var _i = 0; _i < 6; _i++) {
+        var _l = update_version_part(_latest, _i);
+        var _c = update_version_part(_current, _i);
+        if (_l > _c) {
+            return true;
+        }
+        if (_l < _c) {
+            return false;
+        }
+    }
+
+    return false;
+}
+
+/// obj_game's Async HTTP event hands the map straight here.
+function update_check_handle_async(_async) {
+    if (global.update_request_id < 0) {
+        return;
+    }
+    if (_async[? "id"] != global.update_request_id) {
+        return;
+    }
+
+    var _status = _async[? "status"];
+    if (_status == 1) {
+        /* Still downloading. */
+        return;
+    }
+
+    global.update_request_id = -1;
+    global.update_checked = true;
+
+    if (_status != 0) {
+        show_debug_message("update: check failed, status " + string(_status));
+        return;
+    }
+    if (_async[? "http_status"] != 200) {
+        show_debug_message("update: check got HTTP " + string(_async[? "http_status"]));
+        return;
+    }
+
+    var _latest = update_first_line(_async[? "result"]);
+    if (!update_looks_like_version(_latest)) {
+        show_debug_message("update: ignoring unrecognised version file");
+        return;
+    }
+
+    global.update_latest = _latest;
+    global.update_available = update_version_is_newer(_latest, game_version());
+    show_debug_message("update: running " + game_version() + ", latest " + _latest);
+}
+
 /// GameInitBox::Action
 enum GameInitAction {
     start_game = 0,
@@ -408,7 +579,22 @@ function GameInitBox(_interface) : GuiObject() constructor {
         }
 
         /* Display program name and version in caption */
-        draw_box_string(0, 212, GAME_INIT_VERSION);
+        draw_box_string(0, 212, GAME_INIT_VERSION + " " + game_version());
+
+        /* And, when the repository says there is a newer build than this one,
+           a word about it on the same line. Right-aligned against the exit
+           icon (column 38, so the last column it may use is 37) rather than
+           placed at a fixed column, because the length depends on how many
+           parts the new version number has. Clamped so it can never back into
+           the name on the left. */
+        if (global.update_available) {
+            var _note = "UPDATE " + global.update_latest;
+            var _col = 37 - string_length(_note);
+            if (_col < 19) {
+                _col = 19;
+            }
+            draw_box_string(_col, 212, _note);
+        }
 
         draw_box_icon(38, 208, 60); /* exit */
     };

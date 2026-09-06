@@ -100,6 +100,13 @@ global.map_drag_invert = false;
 // Slot the next F5 writes to / the last one loaded. 0..SAVEGAME_SLOTS-1.
 global.save_slot = 0;
 
+// Ask the repository what the newest build is, for the line at the bottom of
+// the start screen. This only starts the request - the answer lands in the
+// Async HTTP event (Other_62) whenever it lands, or never, and either way the
+// game carries on. update_check_start() lays out its own globals first, so the
+// start screen can read them on the very first frame.
+update_check_start();
+
 // Show the start screen over the freshly built game rather than dropping
 // straight into it, so START and LOAD are reachable. Ctrl+N reopens it.
 interface.open_game_init();
