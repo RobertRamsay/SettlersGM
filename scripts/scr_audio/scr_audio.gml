@@ -79,21 +79,28 @@ enum Sfx {
 #macro SFX_EDGE_GAIN 0.08
 #macro SFX_CUTOFF 1.15
 
-/// Hard left/right at the edge of the view would be seasick; this caps it.
-/// Set it to 0 to turn stereo placement off entirely - everything then plays
-/// dead centre and only the volume falloff remains.
-#macro SFX_PAN_MAX 0.8
+/// How far to one side a sound at the very edge of the view is placed. 1 is
+/// the full width of the stereo image; anything less pulls everything in
+/// towards the middle, which is what made the first attempt so subtle it was
+/// easy to miss.
+#macro SFX_PAN_MAX 1.0
 
-/// How far to either side of the listener a fully panned voice's emitter sits,
-/// in the audio engine's own units. Any value well inside SFX_PAN_REF gives the
-/// same answer, because the whole point is that this distance must not affect
-/// the gain - only the direction.
-#macro SFX_PAN_DISTANCE 64
+/// How far to either side of the listener a fully panned voice's emitter sits.
+/// The number itself does not matter to the panning - the direction from the
+/// listener does, and that is the same at any distance along the axis - but a
+/// source sitting almost on top of the listener is exactly where a spatialiser
+/// is least sure which ear it belongs to, so it is worth putting real distance
+/// between them.
+#macro SFX_PAN_DISTANCE 500
 
-/// Falloff reference and maximum distance given to every voice emitter. Far
-/// enough away that no emitter is ever attenuated by the engine's own
-/// distance model, whichever model the project happens to be using.
-#macro SFX_PAN_REF 1000000
+/// Falloff reference and maximum distance for every voice emitter. Reference =
+/// the pan distance means a fully panned emitter sits exactly ON the reference
+/// distance and everything nearer is clamped to it, so under every one of
+/// GameMaker's falloff models the engine's distance gain works out at exactly
+/// 1. Loudness stays entirely ours; the emitter only ever decides the ear.
+/// (max must not equal ref: the linear model divides by their difference.)
+#macro SFX_PAN_REF SFX_PAN_DISTANCE
+#macro SFX_PAN_MAX_DIST (SFX_PAN_DISTANCE * 2)
 
 /// Whether voices go out through their emitters (which is the only way GML
 /// offers to pan a sound) or straight through audio_play_sound with the gain
@@ -106,6 +113,22 @@ enum Sfx {
 /// emitters - positional audio needs mono samples and a listener at the
 /// origin, and a machine or a sound asset can fail either.
 #macro SFX_USE_EMITTERS true
+
+/// Is stereo placement on? The options popup toggles this; Mono plays every
+/// effect dead centre and leaves the distance-from-centre volume alone.
+function sfx_stereo_enabled() {
+    audio_get_instance();
+    return global.sfx_stereo;
+}
+
+function sfx_set_stereo(_on) {
+    audio_get_instance();
+    global.sfx_stereo = _on;
+}
+
+function sfx_toggle_stereo() {
+    sfx_set_stereo(!sfx_stereo_enabled());
+}
 
 /// Where the ear is. The viewport refreshes this every time it redraws itself;
 /// until then, and on the start screen, there is no view and positional sounds
@@ -227,15 +250,20 @@ function sfx_start(_asset, _gain, _pan, _force) {
        therefore owns an emitter, which is moved left or right of the listener
        and given the voice's gain BEFORE the sound starts on it, so nothing is
        ever heard at full level or in the wrong ear for a frame first.
-       audio_emitter_falloff() has already put the reference distance far
-       beyond SFX_PAN_DISTANCE, so moving the emitter changes which speaker the
-       sound comes from and never how loud it is: distance is our business, not
-       the audio engine's. */
+       audio_emitter_falloff() has set the reference distance so that no
+       emitter position we ever use is attenuated, so moving the emitter
+       changes which speaker the sound comes from and never how loud it is:
+       distance is our business, not the audio engine's. */
+    var _place_pan = _pan;
+    if (!global.sfx_stereo) {
+        _place_pan = 0;
+    }
+
     var _handle = -1;
     if (SFX_USE_EMITTERS) {
         var _emitter = global.sfx_voice_emitter[_slot];
         audio_emitter_gain(_emitter, _gain * SFX_BASE_GAIN);
-        audio_emitter_position(_emitter, _pan * SFX_PAN_DISTANCE, 0, 0);
+        audio_emitter_position(_emitter, _place_pan * SFX_PAN_DISTANCE, 0, 0);
         _handle = audio_play_sound_on(_emitter, _asset, false, 10);
     } else {
         _handle = audio_play_sound(_asset, 10, false);
@@ -316,10 +344,24 @@ function audio_init() {
     global.sfx_recent_time = array_create(SFX_RECENT, -100000);
     global.sfx_recent_next = 0;
 
+    /* Stereo placement on by default. Mono only zeroes the pan; the
+       distance-from-centre volume is not a stereo effect and stays either way. */
+    global.sfx_stereo = true;
+
+    /* Pin the ear before anything is placed against it. These are the usual
+       defaults - at the origin, facing -Z with +Y up - and the cross product of
+       those two puts +X at the right-hand speaker, which is exactly what
+       sfx_place() assumes when it hands back a pan taken from the horizontal
+       offset. Stating them costs nothing and means the whole stereo image no
+       longer rests on an assumption about what the runtime happens to start
+       with. */
+    audio_listener_position(0, 0, 0);
+    audio_listener_orientation(0, 0, -1, 0, 1, 0);
+
     /* One emitter per voice. GML has no function that pans a playing sound;
        stereo placement comes only from where an emitter sits relative to the
        listener, so a voice that can be panned has to own one. The falloff
-       reference is pushed far beyond any position we will ever use, which
+       reference is set so that no position we ever use is attenuated, which
        takes the engine's distance model out of the gain entirely - the
        emitter's position decides the ear, sfx_place() decides the level, and
        the two never argue. Created once and kept for the life of the process;
@@ -330,7 +372,7 @@ function audio_init() {
         /* max is deliberately not equal to ref: the linear falloff model
            divides by (max - ref), and this project never sets a model, so it
            must be safe under whichever one is the default. */
-        audio_emitter_falloff(_em, SFX_PAN_REF, SFX_PAN_REF * 2, 1);
+        audio_emitter_falloff(_em, SFX_PAN_REF, SFX_PAN_MAX_DIST, 1);
         audio_emitter_position(_em, 0, 0, 0);
         audio_emitter_gain(_em, 1);
         global.sfx_voice_emitter[_v] = _em;

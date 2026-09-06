@@ -372,7 +372,10 @@ enum Action {
     /* Not in Freeserf: the end-of-game box. Appended, never inserted, so the
        numbering of everything above is untouched. */
     game_end_continue,
-    game_end_menu
+    game_end_menu,
+    /* Not in Freeserf either: Mono / Stereo for the sound effects. Appended for
+       the same reason. */
+    options_sfx_stereo
 }
 
 /// Static tables for popup.cc (the local `const int layout[]` arrays of the

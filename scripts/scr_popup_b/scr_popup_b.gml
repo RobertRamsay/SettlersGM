@@ -682,6 +682,22 @@ function popup_draw_options_box(_popup) {
     _popup.draw_green_string(1, 110, "Invert");
     _popup.draw_green_string(11, 110, _invert_value);
 
+    /* Not in the original: the Amiga had four channels and one mix, so there
+       was nothing to choose. Stereo places each effect across the sound stage
+       by where it is on screen; Mono puts everything dead centre. The
+       distance-from-centre VOLUME is not a stereo effect and applies either
+       way, so Mono is a narrower picture, not a flatter one.
+
+       Bottom band, left of the exit icon: every row above is taken. "Stereo"
+       is six characters from column 5, so it ends at x 88 and stays clear of
+       the icon at 112. */
+    var _stereo_value = "Mono";
+    if (sfx_stereo_enabled()) {
+        _stereo_value = "Stereo";
+    }
+    _popup.draw_green_string(1, 128, "Sfx");
+    _popup.draw_green_string(5, 128, _stereo_value);
+
     _popup.draw_popup_icon(14, 128, 60); /* exit */
 }
 
