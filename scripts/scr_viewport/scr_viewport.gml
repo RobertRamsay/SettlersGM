@@ -12,7 +12,6 @@
 #macro MAP_TILE_HEIGHT 20
 #macro MAP_TILE_TEXTURES 33
 #macro MAP_TILE_MASKS 81
-#macro MAX_ZOOM 4
 
 #macro MAP_TILE_COLS 16
 #macro MAP_TILE_ROWS 16
@@ -536,16 +535,26 @@ function Viewport(_interface, _map) : GuiObject() constructor {
     // reproduces the original's redraw cadence instead of redrawing at 60 Hz.
     frame_surface = -1;
 
-    // Integer pixel zoom. The viewport always renders at 1:1 into a surface of
-    // width x height (which is the *logical* size, screen size div zoom) and
-    // that surface is then blitted at `zoom` scale, so zooming never resamples.
+    // The viewport always renders the map at 1:1 into a surface of width x
+    // height - the *logical* size, which is the on-screen size divided by the
+    // zoom - and that surface is then blitted at `zoom` scale. Nothing is ever
+    // resampled on the way in, whichever way the zoom goes.
+    //
+    // Zooming OUT is the same mechanism with a scale below 1: the surface
+    // becomes larger than the window (twice the width and height at 0.5, so
+    // four times the map is drawn) and is blitted down to fit. Zooming in past
+    // 2x was dropped - it only ever showed you bigger pixels - and the steps
+    // stop at 0.5 because at 2x screen size the surface is already the biggest
+    // thing this renderer allocates.
+    zoom_steps = [0.5, 1, 2];
+    zoom_index = 1;
     zoom = 1;
     screen_width = 0;
     screen_height = 0;
     // A drag delta arrives in screen pixels and the map can only move by whole
     // *map* pixels, so dividing by the zoom leaves a remainder. It is carried
-    // here into the next event rather than dropped: at 4x, dropping it threw
-    // away up to 3 pixels of every event, which is most of a slow drag.
+    // here into the next event rather than dropped: at 2x, dropping it threw
+    // away up to a pixel of every event, which is most of a slow drag.
     drag_carry_x = 0;
     drag_carry_y = 0;
 
@@ -854,8 +863,12 @@ function Viewport(_interface, _map) : GuiObject() constructor {
     static set_size = function(_new_width, _new_height) {
         screen_width = _new_width;
         screen_height = _new_height;
-        width = _new_width div zoom;
-        height = _new_height div zoom;
+        /* ceil, not div: at a zoom below 1 the logical size is LARGER than the
+           screen and is very unlikely to divide exactly, and a logical size
+           rounded down leaves a strip of the window with nothing blitted over
+           it. Overdrawing by a pixel costs nothing. */
+        width = ceil(_new_width / zoom);
+        height = ceil(_new_height / zoom);
         layout();
         set_redraw();
     };
@@ -864,20 +877,40 @@ function Viewport(_interface, _map) : GuiObject() constructor {
         return zoom;
     };
 
-    /// 1..MAX_ZOOM. Keeps whatever map position is under the middle of the
-    /// view centred, so zooming does not throw you across the map.
-    static set_zoom = function(_new_zoom) {
-        var _z = clamp(_new_zoom, 1, MAX_ZOOM);
-        if (_z == zoom) {
+    static get_zoom_index = function() {
+        return zoom_index;
+    };
+
+    /// Step through zoom_steps. Keeps whatever map position is under the middle
+    /// of the view centred, so zooming does not throw you across the map.
+    static set_zoom_index = function(_new_index) {
+        var _i = clamp(_new_index, 0, array_length(zoom_steps) - 1);
+        if (_i == zoom_index) {
             return;
         }
 
         var _centre = get_current_map_pos();
-        zoom = _z;
+        zoom_index = _i;
+        zoom = zoom_steps[_i];
         drag_carry_x = 0;
         drag_carry_y = 0;
         set_size(screen_width, screen_height);
         move_to_map_pos(_centre);
+    };
+
+    /// Kept for anything that thinks in scale factors (a save, the console).
+    /// Snaps to the nearest step rather than rejecting an unlisted value.
+    static set_zoom = function(_new_zoom) {
+        var _best = 0;
+        var _best_d = abs(zoom_steps[0] - _new_zoom);
+        for (var _i = 1; _i < array_length(zoom_steps); _i++) {
+            var _d = abs(zoom_steps[_i] - _new_zoom);
+            if (_d < _best_d) {
+                _best_d = _d;
+                _best = _i;
+            }
+        }
+        set_zoom_index(_best);
     };
 
     static layout = function() {
@@ -2530,9 +2563,20 @@ function Viewport(_interface, _map) : GuiObject() constructor {
         gfx_set_origin(0, 0);
         if (zoom == 1) {
             draw_surface(frame_surface, _pos[0], _pos[1]);
-        } else {
+        } else if (zoom > 1) {
+            /* Magnifying: point sampling, so a pixel stays a pixel. */
             draw_surface_ext(frame_surface, _pos[0], _pos[1], zoom, zoom,
                              0, c_white, 1);
+        } else {
+            /* Shrinking: point sampling here would simply throw away every
+               other row and column, and a road or a serf is one or two pixels
+               wide - they would blink in and out as the map scrolled. Filter
+               this blit, and only this one, so the discarded detail is
+               averaged in instead of dropped. */
+            gpu_set_texfilter(true);
+            draw_surface_ext(frame_surface, _pos[0], _pos[1], zoom, zoom,
+                             0, c_white, 1);
+            gpu_set_texfilter(false);
         }
 
         // Floats (the viewport has none in Freeserf, but keep the contract).
@@ -2578,9 +2622,12 @@ function Viewport(_interface, _map) : GuiObject() constructor {
             drag_carry_y = _rest_y - _dy * zoom;
         }
 
+        /* floor of a real division rather than `div`: at a zoom below 1 this
+           is a multiplication, and `div` truncates towards zero, which would
+           put a click one pixel off above and left of the origin. */
         var _scaled = gui_make_event(_event.type,
-                                     x + (_event.x - x) div zoom,
-                                     y + (_event.y - y) div zoom,
+                                     x + floor((_event.x - x) / zoom),
+                                     y + floor((_event.y - y) / zoom),
                                      _dx,
                                      _dy,
                                      _event.button);

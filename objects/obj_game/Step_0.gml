@@ -169,7 +169,11 @@ if (keyboard_check_pressed(vk_f11)) {
     savegame_self_test(interface.get_game());
 }
 
-// ---- mouse wheel: integer pixel zoom, 1x to 4x
+// ---- mouse wheel: zoom, half size / normal / double
+// The steps are not evenly spaced, so this walks the viewport's own table
+// rather than adding to the scale factor. Wheel up goes in, wheel down goes
+// out, and out is the useful direction: it is how you see enough of the map to
+// plan where the next road is going.
 if (mouse_wheel_up() || mouse_wheel_down()) {
     var _viewport = interface.get_viewport();
     if (_viewport != undefined) {
@@ -179,7 +183,7 @@ if (mouse_wheel_up() || mouse_wheel_down()) {
         } else {
             _step = -1;
         }
-        _viewport.set_zoom(_viewport.get_zoom() + _step);
+        _viewport.set_zoom_index(_viewport.get_zoom_index() + _step);
     }
 }
 
