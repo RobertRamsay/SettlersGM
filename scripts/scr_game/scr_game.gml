@@ -1625,23 +1625,32 @@ function Game() constructor {
     };
 
     /* Checks whether a mine is possible at position. */
+    /// The six terrain triangles around a position, without building an array
+    /// to hold them.
+    ///
+    /// It read better with the array, and for the simulation it made no
+    /// difference. The build-possibility overlay calls this once per visible
+    /// tile per frame, though, which turned a tidy six-element literal into a
+    /// few hundred allocations a frame for the garbage collector to deal with.
+    /// The two move_up_left calls are shared for the same reason.
     static can_build_mine = function(_pos) {
+        var _up_left = map.move_up_left(_pos);
         var _can_build = false;
 
-        var _types = [
-            map.get_type_down(_pos),
-            map.get_type_up(_pos),
-            map.get_type_down(map.move_left(_pos)),
-            map.get_type_up(map.move_up_left(_pos)),
-            map.get_type_down(map.move_up_left(_pos)),
-            map.get_type_up(map.move_up(_pos))
-        ];
-
         for (var _i = 0; _i < 6; _i++) {
-            if (_types[_i] >= Terrain.tundra0 && _types[_i] <= Terrain.snow0) {
+            var _t = 0;
+            switch (_i) {
+            case 0: _t = map.get_type_down(_pos); break;
+            case 1: _t = map.get_type_up(_pos); break;
+            case 2: _t = map.get_type_down(map.move_left(_pos)); break;
+            case 3: _t = map.get_type_up(_up_left); break;
+            case 4: _t = map.get_type_down(_up_left); break;
+            default: _t = map.get_type_up(map.move_up(_pos)); break;
+            }
+
+            if (_t >= Terrain.tundra0 && _t <= Terrain.snow0) {
                 _can_build = true;
-            } else if (!(_types[_i] >= Terrain.grass0 &&
-                         _types[_i] <= Terrain.grass3)) {
+            } else if (!(_t >= Terrain.grass0 && _t <= Terrain.grass3)) {
                 return false;
             }
         }

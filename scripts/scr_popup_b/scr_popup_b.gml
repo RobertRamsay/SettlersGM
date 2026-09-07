@@ -926,8 +926,8 @@ function popup_draw_defenders_box(_popup) {
         _next_knight = _serf.get_next();
     }
 
-    _popup.draw_green_string(0, 128, "State:");
-    _popup.draw_green_number(7, 128, _building.get_threat_level());
+    //_popup.draw_green_string(0, 128, "State:");
+    //_popup.draw_green_number(7, 128, _building.get_threat_level());
 
     _popup.draw_popup_icon(14, 128, 0x3c); /* Exit box */
 }

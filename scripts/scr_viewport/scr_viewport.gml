@@ -2388,6 +2388,22 @@ function Viewport(_interface, _map) : GuiObject() constructor {
 
         var _game = interface.get_game();
 
+        /* Hoisted out of the loop. get_player() was being called up to three
+           times per tile, and has_castle() twice - once inside
+           can_build_castle and once inside can_player_build - for every tile
+           on screen, every frame. */
+        var _player = interface.get_player();
+        var _space = global.map_space_from_obj;
+
+        /* The two branches below are mutually exclusive and the question is
+           settled once, here, rather than per tile: can_build_castle returns
+           false immediately when the player HAS a castle, and can_player_build
+           returns false immediately when they do not. */
+        var _has_castle = false;
+        if (_player != undefined) {
+            _has_castle = _player.has_castle();
+        }
+
         for (var _x_base = _x_off; _x_base < width + MAP_TILE_WIDTH; _x_base += MAP_TILE_WIDTH) {
             var _pos = _base_pos;
             var _y_base = _y_off;
@@ -2406,20 +2422,43 @@ function Viewport(_interface, _map) : GuiObject() constructor {
                     break;
                 }
 
-                /* Draw possible building */
+                /* Draw possible building.
+
+                   Same answer as before, asked in a cheaper order. The two
+                   tests below - is the square empty, are there no paths across
+                   it - are one array lookup each, and between them they reject
+                   most of the map: every tree, rock, building, flag and road.
+                   They used to be reached only AFTER can_player_build had
+                   walked a seven-tile spiral checking ownership, for every one
+                   of those tiles, every frame.
+
+                   Both are already inside the predicates that follow, so
+                   nothing new is being decided here - it is the same question
+                   asked before the expensive one instead of after it. */
                 var _sprite = -1;
-                if (_game.can_build_castle(_pos, interface.get_player())) {
-                    _sprite = 50;
-                } else if (_game.can_player_build(_pos, interface.get_player()) &&
-                           global.map_space_from_obj[map.get_obj(_pos)] == Space.open &&
-                           (_game.can_build_flag(map.move_down_right(_pos), interface.get_player()) ||
-                            map.has_flag(map.move_down_right(_pos)))) {
-                    if (_game.can_build_mine(_pos)) {
-                        _sprite = 48;
-                    } else if (_game.can_build_large(_pos)) {
-                        _sprite = 50;
-                    } else if (_game.can_build_small(_pos)) {
-                        _sprite = 49;
+                if (_space[map.get_obj(_pos)] == Space.open &&
+                    map.get_paths(_pos) == 0) {
+
+                    if (!_has_castle) {
+                        if (_game.can_build_castle(_pos, _player)) {
+                            _sprite = 50;
+                        }
+                    } else if (_game.can_player_build(_pos, _player)) {
+                        /* has_flag first: it is one map lookup, where
+                           can_build_flag is a dozen and a walk round six
+                           neighbours. The pair is an OR, so the cheap half
+                           belongs on the left. */
+                        var _flag_pos = map.move_down_right(_pos);
+                        if (map.has_flag(_flag_pos) ||
+                            _game.can_build_flag(_flag_pos, _player)) {
+                            if (_game.can_build_mine(_pos)) {
+                                _sprite = 48;
+                            } else if (_game.can_build_large(_pos)) {
+                                _sprite = 50;
+                            } else if (_game.can_build_small(_pos)) {
+                                _sprite = 49;
+                            }
+                        }
                     }
                 }
 
