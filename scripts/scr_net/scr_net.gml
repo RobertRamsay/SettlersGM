@@ -2147,6 +2147,24 @@ function net_lobby_step() {
         global.net_beacons_sent += 1;
     }
 
+    /* And the same beacon straight at every address that was typed in, not
+       only to the broadcast address.
+
+       Broadcast is the half that firewalls and wireless access points quietly
+       drop. A unicast datagram to a specific machine is ordinary traffic and
+       usually gets through where a broadcast does not - so adding an address on
+       ONE machine is enough for both to see each other: this machine learns
+       nothing new, but the far end hears from us and lists us without anybody
+       typing anything there. */
+    for (var _i = 0; _i < array_length(global.net_peers); _i++) {
+        var _p = global.net_peers[_i];
+        if (!_p.manual) {
+            continue;
+        }
+        network_send_udp(global.net_udp, _p.ip, NET_DISCOVERY_PORT, _b,
+                         buffer_tell(_b));
+    }
+
     /* Once every roughly thirty seconds, into the log, so a session that did
        not work can be read back afterwards instead of described. */
     if ((global.net_beacons_sent + global.net_send_fail) mod 40 == 1) {
@@ -2248,9 +2266,18 @@ function net_discovery_summary() {
         return "discovery off - UDP port " + string(NET_DISCOVERY_PORT)
                + " refused";
     }
-    return "sent " + string(global.net_beacons_sent)
-           + ", heard " + string(global.net_beacons_heard)
-           + " from " + string(global.net_datagrams) + " packets";
+    var _out = "id " + string(global.net_session_id)
+               + "  sent " + string(global.net_beacons_sent);
+    if (global.net_send_fail > 0) {
+        _out += " (" + string(global.net_send_fail) + " failed, last "
+                + string(global.net_last_send) + ")";
+    }
+    _out += "  in " + string(global.net_datagrams) + " pkt / "
+            + string(global.net_beacons_heard) + " beacon";
+    if (global.net_last_from != "") {
+        _out += " from " + global.net_last_from;
+    }
+    return _out;
 }
 
 function net_peer_count() {

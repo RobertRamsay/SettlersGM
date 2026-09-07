@@ -258,7 +258,7 @@ function game_init_init_tables() {
         GameInitAction.show_options,     308,  16, 32, 32,
         GameInitAction.increment,        284,  16, 16, 16,
         GameInitAction.decrement,        284,  32, 16, 16,
-        GameInitAction.close,            324, 216, 16, 16,
+        GameInitAction.close,            GAME_INIT_EXIT_X, GAME_INIT_EXIT_Y, 16, 16,
         -1
     ];
 
@@ -272,7 +272,7 @@ function game_init_init_tables() {
         GameInitAction.decrement,        220,  16,  8,  8,
         GameInitAction.gen_random,       244,  16, 16,  8,
         GameInitAction.apply_random,     244,  24, 16, 24,
-        GameInitAction.close,            324, 216, 16, 16,
+        GameInitAction.close,            GAME_INIT_EXIT_X, GAME_INIT_EXIT_Y, 16, 16,
         -1
     ];
 
@@ -282,7 +282,7 @@ function game_init_init_tables() {
         GameInitAction.toggle_game_type,  60,  16, 32, 32,
         GameInitAction.show_load,        292, 216, 32, 32,
         GameInitAction.show_options,     308,  16, 32, 32,
-        GameInitAction.close,            324, 216, 16, 16,
+        GameInitAction.close,            GAME_INIT_EXIT_X, GAME_INIT_EXIT_Y, 16, 16,
         -1
     ];
 
@@ -302,7 +302,7 @@ function game_init_init_tables() {
         GameInitAction.decrement,        NETPLAY_MISSION_X,       NETPLAY_MISSION_Y, 24, 16,
         GameInitAction.start_game,       NETPLAY_GO_X,  NETPLAY_GO_Y,  180, 16,
         GameInitAction.netplay_add,      NETPLAY_ADD_X, NETPLAY_ADD_Y, 150, 16,
-        GameInitAction.close,            324, 216, 16, 16,
+        GameInitAction.close,            GAME_INIT_EXIT_X, GAME_INIT_EXIT_Y, 16, 16,
         -1
     ];
 }
@@ -315,7 +315,7 @@ function game_init_init_tables() {
 #macro NETPLAY_ROW_X      20
 #macro NETPLAY_ROW_Y      52
 #macro NETPLAY_ROW_H      14
-#macro NETPLAY_ROW_MAX    9
+#macro NETPLAY_ROW_MAX    8
 
 /* The NET PLAY button: the last frame of spr_icon. */
 #macro NETPLAY_ICON       318
@@ -331,8 +331,8 @@ function game_init_init_tables() {
 /* ADD AN ADDRESS, below the list. Its own row rather than the bottom-right
    slot, which is where LOAD is drawn - a button that reads LOAD and adds an
    address is worse than no button. */
-#macro NETPLAY_ADD_X      20
-#macro NETPLAY_ADD_Y      188
+#macro NETPLAY_ADD_X      4
+#macro NETPLAY_ADD_Y      202
 
 /* The host's two controls, in the list's own style rather than as icons on a
    row that is otherwise empty. Drawn only when there is a host to use them. */
@@ -344,7 +344,12 @@ function game_init_init_tables() {
 /* The line above the list that says what this screen is doing right now, and
    the one under it for whatever the net layer last said. */
 #macro NETPLAY_HEAD_Y     34
-#macro NETPLAY_STATUS_Y   206
+#macro NETPLAY_STATUS_Y   184
+
+/* What discovery has managed, above the status line. Its own place rather than
+   an offset from something else, so moving one row does not silently land it on
+   top of another. */
+#macro NETPLAY_DIAG_Y     166
 
 /* How many characters fit on a line here. gfx_draw_string advances 8 pixels a
    character and nothing about it wraps or clips, so a line that is too long
@@ -352,6 +357,16 @@ function game_init_init_tables() {
    what every line of this panel was doing. Text starts at x 20 and the frame
    takes the last few pixels, so 40 is the honest number. */
 #macro NETPLAY_COLS       40
+
+/* EXIT, hard into the bottom-right corner of the frame. It was drawn by
+   draw_box_icon(38, 208), which lands at (324, 224), while every clickmap said
+   (324, 216) - so the region you could press sat eight pixels above the icon
+   you could see. One pair of numbers for both now, used by the drawing and by
+   all four clickmaps, which is what stops them drifting apart again. The frame
+   is 8 pixels thick and the icon is 16, so on a 360x254 box the corner is
+   (336, 230). */
+#macro GAME_INIT_EXIT_X   336
+#macro GAME_INIT_EXIT_Y   230
 
 /// Port of Random::Random() (random.cc lines 27-33): seed from the clock
 /// and consume one value.
@@ -679,14 +694,13 @@ function GameInitBox(_interface) : GuiObject() constructor {
             }
         }
 
-        /* What discovery has actually managed, in the corner. Sending but
-           hearing nothing is a blocked port; hearing packets but listing
-           nobody is a fault in here. The two look identical from an empty
-           list and want opposite fixes. */
-        if (_count == 0) {
-            netplay_draw_wrapped(NETPLAY_ROW_X, NETPLAY_STATUS_Y - NETPLAY_ROW_H,
-                                 net_discovery_summary(), _grey);
-        }
+        /* What discovery has actually managed, always, on both machines.
+           Sending but hearing nothing is a blocked port; hearing packets but
+           listing nobody is a fault in here. The two look identical from an
+           empty list and want opposite fixes, and comparing the two machines'
+           lines says which end is the quiet one. */
+        netplay_draw_wrapped(NETPLAY_ROW_X, NETPLAY_DIAG_Y,
+                             net_discovery_summary(), _grey);
 
         var _rows = min(_count, NETPLAY_ROW_MAX);
         for (var _i = 0; _i < _rows; _i++) {
@@ -878,7 +892,7 @@ function GameInitBox(_interface) : GuiObject() constructor {
         if (game_type != GameType.netplay) {
             draw_box_icon(34, 200, 316); /* load */
         }
-        draw_box_icon(38, 208, 60);  /* exit */
+        gfx_draw_sprite(GAME_INIT_EXIT_X, GAME_INIT_EXIT_Y, Asset.icon, 60);
     };
 
     static draw_player_box = function(_player, _bx, _by) {
