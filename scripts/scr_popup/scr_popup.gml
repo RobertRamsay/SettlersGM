@@ -2261,8 +2261,7 @@ function ListSavedFiles() : GuiObject() constructor {
     commit_handler = undefined;
     folder_path = "";
     row_height = 11;
-    /* No color_background any more - the list does not paint one. Kept out
-       rather than left set and unused, so nothing reads as if it still does. */
+    color_background = make_colour_rgb(0x00, 0x00, 0x00);
     color_selected = make_colour_rgb(0x00, 0x8b, 0x47);
     editing = false;
     edit_text = "";
@@ -2382,14 +2381,8 @@ function ListSavedFiles() : GuiObject() constructor {
             update();
         }
 
-        /* No background. The list used to paint a flat dark rectangle over its
-           whole area, which reads as a hole cut in the panel rather than part
-           of it - the box already has a background, and this was covering it.
-           The selected row still fills, because that one has a job to do.
+        gfx_fill_rect(0, 0, width, height, color_background);
 
-           The rows get a black shadow now that they are drawn over the pattern
-           instead of over a flat colour. Same pair of colours draw_box_string
-           uses everywhere else on this screen. */
         var _rows = height div row_height;
         var _n = array_length(items);
 
@@ -2420,7 +2413,7 @@ function ListSavedFiles() : GuiObject() constructor {
                 _name = string_copy(_name, 1, 17);
             }
             gfx_draw_string(1, _y + 1, _number + ". " + _name,
-                            global.popup_color_green, c_black);
+                            global.popup_color_green, -1);
         }
     };
 
