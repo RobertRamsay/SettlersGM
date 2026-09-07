@@ -16,6 +16,10 @@
 #macro MAP_TILE_COLS 16
 #macro MAP_TILE_ROWS 16
 
+// A road over water keeps the ordinary road graphic but is drawn faded, so a
+// boat route reads as something just under the surface. See draw_path_segment.
+#macro PATH_WATER_ALPHA 0.2
+
 enum ViewportLayer {
     landscape = 1 << 0,
     paths = 1 << 1,
@@ -1123,8 +1127,16 @@ function Viewport(_interface, _map) : GuiObject() constructor {
             _sprite = 2;
         }
 
+        var _alpha = 1;
+
         if (_type <= Terrain.water3) {
-            _sprite = 9;
+            /* Water. Freeserf uses ground sprite 9 here, but in this port the
+               ten path grounds are baked from map_ground tiles 10..19 and tile
+               19 is part of the SNOW ramp, not water - so a boat route came out
+               in the same grey as a mountain road. Keep the ordinary road
+               graphic and fade it instead, so the route reads as something just
+               under the surface. */
+            _alpha = PATH_WATER_ALPHA;
         } else if (_type >= Terrain.desert0) {
             /* Grey set for rock and snow alike. Sprites 3-5 are baked from the
                brown ground tiles, so a path over a mountain came out the same
@@ -1134,7 +1146,11 @@ function Viewport(_interface, _map) : GuiObject() constructor {
 
         // Frame::draw_masked_sprite(AssetPathMask, mask, AssetPathGround, sprite):
         // pre-baked as spr_path_baked frame = mask * 10 + ground.
-        draw_sprite(spr_path_baked, _mask * 10 + _sprite, global.gfx_ox + _lx, global.gfx_oy + _ly);
+        if (_alpha >= 1) {
+            draw_sprite(spr_path_baked, _mask * 10 + _sprite, global.gfx_ox + _lx, global.gfx_oy + _ly);
+        } else {
+            draw_sprite_ext(spr_path_baked, _mask * 10 + _sprite, global.gfx_ox + _lx, global.gfx_oy + _ly, 1, 1, 0, c_white, _alpha);
+        }
     };
 
     static draw_border_segment = function(_lx, _ly, _pos, _dir) {

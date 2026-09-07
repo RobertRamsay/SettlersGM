@@ -238,8 +238,15 @@ bake('map_mask_down', 81, 'map_ground', 33, 'spr_ground_down')
 # maps AssetPathGround onto get_ground_sprite(index), i.e. the same tiles as the
 # terrain, which makes a road over grass green-on-green and effectively
 # invisible. In the original the road is always the sand ramp, so bake the road
-# from ground tiles 10..19: 10-12 normal terrain, 13-15 desert, 16-18 snow,
-# 19 water (draw_path_segment adds +3 / +6 / uses 9 for those cases).
+# from ground tiles 10..19.
+#
+# What those ten tiles ACTUALLY are (measured, not assumed): 10-12 sand,
+# 13-15 darker brown, 16-19 the snow/rock greys. There is NO water tile in the
+# range - the water ground tile is 32. Freeserf's draw_path_segment picks
+# ground sprite 9 for a road over water, which here lands on tile 19 and comes
+# out the same grey as a mountain road; scr_viewport therefore keeps the
+# ordinary road sprite over water and fades it (PATH_WATER_ALPHA) instead.
+# Only sprites 0-2 (sand) and 6-8 (grey) are used.
 bake('path_mask', 27, 'map_ground', 10, 'spr_path_baked', ground_base=10)
 
 # waves: full (unmasked) waves are spr_map_waves; masked with mask 40 up/down
