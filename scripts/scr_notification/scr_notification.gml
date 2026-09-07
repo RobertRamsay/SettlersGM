@@ -184,11 +184,31 @@ function NotificationBox(_interface) : GuiObject() constructor {
         return 0x119; /* sprite_face_none */
     };
 
+    /// The opponent's face on a message box.
+    ///
+    /// Reached by seven message types including game_won and game_lost, so this
+    /// is on the path a player takes at the end of every mission they finish.
+    /// It used to call interface.get_game().get_player(...) and then .get_face()
+    /// on the result, with nothing checked in between - and the game CAN be
+    /// undefined here, because on_end_game clears it while a message box is
+    /// still on screen.
+    ///
+    /// A face of 0 draws the "no face" portrait, which is already what the
+    /// sprite lookup does with it, so there is a sensible thing to draw when
+    /// the player cannot be found.
     static draw_player_face = function(_fx, _fy, _player) {
-        var _p = interface.get_game().get_player(_player);
+        var _face = 0;
+        var _game = interface.get_game();
+        if (_game != undefined) {
+            var _p = _game.get_player(_player);
+            if (_p != undefined) {
+                _face = _p.get_face();
+            }
+        }
+
         var _color = interface.get_player_color(_player);
         gfx_fill_rect(8 * _fx, _fy, 48, 72, _color);
-        draw_icon(_fx + 1, _fy + 4, get_player_face_sprite(_p.get_face()));
+        draw_icon(_fx + 1, _fy + 4, get_player_face_sprite(_face));
     };
 
     /* Messages boxes */

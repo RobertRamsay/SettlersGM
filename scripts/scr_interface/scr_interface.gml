@@ -867,10 +867,33 @@ function Interface(_game = undefined) : GuiObject() constructor {
     };
 
     /// Returns a GameMaker colour (Freeserf Color -> make_colour_rgb).
+    /// A player's colour, or grey when there is no such player.
+    ///
+    /// This used to dereference straight through: game.get_player(i).get_color().
+    /// Ten places call it, and between them they pass a map tile's owner, a
+    /// message's data field and a loop counter - every one of which is a real
+    /// player index today, and none of which is checked here. The end-of-game
+    /// box is the tell: it nil-checks the player before asking for the face and
+    /// then hands the same index to this, unchecked, two lines later.
+    ///
+    /// The cost of being wrong is a hard crash on the victory screen, which is
+    /// the worst possible moment. Grey is a colour nobody will notice; a crash
+    /// at the end of a two-hour mission is the only thing they will remember.
     static get_player_color = function(_player_index) {
-        var _player_color = game.get_player(_player_index).get_color();
-        var _color = make_colour_rgb(_player_color.red, _player_color.green, _player_color.blue);
-        return _color;
+        if (game == undefined) {
+            return make_colour_rgb(0x80, 0x80, 0x80);
+        }
+
+        var _player = game.get_player(_player_index);
+        if (_player == undefined) {
+            show_debug_message("interface: no player " + string(_player_index) +
+                               " to take a colour from");
+            return make_colour_rgb(0x80, 0x80, 0x80);
+        }
+
+        var _player_color = _player.get_color();
+        return make_colour_rgb(_player_color.red, _player_color.green,
+                               _player_color.blue);
     };
 
     static update_map_cursor_pos = function(_pos) {

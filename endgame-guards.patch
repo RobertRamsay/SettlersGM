@@ -1,0 +1,154 @@
+From 4bc2694ba4de3171be606fe03f92639be81bbdd5 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 7 Sep 2026 22:01:39 +0000
+Subject: [PATCH] End-of-game: stop dereferencing players nobody checked
+
+An audit of the win and lose path, which is the one place a crash costs
+somebody two hours.
+
+Interface.get_player_color was game.get_player(i).get_color() with nothing
+between it and a null. Ten places call it and between them they pass a map
+tile's owner, a message's data field and a bare loop counter. Every one of
+those is a real player index today - the minimap checks has_owner first,
+the stats chart checks the player exists - so nothing is broken. But
+nothing enforces it either, and the failure is a hard crash at the exact
+moment a mission ends. It answers grey now for a player it cannot find,
+and grey for a missing game, and says so in the log.
+
+The end-of-game box is what gave the pattern away: it nil-checks the
+player before asking for the face and then hands the same index to
+get_player_color, unchecked, two lines later. Both are inside the guard
+now - two lines that read as if they trust different things about the same
+value is how the next person puts it back.
+
+NotificationBox.draw_player_face had the same shape and a live route to
+it: interface.get_game().get_player(...).get_face(), unguarded, and
+on_end_game sets the game to undefined while a message box can still be on
+screen. Seven message types reach it and two of them are game_won and
+game_lost, so it is on the path out of every finished mission. A face of 0
+already draws the "no face" portrait, so there was always something
+sensible to fall back to.
+
+Checked and found sound, for the record: check_game_over bounds-checks
+every owner before indexing; collect_opponents only lists players that
+exist; the victory box caps itself at three faces; progress_index_for_game
+returns -1 for a custom or skirmish game and every caller tests for it, so
+finishing a game with no mission number does not index the progress array.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DFktm5o1kLnS2Pgvyp8tD4
+---
+ scripts/scr_interface/scr_interface.gml       | 29 +++++++++++++++++--
+ scripts/scr_notification/scr_notification.gml | 24 +++++++++++++--
+ scripts/scr_popup_b/scr_popup_b.gml           |  8 ++++-
+ 3 files changed, 55 insertions(+), 6 deletions(-)
+
+diff --git a/scripts/scr_interface/scr_interface.gml b/scripts/scr_interface/scr_interface.gml
+index c9f4d4f9..7dd64d56 100644
+--- a/scripts/scr_interface/scr_interface.gml
++++ b/scripts/scr_interface/scr_interface.gml
+@@ -867,10 +867,33 @@ function Interface(_game = undefined) : GuiObject() constructor {
+     };
+ 
+     /// Returns a GameMaker colour (Freeserf Color -> make_colour_rgb).
++    /// A player's colour, or grey when there is no such player.
++    ///
++    /// This used to dereference straight through: game.get_player(i).get_color().
++    /// Ten places call it, and between them they pass a map tile's owner, a
++    /// message's data field and a loop counter - every one of which is a real
++    /// player index today, and none of which is checked here. The end-of-game
++    /// box is the tell: it nil-checks the player before asking for the face and
++    /// then hands the same index to this, unchecked, two lines later.
++    ///
++    /// The cost of being wrong is a hard crash on the victory screen, which is
++    /// the worst possible moment. Grey is a colour nobody will notice; a crash
++    /// at the end of a two-hour mission is the only thing they will remember.
+     static get_player_color = function(_player_index) {
+-        var _player_color = game.get_player(_player_index).get_color();
+-        var _color = make_colour_rgb(_player_color.red, _player_color.green, _player_color.blue);
+-        return _color;
++        if (game == undefined) {
++            return make_colour_rgb(0x80, 0x80, 0x80);
++        }
++
++        var _player = game.get_player(_player_index);
++        if (_player == undefined) {
++            show_debug_message("interface: no player " + string(_player_index) +
++                               " to take a colour from");
++            return make_colour_rgb(0x80, 0x80, 0x80);
++        }
++
++        var _player_color = _player.get_color();
++        return make_colour_rgb(_player_color.red, _player_color.green,
++                               _player_color.blue);
+     };
+ 
+     static update_map_cursor_pos = function(_pos) {
+diff --git a/scripts/scr_notification/scr_notification.gml b/scripts/scr_notification/scr_notification.gml
+index c1beec1b..d608a81e 100644
+--- a/scripts/scr_notification/scr_notification.gml
++++ b/scripts/scr_notification/scr_notification.gml
+@@ -184,11 +184,31 @@ function NotificationBox(_interface) : GuiObject() constructor {
+         return 0x119; /* sprite_face_none */
+     };
+ 
++    /// The opponent's face on a message box.
++    ///
++    /// Reached by seven message types including game_won and game_lost, so this
++    /// is on the path a player takes at the end of every mission they finish.
++    /// It used to call interface.get_game().get_player(...) and then .get_face()
++    /// on the result, with nothing checked in between - and the game CAN be
++    /// undefined here, because on_end_game clears it while a message box is
++    /// still on screen.
++    ///
++    /// A face of 0 draws the "no face" portrait, which is already what the
++    /// sprite lookup does with it, so there is a sensible thing to draw when
++    /// the player cannot be found.
+     static draw_player_face = function(_fx, _fy, _player) {
+-        var _p = interface.get_game().get_player(_player);
++        var _face = 0;
++        var _game = interface.get_game();
++        if (_game != undefined) {
++            var _p = _game.get_player(_player);
++            if (_p != undefined) {
++                _face = _p.get_face();
++            }
++        }
++
+         var _color = interface.get_player_color(_player);
+         gfx_fill_rect(8 * _fx, _fy, 48, 72, _color);
+-        draw_icon(_fx + 1, _fy + 4, get_player_face_sprite(_p.get_face()));
++        draw_icon(_fx + 1, _fy + 4, get_player_face_sprite(_face));
+     };
+ 
+     /* Messages boxes */
+diff --git a/scripts/scr_popup_b/scr_popup_b.gml b/scripts/scr_popup_b/scr_popup_b.gml
+index 219e4ead..fef39289 100644
+--- a/scripts/scr_popup_b/scr_popup_b.gml
++++ b/scripts/scr_popup_b/scr_popup_b.gml
+@@ -1374,6 +1374,12 @@ function popup_draw_game_end_box(_popup) {
+ /// A player who is no longer in the collection still gets his block, drawn with
+ /// the blank face - being wiped out is exactly when this box is looked at.
+ function popup_draw_game_end_face(_popup, _ix, _iy, _player, _block_width) {
++    /* The face is nil-checked and the colour is not, which was the pair that
++       gave the whole pattern away - same index, one guarded, one straight
++       through. get_player_color answers grey for a player it cannot find now,
++       so both are safe, but the colour stays inside this guard as well: two
++       lines that read as if they trust different things about the same value
++       is how the next person reintroduces it. */
+     var _face = 0;
+     var _color = -1;
+     var _game = _popup.interface.get_game();
+@@ -1381,8 +1387,8 @@ function popup_draw_game_end_face(_popup, _ix, _iy, _player, _block_width) {
+         var _p = _game.get_player(_player);
+         if (_p != undefined) {
+             _face = _p.get_face();
++            _color = _popup.interface.get_player_color(_player);
+         }
+-        _color = _popup.interface.get_player_color(_player);
+     }
+ 
+     if (_color != -1) {
+-- 
+2.43.0
+

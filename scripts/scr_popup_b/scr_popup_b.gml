@@ -1374,6 +1374,12 @@ function popup_draw_game_end_box(_popup) {
 /// A player who is no longer in the collection still gets his block, drawn with
 /// the blank face - being wiped out is exactly when this box is looked at.
 function popup_draw_game_end_face(_popup, _ix, _iy, _player, _block_width) {
+    /* The face is nil-checked and the colour is not, which was the pair that
+       gave the whole pattern away - same index, one guarded, one straight
+       through. get_player_color answers grey for a player it cannot find now,
+       so both are safe, but the colour stays inside this guard as well: two
+       lines that read as if they trust different things about the same value
+       is how the next person reintroduces it. */
     var _face = 0;
     var _color = -1;
     var _game = _popup.interface.get_game();
@@ -1381,8 +1387,8 @@ function popup_draw_game_end_face(_popup, _ix, _iy, _player, _block_width) {
         var _p = _game.get_player(_player);
         if (_p != undefined) {
             _face = _p.get_face();
+            _color = _popup.interface.get_player_color(_player);
         }
-        _color = _popup.interface.get_player_color(_player);
     }
 
     if (_color != -1) {
