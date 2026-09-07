@@ -637,10 +637,10 @@ function GameInitBox(_interface) : GuiObject() constructor {
 
     /// The NET PLAY panel.
     ///
-    /// Everyone listed here is a potential host, including us. Picking one dials
-    /// it and makes us the client; if they pick us first we become the host
-    /// instead. Nothing here declares a role in advance, because until somebody
-    /// moves there is no role to declare.
+    /// Everyone listed here is a potential opponent. Picking one dials it and
+    /// makes US the host; if they pick us first we are player 2 and nothing
+    /// here needs clicking. Nothing declares a role in advance, because until
+    /// somebody moves there is no role to declare.
     static draw_netplay = function() {
         var _white = make_colour_rgb(0xff, 0xff, 0xff);
         var _grey  = make_colour_rgb(0x90, 0x90, 0x90);
@@ -662,8 +662,8 @@ function GameInitBox(_interface) : GuiObject() constructor {
                answer differs by role. */
             if (global.net_role == NetRole.host) {
                 netplay_draw_wrapped(NETPLAY_ROW_X, NETPLAY_HEAD_Y,
-                                     "YOU ARE THE HOST - player 2 has joined",
-                                     _amber);
+                                     "YOU ARE THE HOST - " + global.net_peer_ip
+                                     + " is player 2", _amber);
 
                 var _done = "";
                 if (progress_mission_is_done(game_mission)) {
@@ -686,13 +686,14 @@ function GameInitBox(_interface) : GuiObject() constructor {
                                      "It begins on both pcs at once.", _grey);
             } else {
                 var _by = netplay_draw_wrapped(NETPLAY_ROW_X, NETPLAY_HEAD_Y,
-                                               "CONNECTED to " + global.net_peer_ip
-                                               + " - you are player 2", _amber);
+                                               global.net_peer_ip + " connected"
+                                               + " to you - you are player 2",
+                                               _amber);
                 netplay_draw_wrapped(NETPLAY_ROW_X, _by + NETPLAY_ROW_H,
-                                     "The host picks the mission and CLICKS"
-                                     + " START. Nothing to click on this pc -"
-                                     + " just wait, the game opens by itself.",
-                                     _grey);
+                                     "The other pc is the host: it picks the"
+                                     + " mission and CLICKS START. Nothing to"
+                                     + " click on this pc - just wait, the game"
+                                     + " opens by itself.", _grey);
             }
 
             if (net_status_line() != "") {
@@ -702,15 +703,17 @@ function GameInitBox(_interface) : GuiObject() constructor {
             return;
         }
 
+        /* One line only - the list starts at y 52. The rule in one breath:
+           click, and you are the host; the pc you clicked joins by itself. */
         netplay_draw_wrapped(NETPLAY_ROW_X, NETPLAY_HEAD_Y,
-                             "CLICK the other pc below to connect:", _white);
+                             "CLICK the other pc below to HOST a game:", _white);
 
         var _count = net_peer_count();
         if (_count == 0) {
             var _y = netplay_draw_wrapped(NETPLAY_ROW_X, NETPLAY_ROW_Y,
                                           "Nobody yet. Open NET PLAY on the"
-                                          + " other pc too and it appears here.",
-                                          _grey);
+                                          + " other pc too. Only ONE of you"
+                                          + " clicks.", _grey);
 
             /* Discovery needs the UDP port. Two copies on ONE machine cannot
                both have it, and a firewall can refuse it outright - in either

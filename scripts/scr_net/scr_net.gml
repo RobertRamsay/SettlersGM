@@ -402,14 +402,24 @@ function net_join(_ip) {
         return false;
     }
 
-    global.net_role  = NetRole.client;
-    global.net_phase = NetPhase.connecting;
-    global.net_local_player = 1;
+    /* The machine that clicked is the HOST. It acted first, it is the one
+       sitting at a panel expecting something to happen next, so it gets the
+       mission arrows and START; the machine it dialled becomes player 2
+       without touching anything. Which end opened the TCP connection is not
+       a game role - the lockstep is symmetric and net_peer_socket() is the
+       same one socket on both sides - so the role can go to whoever it is
+       most useful to. It used to go the other way, dialler = client, and the
+       first thing both testers did was click on both machines. */
+    global.net_role  = NetRole.host;
+    global.net_phase = NetPhase.listening;
+    global.net_local_player = 0;
+    global.net_autostart = false;
     global.net_peer_ip = string(_ip);
     ds_map_clear(global.net_turns);
     ds_map_clear(global.net_checks);
     global.net_outbox = [];
-    net_set_status("CONNECTED to " + string(_ip) + " - the host CLICKS START");
+    net_set_status("CONNECTED to " + string(_ip) + " - YOU ARE THE HOST."
+                   + " Pick a mission and CLICK START");
     show_debug_message("net: " + global.net_status);
     net_log(global.net_status);
     return true;
@@ -476,19 +486,20 @@ function net_drop_to_lobby(_why) {
     net_log("back to lobby - " + string(_why));
 }
 
-/// Somebody dialled us and we are keeping them: we are the host from here.
-function net_become_host(_socket, _their_ip) {
-    global.net_role  = NetRole.host;
-    global.net_phase = NetPhase.listening;
-    global.net_local_player = 0;
+/// Somebody dialled us and we are keeping them: they clicked, so they host,
+/// and we are player 2 from here - waiting for the start they will send.
+function net_become_client(_socket, _their_ip) {
+    global.net_role  = NetRole.client;
+    global.net_phase = NetPhase.connecting;
+    global.net_local_player = 1;
     global.net_autostart = false;
     global.net_socket = _socket;
     global.net_peer_ip = string(_their_ip);
     ds_map_clear(global.net_turns);
     ds_map_clear(global.net_checks);
     global.net_outbox = [];
-    net_set_status(string(_their_ip) + " joined - YOU ARE THE HOST. Pick a"
-                   + " mission and CLICK START");
+    net_set_status(string(_their_ip) + " connected to you - you are player 2."
+                   + " They CLICK START");
     net_log(global.net_status);
 }
 
@@ -590,68 +601,67 @@ function net_handle_async(_async) {
         show_debug_message("net: connect event, socket " + string(_their_socket)
                            + " from " + string(_their_ip));
 
-        /* Somebody picked US, which is what makes us the host. The role is
+        /* Somebody picked US. They clicked first, so they are the host and
+           we are player 2 - nothing to click on this side. The role is
            decided here rather than announced in advance, because until this
-           event arrives there is nothing to be host OF. */
+           event arrives there is nothing to be a player OF. */
         if (net_lobby_is_open() && global.net_role == NetRole.off) {
-            net_become_host(_their_socket, _their_ip);
+            net_become_client(_their_socket, _their_ip);
             return;
         }
 
         /* Both of us picked, in the same second. We have already dialled them
-           - so we are a client waiting for a start - and now they have dialled
-           us. Each machine has an outbound connection and an inbound one, and
-           if both kept the inbound both would think they were host.
-
-           This case used to be tested for while our role was still "off",
-           which it never is by the time the event arrives: net_join has
-           already made us a client. So neither machine ever ran the tie-break,
-           both sat as clients waiting for a host that did not exist, and the
-           spare sockets were left open.
+           - so we are a host with a connection - and now they have dialled us
+           and think the same. Each machine has an outbound connection and an
+           inbound one, and if both kept their own dial both would be host.
 
            The tie-break is the session id, not the address: GameMaker has no
            call that says what this machine's own IP is, and comparing
            something we do not know to something we do is not a comparison.
            Session ids we DO have both of - each machine made one at startup
-           and has been shouting it in every beacon. Lower id hosts, and the
+           and has been shouting it in every beacon. Lower id hosts and keeps
+           its dial; the other drops its own dial and keeps the inbound one -
+           which IS the lower id's dial, so both end up on the same wire. The
            two machines compare the same pair of numbers and come to opposite
-           conclusions, which is the whole requirement. */
-        if (net_lobby_is_open() && global.net_role == NetRole.client &&
-            global.net_phase == NetPhase.connecting && global.net_dialling != "") {
+           conclusions, which is the whole requirement.
+
+           And if this still leaves both believing they host - a typed-in
+           address that never shouted, say - the first START to arrive settles
+           it: see net_receive_start. */
+        if (net_lobby_is_open() && global.net_role == NetRole.host &&
+            global.net_phase == NetPhase.listening && global.net_dialling != "") {
             var _theirs = net_peer_session(_their_ip);
 
             if (_theirs >= 0 && _theirs < global.net_session_id) {
-                show_debug_message("net: both picked - they host, keeping our dial");
-                network_destroy(_their_socket);
+                show_debug_message("net: both picked - they host, dropping our dial");
+                if (global.net_socket >= 0) {
+                    network_destroy(global.net_socket);
+                    global.net_socket = -1;
+                }
+                global.net_dialling = "";
+                net_become_client(_their_socket, _their_ip);
                 return;
             }
 
             if (_theirs < 0) {
-                /* Never heard them shout, so there is nothing to compare - a
-                   typed-in address that is not broadcasting. Keep our own dial
-                   and refuse theirs. If they do the same we both end up back
-                   in the lobby with nothing connected, which is visible and
-                   recoverable; two machines both believing they are host would
-                   not be. */
+                /* Never heard them shout, so there is nothing to compare.
+                   Keep our own dial and refuse theirs; if they do the same,
+                   both are host on two dead wires until one presses START,
+                   and the start message is what sorts that out. */
                 show_debug_message("net: both picked, no beacon from them - "
                                    + "refusing their dial, keeping ours");
                 network_destroy(_their_socket);
                 return;
             }
 
-            show_debug_message("net: both picked - we host, dropping our dial");
-            if (global.net_socket >= 0) {
-                network_destroy(global.net_socket);
-                global.net_socket = -1;
-            }
-            global.net_dialling = "";
-            net_become_host(_their_socket, _their_ip);
+            show_debug_message("net: both picked - we host, refusing their dial");
+            network_destroy(_their_socket);
             return;
         }
 
         /* F7's host, waiting on its own. */
         if (global.net_role == NetRole.host && global.net_phase == NetPhase.listening &&
-            global.net_socket < 0) {
+            global.net_socket < 0 && global.net_dialling == "") {
             global.net_socket = _their_socket;
             global.net_peer_ip = string(_their_ip);
             net_set_status("player 2 joined");
@@ -728,7 +738,7 @@ function net_handle_async(_async) {
 
     switch (_msg) {
     case NetMsg.start:
-        net_receive_start(_b);
+        net_receive_start(_b, _async[? "id"]);
         break;
     case NetMsg.turn:
         net_receive_turn(_b);
@@ -742,19 +752,31 @@ function net_handle_async(_async) {
     }
 }
 
-function net_receive_start(_b) {
+function net_receive_start(_b, _from_socket) {
     var _mission = buffer_read(_b, buffer_s16);
     var _s0 = buffer_read(_b, buffer_u16);
     var _s1 = buffer_read(_b, buffer_u16);
     var _s2 = buffer_read(_b, buffer_u16);
 
     show_debug_message("net: start, mission " + string(_mission + 1) +
-                       " seed " + string(_s0) + "/" + string(_s1) + "/" + string(_s2));
+                       " seed " + string(_s0) + "/" + string(_s1) + "/" + string(_s2)
+                       + " on socket " + string(_from_socket));
+
+    /* A start arriving while we are already in a game is the other machine
+       having pressed START in the same instant we did, both believing they
+       host. Ours went first from where we sit, so we keep hosting and log
+       it; they will see the same from their side and one of the two games
+       will be abandoned by hand. Rare enough to be told, not solved. */
+    if (net_is_running()) {
+        net_log("start from the peer ignored - already in a game as host");
+        return;
+    }
 
     /* obj_game picks this up on its next step - starting a game from inside the
        async event would rebuild the float list while the event that is walking
        it has not returned. */
-    global.net_pending_start = { mission: _mission, s0: _s0, s1: _s1, s2: _s2 };
+    global.net_pending_start = { mission: _mission, s0: _s0, s1: _s1, s2: _s2,
+                                 socket: _from_socket };
 }
 
 function net_receive_turn(_b) {
@@ -1979,6 +2001,26 @@ function net_host_start_game(_interface, _mission_index) {
 /// Client: build the same game from what the host sent, and adopt its RNG
 /// state so both machines draw the same numbers from the same point.
 function net_client_start_game(_interface, _start) {
+    /* The first START to arrive settles who hosts. If we still believed we
+       were the host - both machines clicked each other and the tie-break had
+       nothing to go on - the other side has pressed START first and that is
+       that: we are player 2, and the wire the start came in on is the game's
+       wire. Whatever other socket we were holding goes. */
+    if (global.net_role == NetRole.host) {
+        net_log("start arrived while we thought we were host - they host");
+        if (is_real(_start.socket) && _start.socket >= 0 &&
+            _start.socket != global.net_socket) {
+            if (global.net_socket >= 0) {
+                network_destroy(global.net_socket);
+            }
+            global.net_socket = _start.socket;
+        }
+        global.net_dialling = "";
+        global.net_role = NetRole.client;
+        global.net_phase = NetPhase.connecting;
+        global.net_local_player = 1;
+    }
+
     var _game = new Game();
     var _mission = game_info_get_mission(_start.mission);
     if (_mission.instantiate(_game) == undefined) {
@@ -2115,12 +2157,13 @@ function net_begin(_interface, _game, _local_player) {
 
 // ================================================================ the lobby
 //
-// Every instance with the NET PLAY panel open is a potential host. It listens
+// Every instance with the NET PLAY panel open is a potential player. It listens
 // on NET_PORT the whole time, and it shouts on NET_DISCOVERY_PORT once a second
-// so the others can list it. Roles are settled by who moves first: connect out
-// and you are the client, get connected to and you are the host. Nobody
-// declares a role in advance, because you cannot know which you will be until
-// somebody picks.
+// so the others can list it. Roles are settled by who moves first: CLICK the
+// other pc and you are the host - you pick the mission and press START - and
+// the pc you clicked is player 2 without doing anything. Nobody declares a
+// role in advance, because you cannot know which you will be until somebody
+// picks.
 //
 // The one case that needs a rule is both players picking each other inside the
 // same second. Then each machine has an outbound connection AND an inbound one,
@@ -2551,7 +2594,7 @@ function net_forget_peer(_ip) {
 
 // ------------------------------------------------------------ picking one
 
-/// Pick a peer: dial it. If it answers we are the client and it is the host.
+/// Pick a peer: dial it. If it answers we are the host and it is player 2.
 function net_lobby_pick(_ip) {
     if (net_is_active()) {
         return false;
