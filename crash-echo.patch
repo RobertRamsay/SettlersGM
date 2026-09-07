@@ -1,0 +1,49 @@
+From 493dc721d11505fc8ff8c8aa4b550d70dbda5580 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 7 Sep 2026 22:26:34 +0000
+Subject: [PATCH] Put the crash report in the output log as well as the file
+
+The handler wrote settlers_crash.txt and then logged, in full, that it
+had written settlers_crash.txt. Which is exactly no help when the game is
+running from the IDE: the output window is open, the developer is watching
+it, and the one thing it does not say is what went wrong. A crash in
+combat came back as three words and a file path.
+
+The file is for the player's machine. The output log is for this one, and
+it now gets the whole report - message, script, line, stack trace, saves
+and the tail of the net log - between two marker lines so it can be found
+in the middle of the serf spam.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DFktm5o1kLnS2Pgvyp8tD4
+---
+ scripts/scr_crash/scr_crash.gml | 13 ++++++++++++-
+ 1 file changed, 12 insertions(+), 1 deletion(-)
+
+diff --git a/scripts/scr_crash/scr_crash.gml b/scripts/scr_crash/scr_crash.gml
+index ea275d59..875b395e 100644
+--- a/scripts/scr_crash/scr_crash.gml
++++ b/scripts/scr_crash/scr_crash.gml
+@@ -118,7 +118,18 @@ function crash_handler(_ex) {
+         file_text_close(_f);
+     }
+ 
+-    show_debug_message("crash: report written to " + CRASH_LOG_PATH);
++    /* And into the output log, in full.
++       Writing the file and then logging only that a file was written is a
++       useless pair when the game is running from the IDE: the output window is
++       right there, the developer is watching it, and it says nothing about what
++       actually happened. The file is for the player's machine; this is for
++       Bob's. */
++    show_debug_message("=== SettlersGM crash ===");
++    var _echo = crash_split_lines(_text);
++    for (var _e = 0; _e < array_length(_echo); _e++) {
++        show_debug_message(_echo[_e]);
++    }
++    show_debug_message("=== report also written to " + CRASH_LOG_PATH + " ===");
+ }
+ 
+ /// Everything worth knowing, in the order somebody reading it wants it.
+-- 
+2.43.0
+

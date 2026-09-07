@@ -118,7 +118,18 @@ function crash_handler(_ex) {
         file_text_close(_f);
     }
 
-    show_debug_message("crash: report written to " + CRASH_LOG_PATH);
+    /* And into the output log, in full.
+       Writing the file and then logging only that a file was written is a
+       useless pair when the game is running from the IDE: the output window is
+       right there, the developer is watching it, and it says nothing about what
+       actually happened. The file is for the player's machine; this is for
+       Bob's. */
+    show_debug_message("=== SettlersGM crash ===");
+    var _echo = crash_split_lines(_text);
+    for (var _e = 0; _e < array_length(_echo); _e++) {
+        show_debug_message(_echo[_e]);
+    }
+    show_debug_message("=== report also written to " + CRASH_LOG_PATH + " ===");
 }
 
 /// Everything worth knowing, in the order somebody reading it wants it.
