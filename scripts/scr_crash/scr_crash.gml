@@ -41,7 +41,18 @@
 /// The address the mail goes TO is configured at that service, not here, which
 /// is worth the trouble on its own: it can be changed without shipping a build,
 /// and it is not sitting in the executable for a scraper to find.
-#macro CRASH_REPORT_URL   ""
+/// THIS URL IS PUBLIC. It is in the executable, and it is in this file, and
+/// this file is in a public repository - which is the shorter path of the two,
+/// because bots scrape GitHub for exactly this string. GitHub's own secret
+/// scanning knows the Discord webhook format and may revoke it on push, which
+/// would be it doing the right thing.
+///
+/// That is survivable, and it is why a webhook is the right tool: the worst
+/// anybody can do with it is post into one channel. If that channel starts
+/// filling with rubbish, delete the webhook in Discord, make a new one, and
+/// change this line. Nothing else is exposed. Do keep it a channel of its own
+/// that nothing important lives in.
+#macro CRASH_REPORT_URL   "https://discord.com/api/webhooks/1546636690276491414/C3YZs8H_pSG-4Ea5cksoWObdaWkt_YsJBhGRLiyJykgdbKdtr1A72p7mrsY9OeKd1WpW"
 
 /// Only some services want one. Left empty it is left out of the request.
 /// This is a submission key, not a password - the worst somebody can do with it
@@ -62,7 +73,7 @@
 /// What it does cost: the URL is in the executable, so somebody who goes
 /// looking can post into that channel. Give it a channel of its own that
 /// nothing else uses, and the worst case is noise in a room built for noise.
-#macro CRASH_REPORT_STYLE "relay"
+#macro CRASH_REPORT_STYLE "discord"
 
 /// Discord rejects a message over 2000 characters outright. The report is
 /// written most-useful-first - version, exception, stack, then saves, then the
