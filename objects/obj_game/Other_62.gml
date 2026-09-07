@@ -6,6 +6,12 @@
 /// Named anything more readable, the event is declared with no code behind it -
 /// the game compiles and runs and simply never hears the answer.
 ///
-/// The only request the game makes is the start screen's update check, and it
-/// checks the id before touching anything, so adding another later is safe.
+/// Two requests can be in flight: the start screen's update check, and a crash
+/// report from a previous run. Each checks the id before touching anything, and
+/// the crash one answers whether it recognised the reply, so the update check
+/// is not handed somebody else's.
+if (crash_handle_async(async_load)) {
+    exit;
+}
+
 update_check_handle_async(async_load);

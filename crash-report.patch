@@ -1,0 +1,601 @@
+From 6aba412ee132c49a0ca4dd97949bd23c6a6df6c3 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 7 Sep 2026 20:59:58 +0000
+Subject: [PATCH] Crash reports: catch it, write it, and offer to send it
+
+exception_unhandled_handler is installed as the first line of obj_game's
+Create - before the assets, the audio and the network layer, because a
+missing sprite or a driver that will not hand over a surface is exactly
+the sort of thing that goes wrong on somebody else's machine, and a
+handler installed halfway down the file catches the wrong half.
+
+The report is the timestamp, the version, the OS and display, the
+exception with its script, line and stack trace, the save slots by name
+and size, and the last forty lines of the net log when there is one. The
+saves are there because a crash that only happens with one particular
+save is otherwise pure guesswork - the name is what lets you ask for the
+right file. It is also the one part of the report the player wrote
+themselves, which is a reason of its own to ask before sending.
+
+Written to settlers_crash.txt beside the saves and nothing more: no
+network call from inside a dying runtime, which is how a crash report
+becomes a hang. The next launch is what deals with it.
+
+NOTHING IN HERE CARRIES A CREDENTIAL, and nothing should. Everything in
+the executable belongs to whoever downloaded it, so an SMTP password or a
+Discord account token in the game is that account in a stranger's hands
+within a week of anyone caring to look - and for Discord it is the whole
+account, every server and every DM, on top of being against their rules.
+What goes in the build is a write-only endpoint instead:
+
+  CRASH_REPORT_STYLE "relay"    JSON { subject, message, access_key } to a
+                                form relay, which emails it on. The
+                                destination address lives at the service,
+                                so it changes without shipping a build.
+  CRASH_REPORT_STYLE "discord"  JSON { content } to a channel webhook: a
+                                URL that can post into one channel and do
+                                nothing else. Deleted and reissued if it
+                                is ever abused.
+
+Discord rejects anything over 2000 characters, so a report goes in a code
+fence and is trimmed to 1800 - not something nearer the limit, because the
+header and the fence sit outside that count and the version string is not
+a fixed width. The report is written most-useful-first, so what gets
+trimmed is the tail of the net log.
+
+CRASH_REPORT_URL is EMPTY, deliberately: a URL I invented would fail
+silently forever. Empty is a working state - the report is written, the
+game says where the file is, and nobody is asked anything. Filling in the
+macro is the whole of turning it on.
+
+It asks before sending, once, on the launch after a crash, and remembers
+the answer - including a no, because asking every launch is just wearing
+somebody down. The file is deleted once sent or refused so it cannot go
+twice; a failed send keeps it for next time.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DFktm5o1kLnS2Pgvyp8tD4
+---
+ SettlersGM.yyp                  |   1 +
+ objects/obj_game/Create_0.gml   |  10 +
+ objects/obj_game/Draw_0.gml     |  10 +-
+ objects/obj_game/Other_62.gml   |  10 +-
+ objects/obj_game/Step_0.gml     |  11 +
+ scripts/scr_crash/scr_crash.gml | 402 ++++++++++++++++++++++++++++++++
+ scripts/scr_crash/scr_crash.yy  |  13 ++
+ 7 files changed, 454 insertions(+), 3 deletions(-)
+ create mode 100644 scripts/scr_crash/scr_crash.gml
+ create mode 100644 scripts/scr_crash/scr_crash.yy
+
+diff --git a/SettlersGM.yyp b/SettlersGM.yyp
+index 0625e3e3..dbc8838d 100644
+--- a/SettlersGM.yyp
++++ b/SettlersGM.yyp
+@@ -52,6 +52,7 @@
+     {"id":{"name":"scr_popup_b","path":"scripts/scr_popup_b/scr_popup_b.yy",},},
+     {"id":{"name":"scr_popup_c","path":"scripts/scr_popup_c/scr_popup_c.yy",},},
+     {"id":{"name":"scr_popup","path":"scripts/scr_popup/scr_popup.yy",},},
++    {"id":{"name":"scr_crash","path":"scripts/scr_crash/scr_crash.yy",},},
+     {"id":{"name":"scr_random","path":"scripts/scr_random/scr_random.yy",},},
+     {"id":{"name":"scr_savegame","path":"scripts/scr_savegame/scr_savegame.yy",},},
+     {"id":{"name":"scr_serf_b","path":"scripts/scr_serf_b/scr_serf_b.yy",},},
+diff --git a/objects/obj_game/Create_0.gml b/objects/obj_game/Create_0.gml
+index afe72784..2eddd86c 100644
+--- a/objects/obj_game/Create_0.gml
++++ b/objects/obj_game/Create_0.gml
+@@ -10,6 +10,12 @@
+ #macro MOUSE_TIME_SENSITIVITY 600
+ #macro MOUSE_MOVE_SENSITIVITY 8
+ 
++// FIRST, before anything that could throw. A crash handler installed halfway
++// down this file catches the second half of it, which is not the half that
++// tends to go wrong on somebody else's machine - a missing asset or a driver
++// that will not give us a surface goes bang in the lines below.
++crash_init();
++
+ // Assets / lookup tables
+ sprite_meta_init();
+ gfx_init();
+@@ -110,6 +116,10 @@ global.save_slot = 0;
+ // start screen can read them on the very first frame.
+ update_check_start();
+ 
++// What the LAST run left behind, if it left anything. Separate from crash_init
++// above, which had to go first; this only reads a file and decides what to say.
++crash_check_previous();
++
+ // Show the start screen over the freshly built game rather than dropping
+ // straight into it, so START and LOAD are reachable. Ctrl+N reopens it.
+ interface.open_game_init();
+diff --git a/objects/obj_game/Draw_0.gml b/objects/obj_game/Draw_0.gml
+index 7c851fba..9ab01c80 100644
+--- a/objects/obj_game/Draw_0.gml
++++ b/objects/obj_game/Draw_0.gml
+@@ -42,7 +42,15 @@ if (_init_box != undefined && _init_box.game_type == GameType.netplay) {
+     _netplay_panel = true;
+ }
+ 
+-if (global.net_ip_prompt && global.net_ip_prompt_mode == "join") {
++/* The crash notice sits above all of it: it is asking a question, and the run
++   it is about is already over, so nothing else on this line matters more. */
++if (global.crash_notice != "") {
++    draw_set_colour(c_black);
++    draw_text_ext(5, 5, global.crash_notice, NET_TEXT_LINE, NET_TEXT_WIDTH);
++    draw_set_colour(c_yellow);
++    draw_text_ext(4, 4, global.crash_notice, NET_TEXT_LINE, NET_TEXT_WIDTH);
++    draw_set_colour(c_white);
++} else if (global.net_ip_prompt && global.net_ip_prompt_mode == "join") {
+     /* F8's own prompt. The lobby's ADD prompt is drawn by the panel. */
+     var _prompt = "HOST PC's IP: " + global.net_ip_text + "_" +
+                   "   :" + string(NET_PORT) + "   (Enter connects, Esc cancels)";
+diff --git a/objects/obj_game/Other_62.gml b/objects/obj_game/Other_62.gml
+index 6d9b5473..f4d81381 100644
+--- a/objects/obj_game/Other_62.gml
++++ b/objects/obj_game/Other_62.gml
+@@ -6,6 +6,12 @@
+ /// Named anything more readable, the event is declared with no code behind it -
+ /// the game compiles and runs and simply never hears the answer.
+ ///
+-/// The only request the game makes is the start screen's update check, and it
+-/// checks the id before touching anything, so adding another later is safe.
++/// Two requests can be in flight: the start screen's update check, and a crash
++/// report from a previous run. Each checks the id before touching anything, and
++/// the crash one answers whether it recognised the reply, so the update check
++/// is not handed somebody else's.
++if (crash_handle_async(async_load)) {
++    exit;
++}
++
+ update_check_handle_async(async_load);
+diff --git a/objects/obj_game/Step_0.gml b/objects/obj_game/Step_0.gml
+index 30af919d..a425eaad 100644
+--- a/objects/obj_game/Step_0.gml
++++ b/objects/obj_game/Step_0.gml
+@@ -39,6 +39,17 @@ for (var _t = 0; _t < _ticks; _t++) {
+     net_after_tick();
+ }
+ 
++// The crash question, when the last run left a report and there is somewhere to
++// send it. Answered once and remembered, so a no is a no for good.
++if (global.crash_asking) {
++    if (keyboard_check_pressed(ord("Y"))) {
++        crash_answer(true);
++    } else if (keyboard_check_pressed(ord("N")) ||
++               keyboard_check_pressed(vk_escape)) {
++        crash_answer(false);
++    }
++}
++
+ net_age_status();
+ net_late_checks(interface.get_game());
+ 
+diff --git a/scripts/scr_crash/scr_crash.gml b/scripts/scr_crash/scr_crash.gml
+new file mode 100644
+index 00000000..c17bd2ba
+--- /dev/null
++++ b/scripts/scr_crash/scr_crash.gml
+@@ -0,0 +1,402 @@
++/// scr_crash.gml - catch an unhandled exception, write a report, offer to send it.
++///
++/// WHY THERE IS NO EMAIL IN HERE
++///
++/// A shipped game cannot send email. To talk to an SMTP server it would have to
++/// carry a username and password, and everything in the executable belongs to
++/// whoever downloaded it - the account would be reading other people's mail, or
++/// sending spam under Bob's name, within a week of anyone caring to look. There
++/// is no version of "embed the credentials but hide them well" that survives an
++/// afternoon with a hex editor.
++///
++/// So the game POSTs the report to CRASH_REPORT_URL and something on the far
++/// side does the emailing, where the credentials live on a machine the player
++/// does not have. That endpoint can be a form-relay service or three lines of
++/// PHP on robertramsay.co.uk - the game does not care which, it just posts.
++/// Until the macro is filled in the report is written to disk and nothing is
++/// sent, which is a perfectly good state to ship in: the file is beside the
++/// saves and a player can attach it to a message.
++///
++/// AND IT ASKS FIRST
++///
++/// The report carries a stack trace and the tail of the net log, and the file
++/// paths in those contain the player's Windows account name. Sending that
++/// without asking is the kind of thing that turns up in a forum thread, so the
++/// game asks once, on the next launch, and remembers the answer. A refusal is
++/// remembered too - asking again every time is just wearing them down.
++
++#macro CRASH_LOG_PATH     "settlers_crash.txt"
++#macro CRASH_INI_SECTION  "crash"
++
++/// Where a report gets posted. EMPTY MEANS NEVER SEND - the report is still
++/// written to disk, and the player is not asked anything.
++///
++/// The body is JSON. With CRASH_REPORT_STYLE "relay" it is
++/// { subject, message, access_key }, which is what the form-relay services
++/// take: Formspree wants the form's own URL here and no key, Web3Forms wants
++/// https://api.web3forms.com/submit and the key from the signup mail in
++/// CRASH_REPORT_KEY. With "discord" it is { content } and this is a channel
++/// webhook URL - see CRASH_REPORT_STYLE.
++///
++/// The address the mail goes TO is configured at that service, not here, which
++/// is worth the trouble on its own: it can be changed without shipping a build,
++/// and it is not sitting in the executable for a scraper to find.
++#macro CRASH_REPORT_URL   ""
++
++/// Only some services want one. Left empty it is left out of the request.
++/// This is a submission key, not a password - the worst somebody can do with it
++/// is send mail to the address it is already pointed at.
++#macro CRASH_REPORT_KEY   ""
++
++/// What shape the far end expects. "relay" is the JSON above; "discord" is a
++/// Discord channel webhook, which wants { content } and nothing else.
++///
++/// A WEBHOOK, NOT AN ACCOUNT. Channel settings -> Integrations -> Webhooks
++/// gives a URL that can do exactly one thing: post a message into that one
++/// channel. It carries no login, cannot read anything, cannot touch any other
++/// channel, and if it ever gets abused it is deleted and reissued. An account
++/// token in a shipped game would be the whole account - every server, every DM
++/// - in the hands of anyone who opened the exe in a hex editor, and automating
++/// a user account is against Discord's rules on top of that.
++///
++/// What it does cost: the URL is in the executable, so somebody who goes
++/// looking can post into that channel. Give it a channel of its own that
++/// nothing else uses, and the worst case is noise in a room built for noise.
++#macro CRASH_REPORT_STYLE "relay"
++
++/// Discord rejects a message over 2000 characters outright. The report is
++/// written most-useful-first - version, exception, stack, then saves, then the
++/// net log - so trimming the end loses the least important part.
++///
++/// 1800 rather than something nearer 2000 because the header, the code fence
++/// and the trimmed-here note are all outside this count, and the version
++/// string in the header is not a fixed width. Worked out exactly, 1900 leaves
++/// seven characters spare, which is the kind of margin that holds until the
++/// day the version number gets longer and then silently drops every report.
++#macro CRASH_DISCORD_MAX  1800
++
++/// How much of the net log to attach. Enough to see what the session was doing,
++/// short enough that nobody has to scroll for the stack trace.
++#macro CRASH_LOG_TAIL     40
++
++function crash_init() {
++    global.crash_request  = -1;
++    global.crash_pending  = "";     /* a report waiting for an answer */
++    global.crash_asking   = false;
++    global.crash_notice   = "";     /* what to say on screen, if anything */
++
++    exception_unhandled_handler(crash_handler);
++}
++
++/// Called by GameMaker when something goes wrong that nothing caught. The game
++/// is about to stop, so this does the least it can: build the text, write it,
++/// and get out. No network here - a socket call from inside a dying runtime is
++/// how a crash report becomes a hang.
++function crash_handler(_ex) {
++    var _text = crash_report_text(_ex);
++
++    var _f = file_text_open_write(CRASH_LOG_PATH);
++    if (_f >= 0) {
++        /* One line at a time: file_text_write_string does not break on the
++           newlines already in the text, so the file would be one long line. */
++        var _lines = crash_split_lines(_text);
++        for (var _i = 0; _i < array_length(_lines); _i++) {
++            file_text_write_string(_f, _lines[_i]);
++            file_text_writeln(_f);
++        }
++        file_text_close(_f);
++    }
++
++    show_debug_message("crash: report written to " + CRASH_LOG_PATH);
++}
++
++/// Everything worth knowing, in the order somebody reading it wants it.
++function crash_report_text(_ex) {
++    var _out = "SettlersGM crash report";
++    _out += "\n" + date_datetime_string(date_current_datetime());
++    _out += "\nversion " + game_version();
++    _out += "\n" + os_get_info_line();
++
++    _out += "\n\n--- what went wrong ---";
++    if (is_struct(_ex)) {
++        _out += "\n" + string(_ex.message);
++        if (variable_struct_exists(_ex, "script")) {
++            _out += "\nin " + string(_ex.script)
++                    + " line " + string(_ex.line);
++        }
++        if (variable_struct_exists(_ex, "longMessage")) {
++            _out += "\n" + string(_ex.longMessage);
++        }
++        if (variable_struct_exists(_ex, "stacktrace")) {
++            _out += "\n\n--- stack ---";
++            var _st = _ex.stacktrace;
++            for (var _i = 0; _i < array_length(_st); _i++) {
++                _out += "\n" + string(_st[_i]);
++            }
++        }
++    } else {
++        _out += "\n" + string(_ex);
++    }
++
++    _out += "\n\n--- saves ---\n" + crash_save_listing();
++
++    /* The net log, when there is one. A crash during a networked game is much
++       easier to read with the last few turns in front of you. */
++    var _tail = crash_log_tail();
++    if (_tail != "") {
++        _out += "\n\n--- last " + string(CRASH_LOG_TAIL) + " net log lines ---\n";
++        _out += _tail;
++    }
++
++    return _out;
++}
++
++/// os_get_info returns a map on some platforms and nothing useful on others, so
++/// this sticks to what is always there.
++function os_get_info_line() {
++    return "os " + string(os_type) + " " + string(os_version)
++           + ", browser " + string(browser_width) + "x" + string(browser_height)
++           + ", display " + string(display_get_width())
++           + "x" + string(display_get_height());
++}
++
++/// The last CRASH_LOG_TAIL lines of the net log, or "" if there is no log.
++function crash_log_tail() {
++    if (!file_exists(NET_LOG_PATH)) {
++        return "";
++    }
++
++    var _f = file_text_open_read(NET_LOG_PATH);
++    if (_f < 0) {
++        return "";
++    }
++
++    /* A ring, so the whole file never has to be held at once - a long session
++       writes a lot of these. */
++    var _ring = array_create(CRASH_LOG_TAIL, "");
++    var _n = 0;
++    while (!file_text_eof(_f)) {
++        _ring[_n mod CRASH_LOG_TAIL] = file_text_read_string(_f);
++        file_text_readln(_f);
++        _n += 1;
++    }
++    file_text_close(_f);
++
++    var _first = 0;
++    var _count = _n;
++    if (_n > CRASH_LOG_TAIL) {
++        _first = _n mod CRASH_LOG_TAIL;
++        _count = CRASH_LOG_TAIL;
++    }
++
++    var _out = "";
++    for (var _i = 0; _i < _count; _i++) {
++        _out += _ring[(_first + _i) mod CRASH_LOG_TAIL] + "\n";
++    }
++    return _out;
++}
++
++/// The save slots, by name and size.
++///
++/// Worth having because a crash that only happens with one particular save is
++/// otherwise pure guesswork - the name is what lets Bob ask for the right file.
++/// It is also the one part of this report that carries something the player
++/// wrote themselves, which is another reason the game asks before sending it.
++function crash_save_listing() {
++    var _out = "";
++
++    for (var _i = 0; _i < SAVEGAME_SLOTS; _i++) {
++        if (!savegame_slot_exists(_i)) {
++            continue;
++        }
++
++        var _size = "?";
++        var _b = buffer_load(savegame_slot_path(_i));
++        if (_b >= 0) {
++            _size = string(buffer_get_size(_b));
++            buffer_delete(_b);
++        }
++
++        _out += string(_i + 1) + ". " + savegame_slot_label(_i)
++                + "  (" + _size + " bytes)\n";
++    }
++
++    if (_out == "") {
++        _out = "(none)\n";
++    }
++    return _out;
++}
++
++/// Split on newlines. Hand-rolled to match the rest of the port, which does not
++/// use string_split.
++function crash_split_lines(_str) {
++    var _out = [];
++    var _from = 1;
++    var _n = string_length(_str);
++
++    while (_from <= _n + 1) {
++        var _to = _from;
++        while (_to <= _n && string_char_at(_str, _to) != "\n") {
++            _to += 1;
++        }
++        array_push(_out, string_copy(_str, _from, _to - _from));
++        _from = _to + 1;
++    }
++
++    return _out;
++}
++
++// ------------------------------------------------------- the next launch
++
++/// Called once from obj_game Create, AFTER crash_init.
++///
++/// If the last run left a report, this decides what to do with it. Nothing is
++/// sent without an answer, and the answer is remembered - a player who said no
++/// is not asked again every time they start the game.
++function crash_check_previous() {
++    if (!file_exists(CRASH_LOG_PATH)) {
++        return;
++    }
++
++    global.crash_pending = crash_read_report();
++
++    if (CRASH_REPORT_URL == "") {
++        /* Nowhere to send it. Say where the file is and leave it alone - a
++           player who wants to help can attach it to a message. */
++        global.crash_notice = "The game crashed last time. The report is in "
++                              + CRASH_LOG_PATH;
++        return;
++    }
++
++    ini_open(PROGRESS_PATH);
++    var _answer = ini_read_string(CRASH_INI_SECTION, "send", "");
++    ini_close();
++
++    if (_answer == "no") {
++        crash_discard();
++        return;
++    }
++
++    if (_answer == "yes") {
++        crash_send();
++        return;
++    }
++
++    global.crash_asking = true;
++    global.crash_notice = "The game crashed last time. Send a report to the"
++                          + " developer? Y / N";
++}
++
++function crash_read_report() {
++    var _f = file_text_open_read(CRASH_LOG_PATH);
++    if (_f < 0) {
++        return "";
++    }
++
++    var _out = "";
++    while (!file_text_eof(_f)) {
++        _out += file_text_read_string(_f) + "\n";
++        file_text_readln(_f);
++    }
++    file_text_close(_f);
++    return _out;
++}
++
++/// Y or N, once, on the launch after a crash.
++function crash_answer(_send) {
++    global.crash_asking = false;
++
++    ini_open(PROGRESS_PATH);
++    if (_send) {
++        ini_write_string(CRASH_INI_SECTION, "send", "yes");
++    } else {
++        ini_write_string(CRASH_INI_SECTION, "send", "no");
++    }
++    ini_close();
++
++    if (_send) {
++        crash_send();
++        return;
++    }
++    crash_discard();
++}
++
++function crash_send() {
++    if (global.crash_pending == "" || CRASH_REPORT_URL == "") {
++        return;
++    }
++
++    /* json_stringify does the escaping. Building this string by hand would
++       fall over on the first save called Bob"s Game, and a stack trace is full
++       of backslashes. */
++    var _body = {
++        subject: "SettlersGM crash - " + game_version(),
++        message: global.crash_pending
++    };
++    if (CRASH_REPORT_KEY != "") {
++        _body.access_key = CRASH_REPORT_KEY;
++    }
++
++    if (CRASH_REPORT_STYLE == "discord") {
++        /* A webhook takes { content } and a hard 2000-character limit. The
++           report goes inside a code fence so Discord shows the stack trace as
++           written instead of turning the underscores into italics. */
++        var _text = global.crash_pending;
++        var _room = CRASH_DISCORD_MAX;
++        if (string_length(_text) > _room) {
++            _text = string_copy(_text, 1, _room)
++                    + "\n... trimmed, the full report is in "
++                    + CRASH_LOG_PATH;
++        }
++
++        _body = {
++            content: "**SettlersGM crash - " + game_version() + "**\n"
++                     + "```\n" + _text + "\n```"
++        };
++    }
++
++    /* http_post_string sends text/plain, which the relays reject. */
++    var _headers = ds_map_create();
++    ds_map_add(_headers, "Content-Type", "application/json");
++    ds_map_add(_headers, "Accept", "application/json");
++
++    global.crash_request = http_request(CRASH_REPORT_URL, "POST", _headers,
++                                        json_stringify(_body));
++    ds_map_destroy(_headers);
++
++    global.crash_notice = "Sending the crash report...";
++    show_debug_message("crash: posting report");
++}
++
++/// The report has been dealt with, one way or the other. The file goes, because
++/// a report that stays on disk is sent again on every launch.
++function crash_discard() {
++    global.crash_pending = "";
++    if (file_exists(CRASH_LOG_PATH)) {
++        file_delete(CRASH_LOG_PATH);
++    }
++}
++
++/// From obj_game's Async HTTP event. A failure is not worth troubling the
++/// player with, but the file stays put so the next launch can try again.
++function crash_handle_async(_async) {
++    if (global.crash_request < 0) {
++        return false;
++    }
++    if (_async[? "id"] != global.crash_request) {
++        return false;
++    }
++
++    global.crash_request = -1;
++
++    if (_async[? "status"] == 0) {
++        show_debug_message("crash: report sent");
++        global.crash_notice = "Crash report sent. Thank you.";
++        crash_discard();
++    } else {
++        show_debug_message("crash: could not send the report, keeping it");
++        global.crash_notice = "";
++    }
++
++    return true;
++}
+diff --git a/scripts/scr_crash/scr_crash.yy b/scripts/scr_crash/scr_crash.yy
+new file mode 100644
+index 00000000..8f73da4c
+--- /dev/null
++++ b/scripts/scr_crash/scr_crash.yy
+@@ -0,0 +1,13 @@
++{
++  "$GMScript":"v1",
++  "%Name":"scr_crash",
++  "isCompatibility":false,
++  "isDnD":false,
++  "name":"scr_crash",
++  "parent":{
++    "name":"Scripts",
++    "path":"folders/Scripts.yy",
++  },
++  "resourceType":"GMScript",
++  "resourceVersion":"2.0",
++}
+-- 
+2.43.0
+

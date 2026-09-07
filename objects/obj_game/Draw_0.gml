@@ -42,7 +42,15 @@ if (_init_box != undefined && _init_box.game_type == GameType.netplay) {
     _netplay_panel = true;
 }
 
-if (global.net_ip_prompt && global.net_ip_prompt_mode == "join") {
+/* The crash notice sits above all of it: it is asking a question, and the run
+   it is about is already over, so nothing else on this line matters more. */
+if (global.crash_notice != "") {
+    draw_set_colour(c_black);
+    draw_text_ext(5, 5, global.crash_notice, NET_TEXT_LINE, NET_TEXT_WIDTH);
+    draw_set_colour(c_yellow);
+    draw_text_ext(4, 4, global.crash_notice, NET_TEXT_LINE, NET_TEXT_WIDTH);
+    draw_set_colour(c_white);
+} else if (global.net_ip_prompt && global.net_ip_prompt_mode == "join") {
     /* F8's own prompt. The lobby's ADD prompt is drawn by the panel. */
     var _prompt = "HOST PC's IP: " + global.net_ip_text + "_" +
                   "   :" + string(NET_PORT) + "   (Enter connects, Esc cancels)";

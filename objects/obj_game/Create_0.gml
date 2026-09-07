@@ -10,6 +10,12 @@
 #macro MOUSE_TIME_SENSITIVITY 600
 #macro MOUSE_MOVE_SENSITIVITY 8
 
+// FIRST, before anything that could throw. A crash handler installed halfway
+// down this file catches the second half of it, which is not the half that
+// tends to go wrong on somebody else's machine - a missing asset or a driver
+// that will not give us a surface goes bang in the lines below.
+crash_init();
+
 // Assets / lookup tables
 sprite_meta_init();
 gfx_init();
@@ -109,6 +115,10 @@ global.save_slot = 0;
 // game carries on. update_check_start() lays out its own globals first, so the
 // start screen can read them on the very first frame.
 update_check_start();
+
+// What the LAST run left behind, if it left anything. Separate from crash_init
+// above, which had to go first; this only reads a file and decides what to say.
+crash_check_previous();
 
 // Show the start screen over the freshly built game rather than dropping
 // straight into it, so START and LOAD are reachable. Ctrl+N reopens it.

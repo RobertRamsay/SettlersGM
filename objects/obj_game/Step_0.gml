@@ -39,6 +39,17 @@ for (var _t = 0; _t < _ticks; _t++) {
     net_after_tick();
 }
 
+// The crash question, when the last run left a report and there is somewhere to
+// send it. Answered once and remembered, so a no is a no for good.
+if (global.crash_asking) {
+    if (keyboard_check_pressed(ord("Y"))) {
+        crash_answer(true);
+    } else if (keyboard_check_pressed(ord("N")) ||
+               keyboard_check_pressed(vk_escape)) {
+        crash_answer(false);
+    }
+}
+
 net_age_status();
 net_late_checks(interface.get_game());
 
