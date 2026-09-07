@@ -1,0 +1,907 @@
+From 133517a4d27fe025fbc59ad35afd22cc7e4d495e Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 7 Sep 2026 08:44:20 +0000
+Subject: [PATCH] NET PLAY: a lobby where the host is decided by who picks
+ first
+
+The NET PLAY icon (spr_icon frame 318) sits in the gap on the top row
+between the map size and the dice - the one 32-wide slot free on every
+screen, since MISSION keeps its arrows at x 284 and CUSTOM its dice at
+220. It is a toggle, so the same button is the way in and the way out;
+EXIT cannot be the way out, because EXIT quits the game. NETPLAY_BTN_X
+and NETPLAY_BTN_Y move it.
+
+Everyone with the panel open is a potential host: the TCP door on
+NET_PORT is open the whole time, and a UDP beacon goes out on 6511 about
+once a second so the others can list you. Nobody declares a role in
+advance - pick a machine and you are the client, get picked and you are
+the host. That is Bob's model and it is the right one; opening the door
+is not the same as claiming to be the host.
+
+Discovery is broadcast plus a manual list. On one LAN the panel fills
+itself with no typing. An address added by hand is remembered in
+settlers.ini and is never aged out - it was typed on purpose, so one that
+is switched off should read "no answer" rather than vanish while you are
+looking at it. Broadcast reaches the sender too, so every beacon carries
+the session id that machine made at startup, and its own comes back and
+is ignored.
+
+The corner that needs a rule is both players picking inside the same
+second: each machine then has an outbound connection AND an inbound one,
+and if both kept the inbound both would think they were host. The
+tie-break is that session id, not the IP address - GameMaker has no call
+that says what this machine's own address is, and comparing a number we
+do not have against one we do is not a comparison. Both machines have
+both ids, because they have been shouting them at each other. Lower id
+hosts. If we have never heard the other machine shout - a typed address
+that is not broadcasting - there is nothing to compare, so we refuse
+their dial and keep our own; if they do the same we both land back in the
+lobby with nothing connected, which is visible and recoverable, where two
+machines both believing they were host would not be.
+
+The host picks the mission in the lobby, after the join, and presses
+START. That is the only order that works: you cannot know whether you
+will be host until somebody picks, so choosing beforehand throws the
+choice away half the time. The client's START does nothing, correctly -
+it has nothing to tell the other machine.
+
+ADD AN ADDRESS gets its own row under the list rather than the
+bottom-right slot, which is where LOAD is drawn - a button that reads
+LOAD and adds an address is worse than no button. LOAD is not drawn on
+this screen at all, since it does nothing here.
+
+F7 and F8 still work and still auto-start mission 1 on connect. The lobby
+deliberately does not auto-start, so the two paths do not fight: the
+auto-start is now conditional on the lobby being closed.
+
+Two notes on fitting in with the rest of the port. The comma split for
+the saved address list is hand-rolled rather than string_split, matching
+how update_version_part already avoids it. And the beacon's name field is
+sent empty - GameMaker will not tell us the machine's name, and inventing
+one from something else would put a made-up label in front of the only
+thing that actually identifies the machine. The field stays in the wire
+format so a name can be added later without changing it.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DFktm5o1kLnS2Pgvyp8tD4
+---
+ objects/obj_game/Create_0.gml           |   5 +-
+ objects/obj_game/Step_0.gml             |  17 +-
+ scripts/scr_game_init/scr_game_init.gml | 221 ++++++++++++-
+ scripts/scr_net/scr_net.gml             | 405 ++++++++++++++++++++++++
+ 4 files changed, 642 insertions(+), 6 deletions(-)
+
+diff --git a/objects/obj_game/Create_0.gml b/objects/obj_game/Create_0.gml
+index 1a0acadc..afe72784 100644
+--- a/objects/obj_game/Create_0.gml
++++ b/objects/obj_game/Create_0.gml
+@@ -16,7 +16,8 @@ gfx_init();
+ gui_init_globals();
+ audio_init();
+ cf_init();      // "borntodie" cheat state + its effects list
+-net_init();     // two-player lockstep networking (idle until F7 / F8)
++net_init();     // two-player lockstep networking (idle until NET PLAY)
++net_lobby_init();   // discovery and the peer list, idle until the panel opens
+ 
+ // Set by the async networking event when the host says which game to build, and
+ // consumed by the Step event - a game must never be switched from inside an
+@@ -28,6 +29,8 @@ global.net_pending_start = undefined;
+ // put an address, and 127.0.0.1 is only ever the machine doing the typing.
+ global.net_ip_prompt = false;
+ global.net_ip_text = "";
++/* "join" dials the address, "add" only files it in the lobby's list. */
++global.net_ip_prompt_mode = "join";
+ 
+ // Window: integer-scaled, pixel-perfect
+ window_set_size(SCREEN_W * SCREEN_SCALE, SCREEN_H * SCREEN_SCALE);
+diff --git a/objects/obj_game/Step_0.gml b/objects/obj_game/Step_0.gml
+index ef2b2cba..a760ff70 100644
+--- a/objects/obj_game/Step_0.gml
++++ b/objects/obj_game/Step_0.gml
+@@ -93,6 +93,7 @@ if (keyboard_check_pressed(vk_f8) && !global.net_ip_prompt && !net_is_active())
+     // of the text editing.
+     keyboard_string = net_load_host_ip();
+     global.net_ip_text = keyboard_string;
++    global.net_ip_prompt_mode = "join";
+ }
+ 
+ if (global.net_ip_prompt) {
+@@ -106,6 +107,11 @@ if (global.net_ip_prompt) {
+                indistinguishable from a prompt that did not work. */
+             net_set_status("no address typed - press F8 and enter the HOST pc's IPv4");
+             show_debug_message("net: " + global.net_status);
++        } else if (global.net_ip_prompt_mode == "add") {
++            /* The lobby's ADD ADDRESS row. It does not dial - it only puts the
++               address in the list, where picking it is a separate decision. */
++            net_add_manual_peer(_ip);
++            net_set_status("added " + _ip);
+         } else {
+             net_save_host_ip(_ip);
+             net_join(_ip);
+@@ -116,10 +122,17 @@ if (global.net_ip_prompt) {
+     }
+ }
+ 
+-// The host starts the game as soon as somebody is actually connected.
++// The lobby's own heartbeat: shout, and age out anyone who has stopped.
++net_lobby_step();
++
++// F7's host starts mission 1 as soon as somebody connects, which is what made
++// two machines testable before there was any UI. The lobby does NOT auto-start:
++// there the host picks the mission and presses START, so the choice happens
++// after the roles are known rather than before.
+ if (global.net_role == NetRole.host &&
+     global.net_phase == NetPhase.listening &&
+-    global.net_socket >= 0) {
++    global.net_socket >= 0 &&
++    !net_lobby_is_open()) {
+     net_host_start_game(interface, 0);
+ }
+ 
+diff --git a/scripts/scr_game_init/scr_game_init.gml b/scripts/scr_game_init/scr_game_init.gml
+index b494c0c3..867832ec 100644
+--- a/scripts/scr_game_init/scr_game_init.gml
++++ b/scripts/scr_game_init/scr_game_init.gml
+@@ -204,14 +204,18 @@ enum GameInitAction {
+     close,
+     gen_random,
+     apply_random,
+-    show_load
++    show_load,
++    show_netplay,
++    netplay_add,
++    netplay_forget
+ }
+ 
+ /// GameInitBox::GameType
+ enum GameType {
+     custom = 0,
+     mission = 1,
+-    load = 2
++    load = 2,
++    netplay = 3
+ }
+ 
+ function game_init_init_tables() {
+@@ -248,6 +252,7 @@ function game_init_init_tables() {
+     // handle_click_left clickmaps
+     global.game_init_clickmap_mission = [
+         GameInitAction.start_game,        20,  16, 32, 32,
++        GameInitAction.show_netplay,     NETPLAY_BTN_X, NETPLAY_BTN_Y, 32, 32,
+         GameInitAction.toggle_game_type,  60,  16, 32, 32,
+         GameInitAction.show_load,        292, 216, 32, 32,
+         GameInitAction.show_options,     308,  16, 32, 32,
+@@ -259,6 +264,7 @@ function game_init_init_tables() {
+ 
+     global.game_init_clickmap_custom = [
+         GameInitAction.start_game,        20,  16, 32, 32,
++        GameInitAction.show_netplay,     NETPLAY_BTN_X, NETPLAY_BTN_Y, 32, 32,
+         GameInitAction.toggle_game_type,  60,  16, 32, 32,
+         GameInitAction.show_load,        292, 216, 32, 32,
+         GameInitAction.show_options,     308,  16, 32, 32,
+@@ -272,14 +278,49 @@ function game_init_init_tables() {
+ 
+     global.game_init_clickmap_load = [
+         GameInitAction.start_game,        20,  16, 32, 32,
++        GameInitAction.show_netplay,     NETPLAY_BTN_X, NETPLAY_BTN_Y, 32, 32,
+         GameInitAction.toggle_game_type,  60,  16, 32, 32,
+         GameInitAction.show_load,        292, 216, 32, 32,
+         GameInitAction.show_options,     308,  16, 32, 32,
+         GameInitAction.close,            324, 216, 16, 16,
+         -1
+     ];
++
++    /* NET PLAY. START and the mission arrows are here for the host, and simply
++       do nothing for the client - which one you are is not known until somebody
++       picks, so the panel cannot be laid out differently per role. */
++    global.game_init_clickmap_netplay = [
++        GameInitAction.start_game,        20,  16, 32, 32,
++        GameInitAction.show_netplay,     NETPLAY_BTN_X, NETPLAY_BTN_Y, 32, 32,
++        GameInitAction.increment,        284,  16, 16, 16,
++        GameInitAction.decrement,        284,  32, 16, 16,
++        GameInitAction.netplay_add,      NETPLAY_ADD_X, NETPLAY_ADD_Y, 150, 16,
++        GameInitAction.show_options,     308,  16, 32, 32,
++        GameInitAction.close,            324, 216, 16, 16,
++        -1
++    ];
+ }
+ 
++/* Rows of the peer list, in box coordinates. */
++#macro NETPLAY_ROW_X      20
++#macro NETPLAY_ROW_Y      72
++#macro NETPLAY_ROW_H      14
++#macro NETPLAY_ROW_MAX    8
++
++/* The NET PLAY button: the last frame of spr_icon, in the gap on the top row
++   between the map size and the dice. Both screens keep their own controls -
++   MISSION's arrows are at x 284 and CUSTOM's dice at x 220 - so 188 to 220 is
++   the one 32-wide slot free on every screen. Move it by changing these two. */
++#macro NETPLAY_ICON       318
++#macro NETPLAY_BTN_X      188
++#macro NETPLAY_BTN_Y      16
++
++/* ADD ADDRESS, below the list. Its own row rather than the bottom-right slot,
++   which is where LOAD is drawn - a button that reads LOAD and adds an address
++   is worse than no button. */
++#macro NETPLAY_ADD_X      20
++#macro NETPLAY_ADD_Y      196
++
+ /// Port of Random::Random() (random.cc lines 27-33): seed from the clock
+ /// and consume one value.
+ function game_init_random_default() {
+@@ -329,6 +370,90 @@ function RandomInput() : GuiObject() constructor {
+         filter = _filter;
+     };
+ 
++    /// The NET PLAY panel.
++    ///
++    /// Everyone listed here is a potential host, including us. Picking one dials
++    /// it and makes us the client; if they pick us first we become the host
++    /// instead. Nothing here declares a role in advance, because until somebody
++    /// moves there is no role to declare.
++    static draw_netplay = function() {
++        var _white = make_colour_rgb(0xff, 0xff, 0xff);
++        var _grey  = make_colour_rgb(0x90, 0x90, 0x90);
++        var _amber = make_colour_rgb(0xff, 0xff, 0x99);
++
++        draw_box_string(10, 2, "Net play");
++
++        if (net_is_running()) {
++            /* In a game already - the panel is just a status board now. */
++            gfx_draw_string(NETPLAY_ROW_X, 56, "In a game. " + net_status_line(),
++                            _amber, -1);
++            return;
++        }
++
++        if (net_is_active()) {
++            var _role = "connected";
++            if (global.net_role == NetRole.host) {
++                _role = "YOU ARE THE HOST - pick a mission and press START";
++            } else {
++                _role = "connected - waiting for the host to start";
++            }
++            gfx_draw_string(NETPLAY_ROW_X, 56, _role, _amber, -1);
++
++            if (global.net_role == NetRole.host) {
++                draw_box_string(10, 18, "Mission:");
++                draw_box_string(20, 18, string(game_mission + 1));
++                draw_box_icon(33, 0, 237);   // Up
++                draw_box_icon(33, 16, 240);  // Down
++            }
++            return;
++        }
++
++        gfx_draw_string(NETPLAY_ROW_X, 56, "Pick a machine to play against:",
++                        _white, -1);
++
++        var _count = net_peer_count();
++        if (_count == 0) {
++            gfx_draw_string(NETPLAY_ROW_X, NETPLAY_ROW_Y,
++                            "nobody yet - open NET PLAY on the other pc,", _grey, -1);
++            gfx_draw_string(NETPLAY_ROW_X, NETPLAY_ROW_Y + NETPLAY_ROW_H,
++                            "or ADD an address if it is not on this network",
++                            _grey, -1);
++        }
++
++        var _rows = min(_count, NETPLAY_ROW_MAX);
++        for (var _i = 0; _i < _rows; _i++) {
++            var _peer = net_peer_at(_i);
++            var _y = NETPLAY_ROW_Y + _i * NETPLAY_ROW_H;
++
++            var _label = _peer.ip;
++            if (_peer.name != "") {
++                _label += "  (" + _peer.name + ")";
++            }
++
++            /* Live means it shouted within the last few seconds. A typed
++               address that is not answering stays listed and says so, rather
++               than disappearing while you are reading it. */
++            var _colour = _grey;
++            var _tail = "   no answer";
++            if (net_peer_is_live(_peer)) {
++                _colour = _white;
++                _tail = "";
++            }
++            if (_peer.manual) {
++                _tail += "   [added]";
++            }
++
++            gfx_draw_string(NETPLAY_ROW_X, _y, _label + _tail, _colour, -1);
++        }
++
++        gfx_draw_string(NETPLAY_ADD_X, NETPLAY_ADD_Y, "[ ADD AN ADDRESS ]",
++                        _white, -1);
++
++        if (net_status_line() != "") {
++            gfx_draw_string(NETPLAY_ROW_X, 216, net_status_line(), _amber, -1);
++        }
++    };
++
+     static internal_draw = function() {
+         gfx_fill_rect(0, 0, width, height, color_background);
+         if (draw_focus && focused) {
+@@ -440,6 +565,10 @@ function GameInitBox(_interface) : GuiObject() constructor {
+     game_type = GameType.custom;
+     game_mission = 0;
+ 
++    /* Which screen NET PLAY was opened from, so the same button goes back to
++       it rather than always landing on one of them. */
++    netplay_return_type = GameType.custom;
++
+     custom_mission = undefined;
+     mission = undefined;
+ 
+@@ -517,6 +646,14 @@ function GameInitBox(_interface) : GuiObject() constructor {
+             _i += 3;
+         }
+ 
++        /* NET PLAY, on the top row. The same button goes back out again, so
++           there is one place to press whichever screen you are on. */
++        gfx_draw_sprite(NETPLAY_BTN_X, NETPLAY_BTN_Y, Asset.icon, NETPLAY_ICON);
++
++        if (game_type == GameType.netplay) {
++            draw_netplay();
++        }
++
+         /* Game type settings */
+         switch (game_type) {
+             case GameType.mission: {
+@@ -606,7 +743,9 @@ function GameInitBox(_interface) : GuiObject() constructor {
+            placed by its own top-left rather than sharing a row of icon
+            columns: x 292..324 puts it hard against EXIT, and y 216..248 clears
+            the map preview above it (which ends at 215). */
+-        draw_box_icon(34, 200, 316); /* load */
++        if (game_type != GameType.netplay) {
++            draw_box_icon(34, 200, 316); /* load */
++        }
+         draw_box_icon(38, 208, 60);  /* exit */
+     };
+ 
+@@ -687,6 +826,22 @@ function GameInitBox(_interface) : GuiObject() constructor {
+                 file_list.set_displayed(true);
+                 break;
+             }
++            case GameType.netplay: {
++                random_input.set_displayed(false);
++                file_list.set_displayed(false);
++                /* The mission the host would start. Netplay uses the mission
++                   list, so it needs a valid mission object the moment the panel
++                   opens rather than the first time an arrow is pressed. */
++                mission = game_info_get_mission(game_mission);
++                net_lobby_open();
++                break;
++            }
++        }
++
++        /* Leaving the panel stops the shouting and closes the door, unless a
++           game is already running on it. */
++        if (game_type != GameType.netplay) {
++            net_lobby_close();
+         }
+     };
+ 
+@@ -745,6 +900,19 @@ function GameInitBox(_interface) : GuiObject() constructor {
+     static handle_action = function(_action) {
+         switch (_action) {
+             case GameInitAction.start_game: {
++                if (game_type == GameType.netplay) {
++                    /* Only the host starts, and only once somebody is actually
++                       connected. The client's START does nothing at all, which
++                       is correct: it has nothing to tell the other machine. */
++                    if (global.net_role != NetRole.host || global.net_socket < 0) {
++                        break;
++                    }
++                    net_lobby_close();
++                    net_host_start_game(interface, game_mission);
++                    interface.close_game_init();
++                    break;
++                }
++
+                 if (game_type == GameType.load) {
+                     load_selected_save();
+                     return;
+@@ -797,6 +965,32 @@ function GameInitBox(_interface) : GuiObject() constructor {
+                 load_selected_save();
+                 break;
+             }
++            case GameInitAction.show_netplay: {
++                /* A toggle, so the same button is the way in and the way out.
++                   EXIT cannot be the way out - it quits the game. */
++                if (game_type == GameType.netplay) {
++                    set_game_type(netplay_return_type);
++                    set_redraw();
++                    break;
++                }
++                netplay_return_type = game_type;
++                set_game_type(GameType.netplay);
++                set_redraw();
++                break;
++            }
++            case GameInitAction.netplay_add: {
++                /* Borrows the same typed-address prompt F8 uses, in its "add"
++                   mode: this files the address in the list rather than dialling
++                   it, because picking it is a separate decision. */
++                global.net_ip_prompt = true;
++                global.net_ip_prompt_mode = "add";
++                keyboard_string = "";
++                global.net_ip_text = "";
++                break;
++            }
++            case GameInitAction.netplay_forget: {
++                break;
++            }
+             case GameInitAction.show_options: {
+                 if (interface != undefined) {
+                     interface.open_popup(PopupType.options);
+@@ -828,6 +1022,7 @@ function GameInitBox(_interface) : GuiObject() constructor {
+                 generate_map_preview();
+                 break;
+             case GameInitAction.close:
++                net_lobby_close();
+                 /* Quitting in-game returns here, so this is the way out. */
+                 game_end();
+                 break;
+@@ -877,6 +1072,9 @@ function GameInitBox(_interface) : GuiObject() constructor {
+             case GameType.load:
+                 _clickmap = global.game_init_clickmap_load;
+                 break;
++            case GameType.netplay:
++                _clickmap = global.game_init_clickmap_netplay;
++                break;
+             default:
+                 return false;
+         }
+@@ -892,6 +1090,23 @@ function GameInitBox(_interface) : GuiObject() constructor {
+             _i += 5;
+         }
+ 
++        /* The peer rows are not in the clickmap because there is no fixed
++           number of them. Picking one dials it: if it answers, it is the host
++           and we are the client. */
++        if (game_type == GameType.netplay && !net_is_active()) {
++            var _row = (_cy - NETPLAY_ROW_Y) div NETPLAY_ROW_H;
++            if (_cy >= NETPLAY_ROW_Y && _row >= 0 &&
++                _row < min(net_peer_count(), NETPLAY_ROW_MAX) &&
++                _cx >= NETPLAY_ROW_X && _cx < NETPLAY_ROW_X + 300) {
++                var _peer = net_peer_at(_row);
++                if (_peer != undefined) {
++                    set_redraw();
++                    net_lobby_pick(_peer.ip);
++                }
++                return true;
++            }
++        }
++
+         /* Check player area */
+         var _lx = 0;
+         var _ly = 0;
+diff --git a/scripts/scr_net/scr_net.gml b/scripts/scr_net/scr_net.gml
+index 0bd0448d..f97a004e 100644
+--- a/scripts/scr_net/scr_net.gml
++++ b/scripts/scr_net/scr_net.gml
+@@ -510,6 +510,66 @@ function net_handle_async(_async) {
+ 
+     if (_type == network_type_connect) {
+         show_debug_message("net: connect event, socket " + string(_async[? "socket"]));
++
++        /* Somebody picked US, which is what makes us the host. The role is
++           decided here rather than announced in advance, because until this
++           event arrives there is nothing to be host OF. */
++        if (global.net_role == NetRole.off && net_lobby_is_open()) {
++            var _their_ip = _async[? "ip"];
++
++            /* Both of us picked, in the same second. Each machine now has an
++               outbound connection and an inbound one, and if both kept the
++               inbound both would think they were host.
++
++               The tie-break is the session id, not the address: GameMaker has
++               no call that says what this machine's own IP is, and comparing
++               something we do not know to something we do is not a comparison.
++               Session ids we DO have both of - each machine made one at
++               startup and has been shouting it in every beacon. Lower id
++               hosts, and the two machines compare the same pair of numbers and
++               come to opposite conclusions, which is the whole requirement. */
++            if (global.net_dialling != "") {
++                var _theirs = net_peer_session(_their_ip);
++
++                if (_theirs >= 0 && _theirs < global.net_session_id) {
++                    show_debug_message("net: both picked - they host, keeping our dial");
++                    network_destroy(_async[? "socket"]);
++                    return;
++                }
++
++                if (_theirs < 0) {
++                    /* Never heard them shout, so there is nothing to compare -
++                       a manually added address that is not broadcasting. Keep
++                       our own dial and refuse theirs. If they do the same we
++                       both end up back in the lobby with nothing connected,
++                       which is visible and recoverable; two machines both
++                       believing they are host would not be. */
++                    show_debug_message("net: both picked, no beacon from them - "
++                                       + "refusing their dial, keeping ours");
++                    network_destroy(_async[? "socket"]);
++                    return;
++                }
++
++                show_debug_message("net: both picked - we host, dropping our dial");
++                if (global.net_socket >= 0) {
++                    network_destroy(global.net_socket);
++                    global.net_socket = -1;
++                }
++                global.net_dialling = "";
++            }
++
++            global.net_role  = NetRole.host;
++            global.net_phase = NetPhase.listening;
++            global.net_local_player = 0;
++            global.net_socket = _async[? "socket"];
++            ds_map_clear(global.net_turns);
++            ds_map_clear(global.net_checks);
++            global.net_outbox = [];
++            net_set_status(string(_their_ip) + " joined - you are the host");
++            net_log(global.net_status);
++            return;
++        }
++
+         if (global.net_role == NetRole.host && global.net_phase == NetPhase.listening) {
+             global.net_socket = _async[? "socket"];
+             net_set_status("player 2 joined");
+@@ -531,6 +591,14 @@ function net_handle_async(_async) {
+     buffer_seek(_b, buffer_seek_start, 0);
+     var _msg = buffer_read(_b, buffer_u8);
+ 
++    /* Discovery shares the async event with the game socket, so beacons are
++       told apart by their tag and handled before anything else. They arrive on
++       the UDP socket and carry the sender's address with them. */
++    if (_msg == NetBeacon.hello) {
++        net_receive_beacon(_b, _async[? "ip"]);
++        return;
++    }
++
+     switch (_msg) {
+     case NetMsg.start:
+         net_receive_start(_b);
+@@ -1907,3 +1975,340 @@ function net_begin(_interface, _game, _local_player) {
+     net_set_status("in game as player " + string(_local_player + 1));
+     net_log(global.net_status);
+ }
++
++// ================================================================ the lobby
++//
++// Every instance with the NET PLAY panel open is a potential host. It listens
++// on NET_PORT the whole time, and it shouts on NET_DISCOVERY_PORT once a second
++// so the others can list it. Roles are settled by who moves first: connect out
++// and you are the client, get connected to and you are the host. Nobody
++// declares a role in advance, because you cannot know which you will be until
++// somebody picks.
++//
++// The one case that needs a rule is both players picking each other inside the
++// same second. Then each machine has an outbound connection AND an inbound one,
++// and if both kept the inbound they would both think they were host. The
++// tie-break is the SESSION ID each machine made at startup and has been
++// shouting ever since - not the IP address, because GameMaker has no call that
++// says what this machine's own address is, and comparing a number we do not
++// have to one we do is not a comparison. Lower session id hosts. Both machines
++// compare the same pair of numbers and reach opposite answers, which is the
++// whole requirement.
++
++#macro NET_DISCOVERY_PORT   6511
++#macro NET_BEACON_FRAMES    45     // shout about every 0.75s at 60fps
++#macro NET_PEER_STALE_MS    4000   // gone from the list this long after it stops
++#macro NET_PEER_MAX         16
++#macro NET_INI_MANUAL       "manual"
++
++enum NetBeacon {
++    hello = 200        // u8 tag, then a u32 session id and a name string
++}
++
++function net_lobby_init() {
++    global.net_lobby_open   = false;
++    global.net_udp          = -1;
++    global.net_beacon_count = 0;
++
++    /* Peers we have heard from or been told about:
++       { ip, name, seen (ms), manual (bool) } */
++    global.net_peers = [];
++
++    /* Ours, so our own broadcast can be told apart from everyone else's - they
++       all arrive back at us, since a broadcast reaches the sender too. */
++    global.net_session_id = irandom(0x7FFFFFFF);
++    global.net_my_name = "";
++
++    /* The address we are dialling, kept so the tie-break can compare it. */
++    global.net_dialling = "";
++
++}
++
++function net_lobby_is_open() {
++    return global.net_lobby_open;
++}
++
++/// Open the lobby: listen for anyone who picks us, and start shouting.
++function net_lobby_open() {
++    if (global.net_lobby_open) {
++        return true;
++    }
++
++    global.net_lobby_open = true;
++    global.net_my_name = net_local_name();
++    net_load_manual_peers();
++
++    /* The TCP door. Opening it is not a claim to be the host - it is what makes
++       being picked possible. The role is decided in the connect event. */
++    if (global.net_server < 0 && !net_is_active()) {
++        global.net_server = network_create_server(network_socket_tcp, NET_PORT, 1);
++        if (global.net_server < 0) {
++            net_set_status("port " + string(NET_PORT) + " is busy - is a second copy running?");
++        }
++    }
++
++    /* The UDP one has to be BOUND to the discovery port, not just created:
++       an unbound socket can send a broadcast but never hear one. */
++    if (global.net_udp < 0) {
++        global.net_udp = network_create_socket_ext(network_socket_udp,
++                                                   NET_DISCOVERY_PORT);
++        if (global.net_udp < 0) {
++            show_debug_message("net: no UDP socket - discovery is off, "
++                               + "added addresses still work");
++        }
++    }
++
++    global.net_beacon_count = 0;
++    return true;
++}
++
++function net_lobby_close() {
++    if (!global.net_lobby_open) {
++        return;
++    }
++    global.net_lobby_open = false;
++
++    if (global.net_udp >= 0) {
++        network_destroy(global.net_udp);
++        global.net_udp = -1;
++    }
++
++    /* The TCP server stays if a game is running on it, and goes if we are just
++       leaving the lobby without having connected to anybody. */
++    if (!net_is_active() && global.net_server >= 0) {
++        network_destroy(global.net_server);
++        global.net_server = -1;
++    }
++
++    global.net_peers = [];
++}
++
++/// A name for this machine in other people's lists.
++///
++/// Empty for now, and the list shows the address instead. GameMaker has no call
++/// that gives the machine's name, and inventing one from something else - the
++/// last save file, say - would put a label in front of the only thing that
++/// actually identifies the machine. The field stays in the beacon so a name can
++/// be added later without changing the wire format.
++function net_local_name() {
++    return "";
++}
++
++// ------------------------------------------------------------- the beacon
++
++/// Called once a frame while the lobby is open.
++function net_lobby_step() {
++    if (!global.net_lobby_open) {
++        return;
++    }
++
++    net_expire_peers();
++
++    if (global.net_udp < 0) {
++        return;
++    }
++
++    global.net_beacon_count -= 1;
++    if (global.net_beacon_count > 0) {
++        return;
++    }
++    global.net_beacon_count = NET_BEACON_FRAMES;
++
++    var _b = global.net_send;
++    buffer_seek(_b, buffer_seek_start, 0);
++    buffer_write(_b, buffer_u8,     NetBeacon.hello);
++    buffer_write(_b, buffer_u32,    global.net_session_id);
++    buffer_write(_b, buffer_string, global.net_my_name);
++    network_send_broadcast(global.net_udp, NET_DISCOVERY_PORT, _b, buffer_tell(_b));
++}
++
++/// A beacon arrived. Ours comes back to us too, hence the session id.
++function net_receive_beacon(_b, _ip) {
++    var _session = buffer_read(_b, buffer_u32);
++    if (_session == global.net_session_id) {
++        return;
++    }
++
++    var _name = buffer_read(_b, buffer_string);
++    net_note_peer(_ip, _name, false);
++    net_note_peer_session(_ip, _session);
++}
++
++/// Record a peer, or refresh one we already have. A manual entry stays manual
++/// even once it starts answering, so it survives going quiet.
++function net_note_peer(_ip, _name, _manual) {
++    for (var _i = 0; _i < array_length(global.net_peers); _i++) {
++        var _p = global.net_peers[_i];
++        if (_p.ip == _ip) {
++            _p.seen = current_time;
++            if (_name != "") {
++                _p.name = _name;
++            }
++            if (_manual) {
++                _p.manual = true;
++            }
++            return;
++        }
++    }
++
++    if (array_length(global.net_peers) >= NET_PEER_MAX) {
++        return;
++    }
++
++    array_push(global.net_peers, {
++        ip:      _ip,
++        name:    _name,
++        seen:    current_time,
++        manual:  _manual,
++        session: -1          /* -1 until a beacon from it says otherwise */
++    });
++}
++
++/// Remember a peer's session id. It is what settles a simultaneous pick, so it
++/// is worth keeping even for a peer that was typed in rather than heard.
++function net_note_peer_session(_ip, _session) {
++    for (var _i = 0; _i < array_length(global.net_peers); _i++) {
++        if (global.net_peers[_i].ip == _ip) {
++            global.net_peers[_i].session = _session;
++            return;
++        }
++    }
++}
++
++/// A peer's session id, or -1 if we have never heard it shout.
++function net_peer_session(_ip) {
++    for (var _i = 0; _i < array_length(global.net_peers); _i++) {
++        if (global.net_peers[_i].ip == _ip) {
++            return global.net_peers[_i].session;
++        }
++    }
++    return -1;
++}
++
++/// Drop anyone who has stopped shouting. Manual entries are never dropped -
++/// they were typed in on purpose, and one that is switched off should read as
++/// "no answer" rather than vanishing while you look at it.
++function net_expire_peers() {
++    var _keep = [];
++    for (var _i = 0; _i < array_length(global.net_peers); _i++) {
++        var _p = global.net_peers[_i];
++        if (_p.manual || (current_time - _p.seen) < NET_PEER_STALE_MS) {
++            array_push(_keep, _p);
++        }
++    }
++    global.net_peers = _keep;
++}
++
++function net_peer_count() {
++    return array_length(global.net_peers);
++}
++
++function net_peer_at(_i) {
++    if (_i < 0 || _i >= array_length(global.net_peers)) {
++        return undefined;
++    }
++    return global.net_peers[_i];
++}
++
++/// Whether a peer has been heard from recently, whatever its origin.
++function net_peer_is_live(_peer) {
++    return ((current_time - _peer.seen) < NET_PEER_STALE_MS);
++}
++
++// ------------------------------------------------------- manual addresses
++
++/// Split on commas. Hand-rolled to match the rest of the port, which does not
++/// use string_split.
++function net_split_commas(_str) {
++    var _out = [];
++    var _from = 1;
++    var _n = string_length(_str);
++
++    while (_from <= _n + 1) {
++        var _to = _from;
++        while (_to <= _n && string_char_at(_str, _to) != ",") {
++            _to += 1;
++        }
++        array_push(_out, string_copy(_str, _from, _to - _from));
++        _from = _to + 1;
++    }
++
++    return _out;
++}
++
++function net_load_manual_peers() {
++    ini_open(PROGRESS_PATH);
++    var _list = ini_read_string(NET_INI_SECTION, NET_INI_MANUAL, "");
++    ini_close();
++
++    if (_list == "") {
++        return;
++    }
++
++    var _parts = net_split_commas(_list);
++    for (var _i = 0; _i < array_length(_parts); _i++) {
++        var _ip = string_trim(_parts[_i]);
++        if (_ip != "") {
++            /* seen is pushed into the past so it reads as "no answer" until it
++               actually answers, rather than looking live because it was typed. */
++            net_note_peer(_ip, "", true);
++            global.net_peers[array_length(global.net_peers) - 1].seen =
++                current_time - NET_PEER_STALE_MS;
++        }
++    }
++}
++
++function net_save_manual_peers() {
++    var _list = "";
++    for (var _i = 0; _i < array_length(global.net_peers); _i++) {
++        var _p = global.net_peers[_i];
++        if (!_p.manual) {
++            continue;
++        }
++        if (_list != "") {
++            _list += ",";
++        }
++        _list += _p.ip;
++    }
++
++    ini_open(PROGRESS_PATH);
++    ini_write_string(NET_INI_SECTION, NET_INI_MANUAL, _list);
++    ini_close();
++}
++
++function net_add_manual_peer(_ip) {
++    _ip = string_trim(_ip);
++    if (_ip == "") {
++        return false;
++    }
++    net_note_peer(_ip, "", true);
++    net_save_manual_peers();
++    return true;
++}
++
++function net_forget_peer(_ip) {
++    var _keep = [];
++    for (var _i = 0; _i < array_length(global.net_peers); _i++) {
++        if (global.net_peers[_i].ip != _ip) {
++            array_push(_keep, global.net_peers[_i]);
++        }
++    }
++    global.net_peers = _keep;
++    net_save_manual_peers();
++}
++
++// ------------------------------------------------------------ picking one
++
++/// Pick a peer: dial it. If it answers we are the client and it is the host.
++function net_lobby_pick(_ip) {
++    if (net_is_active()) {
++        return false;
++    }
++
++    global.net_dialling = _ip;
++    var _ok = net_join(_ip);
++    if (!_ok) {
++        global.net_dialling = "";
++    }
++    return _ok;
++}
+-- 
+2.43.0
+
