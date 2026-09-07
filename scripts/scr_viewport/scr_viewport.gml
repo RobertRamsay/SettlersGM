@@ -20,8 +20,8 @@
 // tinted blue and drawn faded so the boat route sits under the surface instead
 // of reading as a white mountain road. Both are safe to tweak by hand; the
 // tint is plain r,g,b (GML swaps the order internally). See draw_path_segment.
-#macro PATH_WATER_ALPHA 0.5
-#macro PATH_WATER_TINT make_colour_rgb(100, 100, 255)
+#macro PATH_WATER_ALPHA 0.8
+#macro PATH_WATER_TINT make_colour_rgb(140, 140, 255)
 
 enum ViewportLayer {
     landscape = 1 << 0,
