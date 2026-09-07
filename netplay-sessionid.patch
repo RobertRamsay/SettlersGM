@@ -1,0 +1,200 @@
+From 4d063a331301aae22aa3d0d932f24eeea4251c3b Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 7 Sep 2026 14:17:17 +0000
+Subject: [PATCH] Discovery: two machines were handing themselves the same
+ session id
+
+Your screenshot had the answer in it: "in 409 pkt / 0 beacon". Four
+hundred packets arriving and nobody in the list. The wire was never the
+problem - every beacon was being thrown away as an echo of our own.
+
+Which happens when both machines have the same session id, and they did.
+global.net_session_id came from irandom(), and GameMaker's generator can
+start from the same seed every run, so two copies of the same build hand
+out the same "random" number. Each machine heard the other, saw its own id
+on the beacon, and discarded it. randomise() now seeds it, and get_timer()
+- microseconds since this process started - is mixed in so the id differs
+even if that does not do what it says. Two machines started by hand are
+never the same number of microseconds old.
+
+Self-echoes are counted separately from now on, so this can never hide
+again: an empty list showing "own 409" says the ids have collided, and one
+showing "in 0/0" says nothing is arriving. Those want opposite fixes and
+until now looked identical.
+
+Also, from the connected screenshot: the heading wraps to two lines and
+everything under it was drawn from a fixed y, straight through the second
+line. The body now starts from where the heading actually ended.
+
+And a note on the panel that "NO ANSWER" is only about the beacon, since
+that row is perfectly pickable - which is exactly what you did, and it
+connected. The rest of the bottom of the panel is retuned around it: seven
+rows, then the hint, the discovery line, the status, ADD, the version.
+The discovery line is one line now, showing the last six digits of the id,
+which is enough to tell two machines apart. The whole id goes to the log.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DFktm5o1kLnS2Pgvyp8tD4
+---
+ scripts/scr_game_init/scr_game_init.gml | 24 ++++++++++----
+ scripts/scr_net/scr_net.gml             | 44 +++++++++++++++++++------
+ 2 files changed, 52 insertions(+), 16 deletions(-)
+
+diff --git a/scripts/scr_game_init/scr_game_init.gml b/scripts/scr_game_init/scr_game_init.gml
+index 38b8a7d0..531d5667 100644
+--- a/scripts/scr_game_init/scr_game_init.gml
++++ b/scripts/scr_game_init/scr_game_init.gml
+@@ -315,7 +315,7 @@ function game_init_init_tables() {
+ #macro NETPLAY_ROW_X      20
+ #macro NETPLAY_ROW_Y      52
+ #macro NETPLAY_ROW_H      14
+-#macro NETPLAY_ROW_MAX    8
++#macro NETPLAY_ROW_MAX    7
+ 
+ /* The NET PLAY button: the last frame of spr_icon. */
+ #macro NETPLAY_ICON       318
+@@ -344,11 +344,12 @@ function game_init_init_tables() {
+ /* The line above the list that says what this screen is doing right now, and
+    the one under it for whatever the net layer last said. */
+ #macro NETPLAY_HEAD_Y     34
+-#macro NETPLAY_STATUS_Y   184
++#macro NETPLAY_STATUS_Y   180
+ 
+ /* What discovery has managed, above the status line. Its own place rather than
+    an offset from something else, so moving one row does not silently land it on
+    top of another. */
++#macro NETPLAY_HINT_Y     152
+ #macro NETPLAY_DIAG_Y     166
+ 
+ /* How many characters fit on a line here. gfx_draw_string advances 8 pixels a
+@@ -639,11 +640,16 @@ function GameInitBox(_interface) : GuiObject() constructor {
+         }
+ 
+         if (net_is_active()) {
+-            var _role = "Connected - waiting for the host to start";
++            var _role = "Connected. Waiting for the host to start.";
+             if (global.net_role == NetRole.host) {
+                 _role = "YOU ARE THE HOST";
+             }
+-            netplay_draw_wrapped(NETPLAY_ROW_X, NETPLAY_HEAD_Y, _role, _amber);
++
++            /* Start the body from where the heading actually ended, not from a
++               fixed line. "Connected - waiting for the host to start" wraps to
++               two lines and the next line was drawn straight through it. */
++            var _by = netplay_draw_wrapped(NETPLAY_ROW_X, NETPLAY_HEAD_Y,
++                                           _role, _amber) + NETPLAY_ROW_H;
+ 
+             if (global.net_role == NetRole.host) {
+                 var _done = "";
+@@ -664,8 +670,9 @@ function GameInitBox(_interface) : GuiObject() constructor {
+                                      "It begins on both machines at once.",
+                                      _grey);
+             } else {
+-                netplay_draw_wrapped(NETPLAY_ROW_X, NETPLAY_MISSION_Y,
+-                                     "The host chooses the mission.", _grey);
++                netplay_draw_wrapped(NETPLAY_ROW_X, _by,
++                                     "The host chooses the mission. Nothing to"
++                                     + " do here but wait.", _grey);
+             }
+             return;
+         }
+@@ -699,6 +706,11 @@ function GameInitBox(_interface) : GuiObject() constructor {
+            listing nobody is a fault in here. The two look identical from an
+            empty list and want opposite fixes, and comparing the two machines'
+            lines says which end is the quiet one. */
++        if (_count > 0) {
++            gfx_draw_string(NETPLAY_ROW_X, NETPLAY_HINT_Y,
++                            "NO ANSWER = not heard from yet.", _grey, -1);
++        }
++
+         netplay_draw_wrapped(NETPLAY_ROW_X, NETPLAY_DIAG_Y,
+                              net_discovery_summary(), _grey);
+ 
+diff --git a/scripts/scr_net/scr_net.gml b/scripts/scr_net/scr_net.gml
+index dca2d9de..f1f7a1fd 100644
+--- a/scripts/scr_net/scr_net.gml
++++ b/scripts/scr_net/scr_net.gml
+@@ -2020,7 +2020,21 @@ function net_lobby_init() {
+ 
+     /* Ours, so our own broadcast can be told apart from everyone else's - they
+        all arrive back at us, since a broadcast reaches the sender too. */
+-    global.net_session_id = irandom(0x7FFFFFFF);
++    /* The id has to DIFFER between two machines, and irandom alone does not
++       guarantee that: GameMaker's generator can start from the same seed every
++       run, so two copies of the same build hand out the same "random" number.
++       That is what stopped discovery working - each machine heard the other's
++       beacon, saw its own id on it, and threw it away as an echo of itself.
++       Four hundred packets in and nobody in the list.
++
++       randomise() fixes the seed, and get_timer() - microseconds since this
++       process started - is mixed in so the id still differs even if it does
++       not. Two machines started by hand are never the same number of
++       microseconds old. */
++    randomise();
++    global.net_session_id = (irandom(0x7FFFFFFF) ^ (get_timer() & 0x7FFFFFFF))
++                            & 0x7FFFFFFF;
++    show_debug_message("net: session id " + string(global.net_session_id));
+     global.net_my_name = "";
+ 
+     /* The address we are dialling, kept so the tie-break can compare it. */
+@@ -2035,6 +2049,7 @@ function net_lobby_init() {
+     global.net_last_send     = 0;
+     global.net_datagrams     = 0;
+     global.net_beacons_heard = 0;
++    global.net_self_echo     = 0;
+     global.net_last_from     = "";
+ 
+ }
+@@ -2173,6 +2188,8 @@ function net_lobby_step() {
+                 " last=" + string(global.net_last_send) +
+                 " datagrams_in=" + string(global.net_datagrams) +
+                 " beacons_in=" + string(global.net_beacons_heard) +
++                " self_echo=" + string(global.net_self_echo) +
++                " id=" + string(global.net_session_id) +
+                 " udp_socket=" + string(global.net_udp));
+     }
+ }
+@@ -2184,7 +2201,12 @@ function net_receive_beacon(_b, _ip) {
+ 
+     var _session = buffer_read(_b, buffer_u32);
+     if (_session == global.net_session_id) {
+-        return;   /* our own broadcast, come back to us */
++        /* Our own broadcast, come back to us - or, when two machines have
++           somehow ended up with the same id, the other machine's beacon
++           mistaken for ours. Counted separately, because those two look
++           identical from an empty list and the second one is a bug. */
++        global.net_self_echo += 1;
++        return;
+     }
+ 
+     global.net_beacons_heard += 1;
+@@ -2266,16 +2288,18 @@ function net_discovery_summary() {
+         return "discovery off - UDP port " + string(NET_DISCOVERY_PORT)
+                + " refused";
+     }
+-    var _out = "id " + string(global.net_session_id)
+-               + "  sent " + string(global.net_beacons_sent);
++    /* One line, forty characters. The last six digits of the id are enough to
++       tell two machines apart at a glance, and the whole of it goes to the log
++       anyway. */
++    var _out = "id " + string(global.net_session_id mod 1000000)
++               + "  out " + string(global.net_beacons_sent);
+     if (global.net_send_fail > 0) {
+-        _out += " (" + string(global.net_send_fail) + " failed, last "
+-                + string(global.net_last_send) + ")";
++        _out += "!" + string(global.net_last_send);
+     }
+-    _out += "  in " + string(global.net_datagrams) + " pkt / "
+-            + string(global.net_beacons_heard) + " beacon";
+-    if (global.net_last_from != "") {
+-        _out += " from " + global.net_last_from;
++    _out += "  in " + string(global.net_datagrams)
++            + "/" + string(global.net_beacons_heard);
++    if (global.net_self_echo > 0) {
++        _out += "  own " + string(global.net_self_echo);
+     }
+     return _out;
+ }
+-- 
+2.43.0
+

@@ -2020,7 +2020,21 @@ function net_lobby_init() {
 
     /* Ours, so our own broadcast can be told apart from everyone else's - they
        all arrive back at us, since a broadcast reaches the sender too. */
-    global.net_session_id = irandom(0x7FFFFFFF);
+    /* The id has to DIFFER between two machines, and irandom alone does not
+       guarantee that: GameMaker's generator can start from the same seed every
+       run, so two copies of the same build hand out the same "random" number.
+       That is what stopped discovery working - each machine heard the other's
+       beacon, saw its own id on it, and threw it away as an echo of itself.
+       Four hundred packets in and nobody in the list.
+
+       randomise() fixes the seed, and get_timer() - microseconds since this
+       process started - is mixed in so the id still differs even if it does
+       not. Two machines started by hand are never the same number of
+       microseconds old. */
+    randomise();
+    global.net_session_id = (irandom(0x7FFFFFFF) ^ (get_timer() & 0x7FFFFFFF))
+                            & 0x7FFFFFFF;
+    show_debug_message("net: session id " + string(global.net_session_id));
     global.net_my_name = "";
 
     /* The address we are dialling, kept so the tie-break can compare it. */
@@ -2035,6 +2049,7 @@ function net_lobby_init() {
     global.net_last_send     = 0;
     global.net_datagrams     = 0;
     global.net_beacons_heard = 0;
+    global.net_self_echo     = 0;
     global.net_last_from     = "";
 
 }
@@ -2173,6 +2188,8 @@ function net_lobby_step() {
                 " last=" + string(global.net_last_send) +
                 " datagrams_in=" + string(global.net_datagrams) +
                 " beacons_in=" + string(global.net_beacons_heard) +
+                " self_echo=" + string(global.net_self_echo) +
+                " id=" + string(global.net_session_id) +
                 " udp_socket=" + string(global.net_udp));
     }
 }
@@ -2184,7 +2201,12 @@ function net_receive_beacon(_b, _ip) {
 
     var _session = buffer_read(_b, buffer_u32);
     if (_session == global.net_session_id) {
-        return;   /* our own broadcast, come back to us */
+        /* Our own broadcast, come back to us - or, when two machines have
+           somehow ended up with the same id, the other machine's beacon
+           mistaken for ours. Counted separately, because those two look
+           identical from an empty list and the second one is a bug. */
+        global.net_self_echo += 1;
+        return;
     }
 
     global.net_beacons_heard += 1;
@@ -2266,16 +2288,18 @@ function net_discovery_summary() {
         return "discovery off - UDP port " + string(NET_DISCOVERY_PORT)
                + " refused";
     }
-    var _out = "id " + string(global.net_session_id)
-               + "  sent " + string(global.net_beacons_sent);
+    /* One line, forty characters. The last six digits of the id are enough to
+       tell two machines apart at a glance, and the whole of it goes to the log
+       anyway. */
+    var _out = "id " + string(global.net_session_id mod 1000000)
+               + "  out " + string(global.net_beacons_sent);
     if (global.net_send_fail > 0) {
-        _out += " (" + string(global.net_send_fail) + " failed, last "
-                + string(global.net_last_send) + ")";
+        _out += "!" + string(global.net_last_send);
     }
-    _out += "  in " + string(global.net_datagrams) + " pkt / "
-            + string(global.net_beacons_heard) + " beacon";
-    if (global.net_last_from != "") {
-        _out += " from " + global.net_last_from;
+    _out += "  in " + string(global.net_datagrams)
+            + "/" + string(global.net_beacons_heard);
+    if (global.net_self_echo > 0) {
+        _out += "  own " + string(global.net_self_echo);
     }
     return _out;
 }

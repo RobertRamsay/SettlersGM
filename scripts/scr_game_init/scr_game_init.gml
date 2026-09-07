@@ -315,7 +315,7 @@ function game_init_init_tables() {
 #macro NETPLAY_ROW_X      20
 #macro NETPLAY_ROW_Y      52
 #macro NETPLAY_ROW_H      14
-#macro NETPLAY_ROW_MAX    8
+#macro NETPLAY_ROW_MAX    7
 
 /* The NET PLAY button: the last frame of spr_icon. */
 #macro NETPLAY_ICON       318
@@ -344,11 +344,12 @@ function game_init_init_tables() {
 /* The line above the list that says what this screen is doing right now, and
    the one under it for whatever the net layer last said. */
 #macro NETPLAY_HEAD_Y     34
-#macro NETPLAY_STATUS_Y   184
+#macro NETPLAY_STATUS_Y   180
 
 /* What discovery has managed, above the status line. Its own place rather than
    an offset from something else, so moving one row does not silently land it on
    top of another. */
+#macro NETPLAY_HINT_Y     152
 #macro NETPLAY_DIAG_Y     166
 
 /* How many characters fit on a line here. gfx_draw_string advances 8 pixels a
@@ -639,11 +640,16 @@ function GameInitBox(_interface) : GuiObject() constructor {
         }
 
         if (net_is_active()) {
-            var _role = "Connected - waiting for the host to start";
+            var _role = "Connected. Waiting for the host to start.";
             if (global.net_role == NetRole.host) {
                 _role = "YOU ARE THE HOST";
             }
-            netplay_draw_wrapped(NETPLAY_ROW_X, NETPLAY_HEAD_Y, _role, _amber);
+
+            /* Start the body from where the heading actually ended, not from a
+               fixed line. "Connected - waiting for the host to start" wraps to
+               two lines and the next line was drawn straight through it. */
+            var _by = netplay_draw_wrapped(NETPLAY_ROW_X, NETPLAY_HEAD_Y,
+                                           _role, _amber) + NETPLAY_ROW_H;
 
             if (global.net_role == NetRole.host) {
                 var _done = "";
@@ -664,8 +670,9 @@ function GameInitBox(_interface) : GuiObject() constructor {
                                      "It begins on both machines at once.",
                                      _grey);
             } else {
-                netplay_draw_wrapped(NETPLAY_ROW_X, NETPLAY_MISSION_Y,
-                                     "The host chooses the mission.", _grey);
+                netplay_draw_wrapped(NETPLAY_ROW_X, _by,
+                                     "The host chooses the mission. Nothing to"
+                                     + " do here but wait.", _grey);
             }
             return;
         }
@@ -699,6 +706,11 @@ function GameInitBox(_interface) : GuiObject() constructor {
            listing nobody is a fault in here. The two look identical from an
            empty list and want opposite fixes, and comparing the two machines'
            lines says which end is the quiet one. */
+        if (_count > 0) {
+            gfx_draw_string(NETPLAY_ROW_X, NETPLAY_HINT_Y,
+                            "NO ANSWER = not heard from yet.", _grey, -1);
+        }
+
         netplay_draw_wrapped(NETPLAY_ROW_X, NETPLAY_DIAG_Y,
                              net_discovery_summary(), _grey);
 
