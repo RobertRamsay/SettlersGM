@@ -353,10 +353,15 @@ function serf_handle_serf_free_walking_switch_on_dir(_serf, _dir) {
         _dy = _sign;
     }
 
-    show_debug_message("serf: serf " + string(_serf.index) + ": free walking: dest " +
-                       string(_serf.s.free_walking_dist_col) + ", " +
-                       string(_serf.s.free_walking_dist_row) +
-                       ", move " + string(_dx) + ", " + string(_dy));
+    /* Gated. This fires on every step of every free-walking serf in the game;
+       ungated it was the bulk of the debug log and a real cost at high game
+       speed, and knights now free walk home as well. */
+    if (global.serf_verbose_log) {
+        show_debug_message("serf: serf " + string(_serf.index) + ": free walking: dest " +
+                           string(_serf.s.free_walking_dist_col) + ", " +
+                           string(_serf.s.free_walking_dist_row) +
+                           ", move " + string(_dx) + ", " + string(_dy));
+    }
 
     _serf.s.free_walking_dist_col -= _dx;
     _serf.s.free_walking_dist_row -= _dy;
@@ -1045,6 +1050,21 @@ function serf_handle_serf_lost_state(_serf) {
 
     var _map = _serf.game.get_map();
     while (_serf.counter < 0) {
+        /* DELIBERATE DEPARTURE FROM FREESERF: a knight goes home to a garrison
+           across open ground rather than hunting for the nearest flag and then
+           following roads to a stock. See knight_send_home in scr_serf_c.gml
+           for why - in short, the flag hunt loops when the flag it picks has no
+           route to an inventory, and the road walk turns every knight coming
+           back from a battle into a rolling obstruction on the transport
+           network. If there is nowhere to send him, the ported search below
+           still runs unchanged. */
+        if (_serf.get_type() >= SerfType.knight0 &&
+            _serf.get_type() <= SerfType.knight4) {
+            if (knight_send_home(_serf)) {
+                return;
+            }
+        }
+
         /* Try to find a suitable destination. */
         for (var _i = 0; _i < 258; _i++) {
             var _dist = 258 - _i;

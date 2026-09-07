@@ -448,6 +448,15 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
     cf_throwing = false;    /* last shot was a grenade, so draw the throw pose */
     cf_hp = 3;              /* CF_KNIGHT_HP: rifle hits this one can still take */
 
+    /* How many garrisons this knight has tried and failed to walk home to
+       since he was last indoors. knight_send_home() in scr_serf_c.gml uses it
+       to pick his next choice instead of the same one again, which is what
+       stops a knight who cannot reach his first pick pacing forever. Transient
+       like the cf_* fields above: not saved and not in the network hash,
+       because every machine recomputes it from the same command stream and it
+       means nothing once he is inside a building. */
+    home_tries = 0;
+
     /* The C++ union `s`, flattened: every union member's fields become
        <member>_<field>. NOTE: the C++ relies on union aliasing between some
        members (same byte offsets B..F). walking <-> transporting alias is

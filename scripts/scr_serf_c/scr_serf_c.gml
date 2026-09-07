@@ -342,11 +342,13 @@ function serf_handle_knight_occupy_enemy_building(_serf) {
       if (building.get_owner() == _serf.owner) {
         /* Enter building if there is space. */
         if (building.get_type() == BuildingType.castle) {
+          _serf.home_tries = 0;   /* he is home; start counting again next time */
           _serf.enter_building(-2, 0);
           return;
         } else {
           if (building.is_enough_place_for_knight()) {
             /* Enter building */
+            _serf.home_tries = 0; /* he is home; start counting again next time */
             _serf.enter_building(-1, 0);
             building.knight_occupy();
             return;
@@ -388,6 +390,194 @@ function serf_handle_knight_occupy_enemy_building(_serf) {
   _serf.state = SerfState.lost;
   _serf.s.lost_field_B = 0;
   _serf.counter = 0;
+}
+
+/// ---------------------------------------------------------------------------
+/// Knights coming home from a fight. DELIBERATE DEPARTURE FROM FREESERF.
+/// ---------------------------------------------------------------------------
+/// Freeserf drops a knight who has finished fighting in the open into
+/// SerfState.lost. That state spirals outwards for the NEAREST owned flag, free
+/// walks to it, and then calls find_inventory(), which puts him on the road
+/// network and walks him to the closest stock. Two things go wrong with that
+/// out at the border, and both are visible in play:
+///
+///   - The nearest flag is often on a stretch of road that does not reach any
+///     inventory. find_inventory() hands him straight back to lost, lost picks
+///     the same flag again because nothing has changed, and he paces around it
+///     for ever. That is the lurking.
+///
+///   - Even when it works he spends the whole journey standing on road tiles,
+///     one serf per tile, in the way of every transporter trying to use them.
+///     A handful of knights walking home after a battle will throttle the
+///     supply network for as long as the walk takes.
+///
+/// He does not need a road at all. knight_occupy_enemy_building already knows
+/// how to walk a knight into a FRIENDLY military building straight off the
+/// grass - that is the `building.get_owner() == _serf.owner` branch above - so
+/// the fix is to give him a building instead of a flag as his destination and
+/// let him cross country to it. He only touches the road network at the very
+/// end, at the door, where the tile-occupancy checks make him take his turn
+/// behind whatever traffic is already going in and out.
+///
+/// The destination is chosen the way Bob asked for it: the nearest military
+/// building with at least KNIGHT_HOME_FREE_SLOTS spare places, else the castle,
+/// else anywhere at all with a single place left.
+
+/// Prefer somewhere with room to spare rather than the last free bunk, so that
+/// the slot is unlikely to have been taken by the time he walks in.
+#macro KNIGHT_HOME_FREE_SLOTS 2
+
+/// Places left in a military building, counting knights already on their way.
+/// The capacities mirror Building.is_enough_place_for_knight.
+function knight_home_free_slots(_building) {
+  var _max = 0;
+  switch (_building.get_type()) {
+    case BuildingType.hut:      _max = 3;  break;
+    case BuildingType.tower:    _max = 6;  break;
+    case BuildingType.fortress: _max = 12; break;
+    default:                    return 0;
+  }
+
+  var _taken = _building.get_res_count_in_stock(0) +
+               _building.get_requested_in_stock(0);
+  return _max - _taken;
+}
+
+/// Rank a candidate home. Higher is better, 0 means "not a home at all".
+function knight_home_rank(_building) {
+  if (_building.is_burning() || !_building.is_done() ||
+      !_building.is_military()) {
+    return 0;
+  }
+
+  if (_building.get_type() == BuildingType.castle) {
+    return 2;                       /* always takes him back */
+  }
+
+  var _free = knight_home_free_slots(_building);
+  if (_free >= KNIGHT_HOME_FREE_SLOTS) {
+    return 3;                       /* what we actually want */
+  }
+  if (_free >= 1) {
+    return 1;                       /* last resort: one bunk, might be gone */
+  }
+  return 0;
+}
+
+/// Best home for this knight, skipping the _skip best ones. Skipping is how a
+/// knight who could not reach his first choice - across water, say - ends up
+/// trying somewhere else instead of the same place for ever.
+///
+/// Deterministic: buildings are visited in index order and every comparison is
+/// integer, so every machine in a network game makes the same choice.
+function knight_pick_home(_serf, _skip) {
+  var _game = _serf.game;
+  var _map = _game.get_map();
+  var _buildings = _game.get_player_buildings(_game.get_player(_serf.get_owner()));
+  var _count = array_length(_buildings);
+
+  var _taken = [];
+  var _chosen = undefined;
+
+  for (var _round = 0; _round <= _skip; _round++) {
+    var _best = undefined;
+    var _best_rank = 0;
+    var _best_dist = 0;
+
+    for (var _i = 0; _i < _count; _i++) {
+      var _b = _buildings[_i];
+      if (_b == undefined) {
+        continue;
+      }
+
+      var _already = false;
+      for (var _t = 0; _t < array_length(_taken); _t++) {
+        if (_taken[_t] == _b.get_index()) {
+          _already = true;
+          break;
+        }
+      }
+      if (_already) {
+        continue;
+      }
+
+      var _rank = knight_home_rank(_b);
+      if (_rank == 0) {
+        continue;
+      }
+
+      var _door = _map.move_down_right(_b.get_position());
+      var _dist = abs(_map.dist_x(_door, _serf.pos)) +
+                  abs(_map.dist_y(_door, _serf.pos));
+
+      if (_best == undefined || _rank > _best_rank ||
+          (_rank == _best_rank && _dist < _best_dist)) {
+        _best = _b;
+        _best_rank = _rank;
+        _best_dist = _dist;
+      }
+    }
+
+    if (_best == undefined) {
+      /* Ran out of candidates: keep the last good one rather than nothing. */
+      break;
+    }
+
+    _chosen = _best;
+    array_push(_taken, _best.get_index());
+  }
+
+  return _chosen;
+}
+
+/// Point a knight at a garrison and set him walking cross country to its door.
+/// Returns false if there is nowhere to send him, in which case the caller
+/// should carry on with whatever it did before - the ported "lost" walk.
+function knight_send_home(_serf) {
+  /* Four failed attempts and we stop guessing; Freeserf's own lost handling is
+     a better bet than a fifth building we probably cannot reach either. */
+  if (_serf.home_tries >= 4) {
+    _serf.home_tries = 0;
+    return false;
+  }
+
+  var _building = knight_pick_home(_serf, _serf.home_tries);
+  if (_building == undefined) {
+    return false;
+  }
+  _serf.home_tries += 1;
+
+  var _map = _serf.game.get_map();
+
+  /* Not the building tile: the tile one step down-right of it, which is where
+     knight_occupy_enemy_building expects to be standing when it looks for its
+     building at move_up_left(pos). dist_x/dist_y are measured destination
+     first, serf second, matching Player.start_attack. */
+  var _door = _map.move_down_right(_building.get_position());
+
+  _serf.state = SerfState.knight_free_walking;
+  _serf.s.free_walking_dist_col = _map.dist_x(_door, _serf.pos);
+  _serf.s.free_walking_dist_row = _map.dist_y(_door, _serf.pos);
+  /* neg_dist1 must NOT be -128 here. -128 is the flag that makes free walking
+     call find_inventory() on arrival, which is the road-hunting behaviour we
+     are getting away from; 0 sends him to knight_occupy_enemy_building, which
+     walks him in through the door. */
+  _serf.s.free_walking_neg_dist1 = 0;
+  _serf.s.free_walking_neg_dist2 = 0;
+  _serf.s.free_walking_flags = 0;
+  _serf.counter = 0;
+  _serf.tick = _serf.game.get_tick() & 0xFFFF;
+
+  if (global.serf_verbose_log) {
+    show_debug_message("serf: knight " + string(_serf.get_index()) +
+                       " heading home to building " +
+                       string(_building.get_index()) + " (try " +
+                       string(_serf.home_tries) + ", dist " +
+                       string(_serf.s.free_walking_dist_col) + "," +
+                       string(_serf.s.free_walking_dist_row) + ")");
+  }
+
+  return true;
 }
 
 function serf_handle_state_knight_free_walking(_serf) {
