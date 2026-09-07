@@ -289,13 +289,19 @@ function game_init_init_tables() {
     /* NET PLAY. START and the mission arrows are here for the host, and simply
        do nothing for the client - which one you are is not known until somebody
        picks, so the panel cannot be laid out differently per role. */
+    /* Nothing on the top row. START does nothing until somebody has joined and
+       OPTIONS belongs to the screen behind this one, so both were buttons that
+       sat there looking pressable and were not. EXIT goes back rather than out,
+       which is what a panel opened from somewhere else should do.
+
+       The two things the host does need - choosing the mission and starting it
+       - are rows in the list's own style, drawn only when there is a host to do
+       them. A control that cannot act should not be on screen. */
     global.game_init_clickmap_netplay = [
-        GameInitAction.start_game,        20,  16, 32, 32,
-        GameInitAction.show_netplay,     NETPLAY_BTN_X, NETPLAY_BTN_Y, 32, 32,
-        GameInitAction.increment,        284,  16, 16, 16,
-        GameInitAction.decrement,        284,  32, 16, 16,
+        GameInitAction.increment,        NETPLAY_MISSION_X + 152, NETPLAY_MISSION_Y, 24, 16,
+        GameInitAction.decrement,        NETPLAY_MISSION_X,       NETPLAY_MISSION_Y, 24, 16,
+        GameInitAction.start_game,       NETPLAY_GO_X,  NETPLAY_GO_Y,  180, 16,
         GameInitAction.netplay_add,      NETPLAY_ADD_X, NETPLAY_ADD_Y, 150, 16,
-        GameInitAction.show_options,     308,  16, 32, 32,
         GameInitAction.close,            324, 216, 16, 16,
         -1
     ];
@@ -307,7 +313,7 @@ function game_init_init_tables() {
    heading and runs down to the ADD row, full width rather than squeezed into
    the strip beside a minimap. */
 #macro NETPLAY_ROW_X      20
-#macro NETPLAY_ROW_Y      60
+#macro NETPLAY_ROW_Y      52
 #macro NETPLAY_ROW_H      14
 #macro NETPLAY_ROW_MAX    9
 
@@ -326,12 +332,19 @@ function game_init_init_tables() {
    slot, which is where LOAD is drawn - a button that reads LOAD and adds an
    address is worse than no button. */
 #macro NETPLAY_ADD_X      20
-#macro NETPLAY_ADD_Y      192
+#macro NETPLAY_ADD_Y      188
+
+/* The host's two controls, in the list's own style rather than as icons on a
+   row that is otherwise empty. Drawn only when there is a host to use them. */
+#macro NETPLAY_MISSION_X  20
+#macro NETPLAY_MISSION_Y  52
+#macro NETPLAY_GO_X       20
+#macro NETPLAY_GO_Y       76
 
 /* The line above the list that says what this screen is doing right now, and
    the one under it for whatever the net layer last said. */
-#macro NETPLAY_HEAD_Y     44
-#macro NETPLAY_STATUS_Y   214
+#macro NETPLAY_HEAD_Y     34
+#macro NETPLAY_STATUS_Y   206
 
 /* How many characters fit on a line here. gfx_draw_string advances 8 pixels a
    character and nothing about it wraps or clips, so a line that is too long
@@ -618,16 +631,25 @@ function GameInitBox(_interface) : GuiObject() constructor {
             netplay_draw_wrapped(NETPLAY_ROW_X, NETPLAY_HEAD_Y, _role, _amber);
 
             if (global.net_role == NetRole.host) {
-                draw_box_string(10, 18, "Mission:");
-                draw_box_string(20, 18, string(game_mission + 1));
-                draw_box_icon(33, 0, 237);   // Up
-                draw_box_icon(33, 16, 240);  // Down
+                var _done = "";
+                if (progress_mission_is_done(game_mission)) {
+                    _done = "  (complete)";
+                }
 
-                netplay_draw_wrapped(NETPLAY_ROW_X, NETPLAY_ROW_Y,
-                                     "The arrows pick the mission. START begins"
-                                     + " it on both machines at once.", _grey);
+                gfx_draw_string(NETPLAY_MISSION_X, NETPLAY_MISSION_Y,
+                                "[ < ]  MISSION " + string(game_mission + 1)
+                                + _done, _white, -1);
+                gfx_draw_string(NETPLAY_MISSION_X + 152, NETPLAY_MISSION_Y,
+                                "[ > ]", _white, -1);
+
+                gfx_draw_string(NETPLAY_GO_X, NETPLAY_GO_Y,
+                                "[ START THIS MISSION ]", _white, -1);
+
+                netplay_draw_wrapped(NETPLAY_ROW_X, NETPLAY_GO_Y + 24,
+                                     "It begins on both machines at once.",
+                                     _grey);
             } else {
-                netplay_draw_wrapped(NETPLAY_ROW_X, NETPLAY_ROW_Y,
+                netplay_draw_wrapped(NETPLAY_ROW_X, NETPLAY_MISSION_Y,
                                      "The host chooses the mission.", _grey);
             }
             return;
@@ -655,6 +677,15 @@ function GameInitBox(_interface) : GuiObject() constructor {
                                      "Not on the same network? Use ADD AN"
                                      + " ADDRESS.", _grey);
             }
+        }
+
+        /* What discovery has actually managed, in the corner. Sending but
+           hearing nothing is a blocked port; hearing packets but listing
+           nobody is a fault in here. The two look identical from an empty
+           list and want opposite fixes. */
+        if (_count == 0) {
+            netplay_draw_wrapped(NETPLAY_ROW_X, NETPLAY_STATUS_Y - NETPLAY_ROW_H,
+                                 net_discovery_summary(), _grey);
         }
 
         var _rows = min(_count, NETPLAY_ROW_MAX);
@@ -732,17 +763,22 @@ function GameInitBox(_interface) : GuiObject() constructor {
                             make_colour_rgb(0xff, 0xff, 0x99), -1);
         }
 
-        var _layout = global.game_init_layout;
-        var _i = 0;
-        while (_layout[_i] >= 0) {
-            draw_box_icon(_layout[_i + 1], _layout[_i + 2], _layout[_i]);
-            _i += 3;
+        /* START and OPTIONS, except on NET PLAY - see the clickmap comment. */
+        if (game_type != GameType.netplay) {
+            var _layout = global.game_init_layout;
+            var _i = 0;
+            while (_layout[_i] >= 0) {
+                draw_box_icon(_layout[_i + 1], _layout[_i + 2], _layout[_i]);
+                _i += 3;
+            }
         }
 
-        /* NET PLAY, beside LOAD and EXIT. Icon 318 is the last frame of
-           spr_icon. On the panel itself the same button reads ADD, because
-           that is the only thing left to press there. */
-        gfx_draw_sprite(NETPLAY_BTN_X, NETPLAY_BTN_Y, Asset.icon, NETPLAY_ICON);
+        /* NET PLAY, on the top row. Not on the panel itself: EXIT is the way
+           back from there, so a second way out would only be another button
+           taking up the room the text needs. */
+        if (game_type != GameType.netplay) {
+            gfx_draw_sprite(NETPLAY_BTN_X, NETPLAY_BTN_Y, Asset.icon, NETPLAY_ICON);
+        }
 
         if (game_type == GameType.netplay) {
             draw_netplay();
@@ -1102,6 +1138,18 @@ function GameInitBox(_interface) : GuiObject() constructor {
                 break;
             }
             case GameInitAction.increment:
+                /* On NET PLAY these are the host's mission arrows and nothing
+                   else - they are drawn only then, so they should not quietly
+                   change a hidden value the rest of the time. */
+                if (game_type == GameType.netplay) {
+                    if (global.net_role == NetRole.host && global.net_socket >= 0) {
+                        game_mission = min(game_mission + 1,
+                                           game_info_get_mission_count() - 1);
+                        mission = game_info_get_mission(game_mission);
+                        set_redraw();
+                    }
+                    break;
+                }
                 switch (game_type) {
                     case GameType.mission:
                         game_mission = min(game_mission + 1, game_info_get_mission_count() - 1);
@@ -1114,6 +1162,14 @@ function GameInitBox(_interface) : GuiObject() constructor {
                 generate_map_preview();
                 break;
             case GameInitAction.decrement:
+                if (game_type == GameType.netplay) {
+                    if (global.net_role == NetRole.host && global.net_socket >= 0) {
+                        game_mission = max(0, game_mission - 1);
+                        mission = game_info_get_mission(game_mission);
+                        set_redraw();
+                    }
+                    break;
+                }
                 switch (game_type) {
                     case GameType.mission:
                         game_mission = max(0, game_mission - 1);
@@ -1126,6 +1182,14 @@ function GameInitBox(_interface) : GuiObject() constructor {
                 generate_map_preview();
                 break;
             case GameInitAction.close:
+                /* On NET PLAY, EXIT is the way back to the screen this was
+                   opened from. Quitting the whole game from a panel you stepped
+                   into would be a nasty surprise. */
+                if (game_type == GameType.netplay) {
+                    set_game_type(netplay_return_type);
+                    set_redraw();
+                    break;
+                }
                 net_lobby_close();
                 /* Quitting in-game returns here, so this is the way out. */
                 game_end();

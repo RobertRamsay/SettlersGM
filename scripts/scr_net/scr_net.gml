@@ -599,6 +599,10 @@ function net_handle_async(_async) {
         return;
     }
 
+    /* Anything else arriving on the discovery socket is worth counting too: a
+       datagram that turns up and is not a beacon means the wire is fine and the
+       fault is in here, which is the opposite conclusion from nothing at all. */
+
     switch (_msg) {
     case NetMsg.start:
         net_receive_start(_b);
@@ -2022,6 +2026,17 @@ function net_lobby_init() {
     /* The address we are dialling, kept so the tie-break can compare it. */
     global.net_dialling = "";
 
+    /* Discovery counters. "They cannot see each other" is three different
+       faults wearing the same face - nothing sent, sent but nothing arrives,
+       or arrives and is not understood - and they need completely different
+       fixes. These say which one it is instead of leaving it to guesswork. */
+    global.net_beacons_sent  = 0;
+    global.net_send_fail     = 0;
+    global.net_last_send     = 0;
+    global.net_datagrams     = 0;
+    global.net_beacons_heard = 0;
+    global.net_last_from     = "";
+
 }
 
 function net_lobby_is_open() {
@@ -2119,15 +2134,43 @@ function net_lobby_step() {
     buffer_write(_b, buffer_u8,     NetBeacon.hello);
     buffer_write(_b, buffer_u32,    global.net_session_id);
     buffer_write(_b, buffer_string, global.net_my_name);
-    network_send_broadcast(global.net_udp, NET_DISCOVERY_PORT, _b, buffer_tell(_b));
+
+    /* The return value matters. A broadcast that the machine refuses to send
+       fails here, quietly, and looks from the panel exactly like a broadcast
+       nobody answered. */
+    var _r = network_send_broadcast(global.net_udp, NET_DISCOVERY_PORT, _b,
+                                    buffer_tell(_b));
+    global.net_last_send = _r;
+    if (_r < 0) {
+        global.net_send_fail += 1;
+    } else {
+        global.net_beacons_sent += 1;
+    }
+
+    /* Once every roughly thirty seconds, into the log, so a session that did
+       not work can be read back afterwards instead of described. */
+    if ((global.net_beacons_sent + global.net_send_fail) mod 40 == 1) {
+        net_log("discovery: sent=" + string(global.net_beacons_sent) +
+                " failed=" + string(global.net_send_fail) +
+                " last=" + string(global.net_last_send) +
+                " datagrams_in=" + string(global.net_datagrams) +
+                " beacons_in=" + string(global.net_beacons_heard) +
+                " udp_socket=" + string(global.net_udp));
+    }
 }
 
 /// A beacon arrived. Ours comes back to us too, hence the session id.
 function net_receive_beacon(_b, _ip) {
+    global.net_datagrams += 1;
+    global.net_last_from = string(_ip);
+
     var _session = buffer_read(_b, buffer_u32);
     if (_session == global.net_session_id) {
-        return;
+        return;   /* our own broadcast, come back to us */
     }
+
+    global.net_beacons_heard += 1;
+    net_log("discovery: heard " + string(_ip));
 
     var _name = buffer_read(_b, buffer_string);
     net_note_peer(_ip, _name, false);
@@ -2197,6 +2240,17 @@ function net_expire_peers() {
         }
     }
     global.net_peers = _keep;
+}
+
+/// One line saying what discovery has actually managed to do, for the panel.
+function net_discovery_summary() {
+    if (global.net_udp < 0) {
+        return "discovery off - UDP port " + string(NET_DISCOVERY_PORT)
+               + " refused";
+    }
+    return "sent " + string(global.net_beacons_sent)
+           + ", heard " + string(global.net_beacons_heard)
+           + " from " + string(global.net_datagrams) + " packets";
 }
 
 function net_peer_count() {
