@@ -252,9 +252,9 @@ function game_init_init_tables() {
     // handle_click_left clickmaps
     global.game_init_clickmap_mission = [
         GameInitAction.start_game,        20,  16, 32, 32,
+        GameInitAction.show_netplay,     NETPLAY_BTN_X, NETPLAY_BTN_Y, 32, 32,
         GameInitAction.toggle_game_type,  60,  16, 32, 32,
         GameInitAction.show_load,        292, 216, 32, 32,
-        GameInitAction.show_netplay,     256, 216, 32, 32,
         GameInitAction.show_options,     308,  16, 32, 32,
         GameInitAction.increment,        284,  16, 16, 16,
         GameInitAction.decrement,        284,  32, 16, 16,
@@ -264,9 +264,9 @@ function game_init_init_tables() {
 
     global.game_init_clickmap_custom = [
         GameInitAction.start_game,        20,  16, 32, 32,
+        GameInitAction.show_netplay,     NETPLAY_BTN_X, NETPLAY_BTN_Y, 32, 32,
         GameInitAction.toggle_game_type,  60,  16, 32, 32,
         GameInitAction.show_load,        292, 216, 32, 32,
-        GameInitAction.show_netplay,     256, 216, 32, 32,
         GameInitAction.show_options,     308,  16, 32, 32,
         GameInitAction.increment,        220,  24, 24, 24,
         GameInitAction.decrement,        220,  16,  8,  8,
@@ -278,9 +278,9 @@ function game_init_init_tables() {
 
     global.game_init_clickmap_load = [
         GameInitAction.start_game,        20,  16, 32, 32,
+        GameInitAction.show_netplay,     NETPLAY_BTN_X, NETPLAY_BTN_Y, 32, 32,
         GameInitAction.toggle_game_type,  60,  16, 32, 32,
         GameInitAction.show_load,        292, 216, 32, 32,
-        GameInitAction.show_netplay,     256, 216, 32, 32,
         GameInitAction.show_options,     308,  16, 32, 32,
         GameInitAction.close,            324, 216, 16, 16,
         -1
@@ -291,9 +291,10 @@ function game_init_init_tables() {
        picks, so the panel cannot be laid out differently per role. */
     global.game_init_clickmap_netplay = [
         GameInitAction.start_game,        20,  16, 32, 32,
+        GameInitAction.show_netplay,     NETPLAY_BTN_X, NETPLAY_BTN_Y, 32, 32,
         GameInitAction.increment,        284,  16, 16, 16,
         GameInitAction.decrement,        284,  32, 16, 16,
-        GameInitAction.netplay_add,      256, 216, 32, 32,
+        GameInitAction.netplay_add,      NETPLAY_ADD_X, NETPLAY_ADD_Y, 150, 16,
         GameInitAction.show_options,     308,  16, 32, 32,
         GameInitAction.close,            324, 216, 16, 16,
         -1
@@ -304,10 +305,24 @@ function game_init_init_tables() {
 #macro NETPLAY_ROW_X      20
 #macro NETPLAY_ROW_Y      72
 #macro NETPLAY_ROW_H      14
-#macro NETPLAY_ROW_MAX    9
+#macro NETPLAY_ROW_MAX    8
 
 /* The NET PLAY button: the last frame of spr_icon. */
 #macro NETPLAY_ICON       318
+
+/* Where the NET PLAY button sits: the gap on the top row between the map size
+   and the dice. The bottom-right slot it was in first is the wrong home for the
+   only route into the panel, and it is crowded there. MISSION keeps its arrows
+   at x 284 and CUSTOM its dice at 220, so 188 to 220 is the one 32-wide slot
+   free on every screen. Move it by changing these two. */
+#macro NETPLAY_BTN_X      188
+#macro NETPLAY_BTN_Y      16
+
+/* ADD AN ADDRESS, below the list. Its own row rather than the bottom-right
+   slot, which is where LOAD is drawn - a button that reads LOAD and adds an
+   address is worse than no button. */
+#macro NETPLAY_ADD_X      20
+#macro NETPLAY_ADD_Y      196
 
 /// Port of Random::Random() (random.cc lines 27-33): seed from the clock
 /// and consume one value.
@@ -434,8 +449,11 @@ function RandomInput() : GuiObject() constructor {
             gfx_draw_string(NETPLAY_ROW_X, _y, _label + _tail, _colour, -1);
         }
 
+        gfx_draw_string(NETPLAY_ADD_X, NETPLAY_ADD_Y, "[ ADD AN ADDRESS ]",
+                        _white, -1);
+
         if (net_status_line() != "") {
-            gfx_draw_string(NETPLAY_ROW_X, 200, net_status_line(), _amber, -1);
+            gfx_draw_string(NETPLAY_ROW_X, 216, net_status_line(), _amber, -1);
         }
     };
 
@@ -550,6 +568,10 @@ function GameInitBox(_interface) : GuiObject() constructor {
     game_type = GameType.custom;
     game_mission = 0;
 
+    /* Which screen NET PLAY was opened from, so the same button goes back to
+       it rather than always landing on one of them. */
+    netplay_return_type = GameType.custom;
+
     custom_mission = undefined;
     mission = undefined;
 
@@ -630,7 +652,7 @@ function GameInitBox(_interface) : GuiObject() constructor {
         /* NET PLAY, beside LOAD and EXIT. Icon 318 is the last frame of
            spr_icon. On the panel itself the same button reads ADD, because
            that is the only thing left to press there. */
-        gfx_draw_sprite(256, 216, Asset.icon, NETPLAY_ICON);
+        gfx_draw_sprite(NETPLAY_BTN_X, NETPLAY_BTN_Y, Asset.icon, NETPLAY_ICON);
 
         if (game_type == GameType.netplay) {
             draw_netplay();
@@ -725,7 +747,9 @@ function GameInitBox(_interface) : GuiObject() constructor {
            placed by its own top-left rather than sharing a row of icon
            columns: x 292..324 puts it hard against EXIT, and y 216..248 clears
            the map preview above it (which ends at 215). */
-        draw_box_icon(34, 200, 316); /* load */
+        if (game_type != GameType.netplay) {
+            draw_box_icon(34, 200, 316); /* load */
+        }
         draw_box_icon(38, 208, 60);  /* exit */
     };
 
@@ -946,6 +970,15 @@ function GameInitBox(_interface) : GuiObject() constructor {
                 break;
             }
             case GameInitAction.show_netplay: {
+                /* A toggle, so the same button is the way in and the way out.
+                   EXIT cannot be the way out - it quits the game - so without
+                   this the panel is a room with no door. */
+                if (game_type == GameType.netplay) {
+                    set_game_type(netplay_return_type);
+                    set_redraw();
+                    break;
+                }
+                netplay_return_type = game_type;
                 set_game_type(GameType.netplay);
                 set_redraw();
                 break;
@@ -1067,7 +1100,8 @@ function GameInitBox(_interface) : GuiObject() constructor {
            and we are the client. */
         if (game_type == GameType.netplay && !net_is_active()) {
             var _row = (_cy - NETPLAY_ROW_Y) div NETPLAY_ROW_H;
-            if (_cy >= NETPLAY_ROW_Y && _row >= 0 && _row < net_peer_count() &&
+            if (_cy >= NETPLAY_ROW_Y && _row >= 0 &&
+                _row < min(net_peer_count(), NETPLAY_ROW_MAX) &&
                 _cx >= NETPLAY_ROW_X && _cx < NETPLAY_ROW_X + 300) {
                 var _peer = net_peer_at(_row);
                 if (_peer != undefined) {
