@@ -333,6 +333,13 @@ function game_init_init_tables() {
 #macro NETPLAY_HEAD_Y     44
 #macro NETPLAY_STATUS_Y   214
 
+/* How many characters fit on a line here. gfx_draw_string advances 8 pixels a
+   character and nothing about it wraps or clips, so a line that is too long
+   simply keeps drawing out through the frame and onto the map behind - which is
+   what every line of this panel was doing. Text starts at x 20 and the frame
+   takes the last few pixels, so 40 is the honest number. */
+#macro NETPLAY_COLS       40
+
 /// Port of Random::Random() (random.cc lines 27-33): seed from the clock
 /// and consume one value.
 function game_init_random_default() {
@@ -536,6 +543,53 @@ function GameInitBox(_interface) : GuiObject() constructor {
         return 0x119; /* sprite_face_none */
     };
 
+    /// Break a line to fit the panel, on spaces where it can and mid-word when
+    /// a single word is longer than the line. Returns an array of lines.
+    static netplay_wrap = function(_str, _cols) {
+        var _lines = [];
+        var _rest = _str;
+
+        while (string_length(_rest) > _cols) {
+            /* The last space that still fits. Walking back from the limit means
+               a word is only split when it is longer than a whole line. */
+            var _space = 0;
+            for (var _i = _cols + 1; _i >= 2; _i--) {
+                if (string_char_at(_rest, _i) == " ") {
+                    _space = _i;
+                    break;
+                }
+            }
+
+            /* _take is how much of the line to keep, _drop how much to remove
+               from the front afterwards. They differ by the space, which is
+               kept out of both lines rather than starting the next one. Getting
+               this wrong loses a character per break, silently, and only in the
+               unsplittable-word case. */
+            var _take = _cols;
+            var _drop = _cols;
+            if (_space > 1) {
+                _take = _space - 1;
+                _drop = _space;
+            }
+
+            array_push(_lines, string_copy(_rest, 1, _take));
+            _rest = string_delete(_rest, 1, _drop);
+        }
+
+        array_push(_lines, _rest);
+        return _lines;
+    };
+
+    /// Draw a line, wrapped, from _y downwards. Returns the y after the last
+    /// line so the next thing can carry on from there.
+    static netplay_draw_wrapped = function(_x, _y, _str, _colour) {
+        var _lines = netplay_wrap(_str, NETPLAY_COLS);
+        for (var _i = 0; _i < array_length(_lines); _i++) {
+            gfx_draw_string(_x, _y + _i * NETPLAY_ROW_H, _lines[_i], _colour, -1);
+        }
+        return _y + array_length(_lines) * NETPLAY_ROW_H;
+    };
+
     /// The NET PLAY panel.
     ///
     /// Everyone listed here is a potential host, including us. Picking one dials
@@ -551,19 +605,17 @@ function GameInitBox(_interface) : GuiObject() constructor {
 
         if (net_is_running()) {
             /* In a game already - the panel is just a status board now. */
-            gfx_draw_string(NETPLAY_ROW_X, NETPLAY_HEAD_Y,
-                            "In a game. " + net_status_line(), _amber, -1);
+            netplay_draw_wrapped(NETPLAY_ROW_X, NETPLAY_HEAD_Y,
+                                 "In a game. " + net_status_line(), _amber);
             return;
         }
 
         if (net_is_active()) {
-            var _role = "connected";
+            var _role = "Connected - waiting for the host to start";
             if (global.net_role == NetRole.host) {
-                _role = "YOU ARE THE HOST - pick a mission and press START";
-            } else {
-                _role = "connected - waiting for the host to start";
+                _role = "YOU ARE THE HOST";
             }
-            gfx_draw_string(NETPLAY_ROW_X, NETPLAY_HEAD_Y, _role, _amber, -1);
+            netplay_draw_wrapped(NETPLAY_ROW_X, NETPLAY_HEAD_Y, _role, _amber);
 
             if (global.net_role == NetRole.host) {
                 draw_box_string(10, 18, "Mission:");
@@ -571,62 +623,81 @@ function GameInitBox(_interface) : GuiObject() constructor {
                 draw_box_icon(33, 0, 237);   // Up
                 draw_box_icon(33, 16, 240);  // Down
 
-                gfx_draw_string(NETPLAY_ROW_X, NETPLAY_ROW_Y,
-                                "Arrows pick the mission. START begins it on",
-                                _grey, -1);
-                gfx_draw_string(NETPLAY_ROW_X, NETPLAY_ROW_Y + NETPLAY_ROW_H,
-                                "both machines at once.", _grey, -1);
+                netplay_draw_wrapped(NETPLAY_ROW_X, NETPLAY_ROW_Y,
+                                     "The arrows pick the mission. START begins"
+                                     + " it on both machines at once.", _grey);
             } else {
-                gfx_draw_string(NETPLAY_ROW_X, NETPLAY_ROW_Y,
-                                "The host chooses the mission.", _grey, -1);
+                netplay_draw_wrapped(NETPLAY_ROW_X, NETPLAY_ROW_Y,
+                                     "The host chooses the mission.", _grey);
             }
             return;
         }
 
-        gfx_draw_string(NETPLAY_ROW_X, NETPLAY_HEAD_Y,
-                        "Pick a machine to play against:", _white, -1);
+        netplay_draw_wrapped(NETPLAY_ROW_X, NETPLAY_HEAD_Y,
+                             "Pick a machine to play against:", _white);
 
         var _count = net_peer_count();
         if (_count == 0) {
-            gfx_draw_string(NETPLAY_ROW_X, NETPLAY_ROW_Y,
-                            "nobody yet - open NET PLAY on the other pc,", _grey, -1);
-            gfx_draw_string(NETPLAY_ROW_X, NETPLAY_ROW_Y + NETPLAY_ROW_H,
-                            "or ADD an address if it is not on this network",
-                            _grey, -1);
+            var _y = netplay_draw_wrapped(NETPLAY_ROW_X, NETPLAY_ROW_Y,
+                                          "Nobody yet. Open NET PLAY on the"
+                                          + " other pc.", _grey);
+
+            /* Discovery needs the UDP port. Two copies on ONE machine cannot
+               both have it, and a firewall can refuse it outright - in either
+               case the list will never fill itself, so say so here rather than
+               leave somebody waiting for a row that cannot arrive. */
+            if (global.net_udp < 0) {
+                netplay_draw_wrapped(NETPLAY_ROW_X, _y + NETPLAY_ROW_H,
+                                     "Auto-discovery is off on this machine -"
+                                     + " use ADD AN ADDRESS.", _amber);
+            } else {
+                netplay_draw_wrapped(NETPLAY_ROW_X, _y + NETPLAY_ROW_H,
+                                     "Not on the same network? Use ADD AN"
+                                     + " ADDRESS.", _grey);
+            }
         }
 
         var _rows = min(_count, NETPLAY_ROW_MAX);
         for (var _i = 0; _i < _rows; _i++) {
             var _peer = net_peer_at(_i);
-            var _y = NETPLAY_ROW_Y + _i * NETPLAY_ROW_H;
-
-            var _label = _peer.ip;
-            if (_peer.name != "") {
-                _label += "  (" + _peer.name + ")";
-            }
+            var _ry = NETPLAY_ROW_Y + _i * NETPLAY_ROW_H;
 
             /* Live means it shouted within the last few seconds. A typed
                address that is not answering stays listed and says so, rather
                than disappearing while you are reading it. */
             var _colour = _grey;
-            var _tail = "   no answer";
+            var _tail = "  no answer";
             if (net_peer_is_live(_peer)) {
                 _colour = _white;
                 _tail = "";
             }
             if (_peer.manual) {
-                _tail += "   [added]";
+                _tail += "  [added]";
             }
 
-            gfx_draw_string(NETPLAY_ROW_X, _y, _label + _tail, _colour, -1);
+            /* One row per machine, always. The address is the part that
+               identifies it, so when the whole line will not fit it is the name
+               that gets cut, not the address. */
+            var _label = _peer.ip;
+            var _room = NETPLAY_COLS - string_length(_label)
+                        - string_length(_tail);
+            if (_peer.name != "" && _room > 4) {
+                var _name = _peer.name;
+                if (string_length(_name) > _room - 3) {
+                    _name = string_copy(_name, 1, _room - 3);
+                }
+                _label += " (" + _name + ")";
+            }
+
+            gfx_draw_string(NETPLAY_ROW_X, _ry, _label + _tail, _colour, -1);
         }
 
         gfx_draw_string(NETPLAY_ADD_X, NETPLAY_ADD_Y, "[ ADD AN ADDRESS ]",
                         _white, -1);
 
         if (net_status_line() != "") {
-            gfx_draw_string(NETPLAY_ROW_X, NETPLAY_STATUS_Y,
-                            net_status_line(), _amber, -1);
+            netplay_draw_wrapped(NETPLAY_ROW_X, NETPLAY_STATUS_Y,
+                                 net_status_line(), _amber);
         }
     };
 

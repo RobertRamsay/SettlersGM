@@ -34,9 +34,18 @@ if (show_debug) {
 #macro NET_TEXT_LINE  12
 
 if (global.net_ip_prompt) {
-    var _prompt = "HOST PC's IP: " + global.net_ip_text + "_" +
-                  "   :" + string(NET_PORT) +
-                  "   (Enter connects, Esc cancels)";
+    /* Two callers, two meanings. F8 dials the address straight away; the
+       lobby's ADD only files it in the list, and telling somebody Enter
+       connects when it does not is worse than saying nothing. */
+    var _lead = "HOST PC's IP: ";
+    var _tail = "   (Enter connects, Esc cancels)";
+    if (global.net_ip_prompt_mode == "add") {
+        _lead = "ADDRESS TO ADD: ";
+        _tail = "   (Enter adds it to the list, Esc cancels)";
+    }
+
+    var _prompt = _lead + global.net_ip_text + "_" +
+                  "   :" + string(NET_PORT) + _tail;
     draw_set_colour(c_black);
     draw_text_ext(5, 5, _prompt, NET_TEXT_LINE, NET_TEXT_WIDTH);
     draw_set_colour(c_yellow);
