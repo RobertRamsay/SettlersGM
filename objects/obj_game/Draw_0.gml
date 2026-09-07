@@ -50,6 +50,39 @@ if (global.crash_notice != "") {
     draw_set_colour(c_yellow);
     draw_text_ext(4, 4, global.crash_notice, NET_TEXT_LINE, NET_TEXT_WIDTH);
     draw_set_colour(c_white);
+
+    /* The two answers, drawn as things that look pressable because they are.
+       Written on the line as "Y / N" they read as buttons and are not, which is
+       exactly what happened - the first thing anybody does is click them.
+
+       The rectangles are worked out here rather than guessed at, because only
+       the drawing knows how wide the words came out, and handed to the Step
+       event to hit-test. */
+    if (global.crash_asking) {
+        var _gap   = string_width("  ");
+        var _yes   = "[ YES ]";
+        var _no    = "[ NO ]";
+        var _cx    = 4 + string_width(global.crash_notice) + _gap;
+        var _cy    = 4;
+
+        global.crash_hit_y1 = _cy;
+        global.crash_hit_y2 = _cy + string_height(_yes);
+
+        global.crash_yes_x1 = _cx;
+        global.crash_yes_x2 = _cx + string_width(_yes);
+
+        var _nx = global.crash_yes_x2 + _gap;
+        global.crash_no_x1 = _nx;
+        global.crash_no_x2 = _nx + string_width(_no);
+
+        draw_set_colour(c_black);
+        draw_text(_cx + 1, _cy + 1, _yes);
+        draw_text(_nx + 1, _cy + 1, _no);
+        draw_set_colour(c_white);
+        draw_text(_cx, _cy, _yes);
+        draw_text(_nx, _cy, _no);
+        draw_set_colour(c_white);
+    }
 } else if (global.net_ip_prompt && global.net_ip_prompt_mode == "join") {
     /* F8's own prompt. The lobby's ADD prompt is drawn by the panel. */
     var _prompt = "HOST PC's IP: " + global.net_ip_text + "_" +

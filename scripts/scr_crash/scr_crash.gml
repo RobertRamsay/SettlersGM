@@ -96,6 +96,21 @@ function crash_init() {
     global.crash_asking   = false;
     global.crash_notice   = "";     /* what to say on screen, if anything */
 
+    /* Frames left on a notice that has served its purpose. A question stays up
+       until it is answered; an answer gets a few seconds and then gets out of
+       the way. Without this the line sat there for the rest of the session. */
+    global.crash_notice_frames = 0;
+
+    /* Where the two answers were drawn last frame, so they can be clicked.
+       Filled in by the Draw event, because only the drawing knows how wide the
+       words came out. */
+    global.crash_yes_x1 = 0;
+    global.crash_yes_x2 = 0;
+    global.crash_no_x1  = 0;
+    global.crash_no_x2  = 0;
+    global.crash_hit_y1 = 0;
+    global.crash_hit_y2 = 0;
+
     exception_unhandled_handler(crash_handler);
 }
 
@@ -305,8 +320,9 @@ function crash_check_previous() {
     }
 
     global.crash_asking = true;
-    global.crash_notice = "The game crashed last time. Send a report to the"
-                          + " developer? Y / N";
+    /* Not crash_say: a question waits for an answer rather than timing out. */
+    global.crash_notice_frames = 0;
+    global.crash_notice = "The game crashed last time. Send a report?";
 }
 
 function crash_read_report() {
@@ -325,7 +341,30 @@ function crash_read_report() {
 }
 
 /// Y or N, once, on the launch after a crash.
+/// Say something and give it a life span. Every path out of the question goes
+/// through here, because a question that is answered and does not change is
+/// indistinguishable from a key that did nothing - which is exactly what it
+/// looked like.
+function crash_say(_text) {
+    global.crash_notice = _text;
+    global.crash_notice_frames = 5 * 60;   /* about five seconds at 60fps */
+}
+
+/// Called once a frame from obj_game's Step.
+function crash_notice_step() {
+    if (global.crash_notice_frames <= 0) {
+        return;
+    }
+    global.crash_notice_frames -= 1;
+    if (global.crash_notice_frames <= 0) {
+        global.crash_notice = "";
+    }
+}
+
 function crash_answer(_send) {
+    if (!global.crash_asking) {
+        return;
+    }
     global.crash_asking = false;
 
     ini_open(PROGRESS_PATH);
@@ -340,11 +379,21 @@ function crash_answer(_send) {
         crash_send();
         return;
     }
+
     crash_discard();
+    crash_say("Report discarded. It will not be sent.");
 }
 
 function crash_send() {
-    if (global.crash_pending == "" || CRASH_REPORT_URL == "") {
+    /* Both of these are silent dead ends if they just return: the question is
+       gone, the answer changed nothing on screen, and pressing the key again
+       does nothing because crash_asking is already false. */
+    if (CRASH_REPORT_URL == "") {
+        crash_say("Nowhere to send it. The report is in " + CRASH_LOG_PATH);
+        return;
+    }
+    if (global.crash_pending == "") {
+        crash_say("The report could not be read from " + CRASH_LOG_PATH);
         return;
     }
 
@@ -386,7 +435,7 @@ function crash_send() {
                                         json_stringify(_body));
     ds_map_destroy(_headers);
 
-    global.crash_notice = "Sending the crash report...";
+    crash_say("Sending the crash report...");
     show_debug_message("crash: posting report");
 }
 
@@ -413,11 +462,12 @@ function crash_handle_async(_async) {
 
     if (_async[? "status"] == 0) {
         show_debug_message("crash: report sent");
-        global.crash_notice = "Crash report sent. Thank you.";
+        crash_say("Crash report sent. Thank you.");
         crash_discard();
     } else {
         show_debug_message("crash: could not send the report, keeping it");
-        global.crash_notice = "";
+        crash_say("The report could not be sent. It has been kept for next"
+                  + " time.");
     }
 
     return true;

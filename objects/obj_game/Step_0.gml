@@ -47,8 +47,25 @@ if (global.crash_asking) {
     } else if (keyboard_check_pressed(ord("N")) ||
                keyboard_check_pressed(vk_escape)) {
         crash_answer(false);
+    } else if (mouse_check_button_released(mb_left)) {
+        /* The words are drawn as buttons, so they are buttons. The rectangles
+           come from the Draw event, which is the only thing that knows how wide
+           they came out. Checked here rather than through the interface's own
+           event plumbing because this notice sits above all of it and is about
+           a run that has already ended. */
+        var _mx = mouse_x;
+        var _my = mouse_y;
+        if (_my >= global.crash_hit_y1 && _my <= global.crash_hit_y2) {
+            if (_mx >= global.crash_yes_x1 && _mx <= global.crash_yes_x2) {
+                crash_answer(true);
+            } else if (_mx >= global.crash_no_x1 && _mx <= global.crash_no_x2) {
+                crash_answer(false);
+            }
+        }
     }
 }
+
+crash_notice_step();
 
 net_age_status();
 net_late_checks(interface.get_game());
