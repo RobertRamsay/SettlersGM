@@ -373,90 +373,6 @@ function RandomInput() : GuiObject() constructor {
         filter = _filter;
     };
 
-    /// The NET PLAY panel.
-    ///
-    /// Everyone listed here is a potential host, including us. Picking one dials
-    /// it and makes us the client; if they pick us first we become the host
-    /// instead. Nothing here declares a role in advance, because until somebody
-    /// moves there is no role to declare.
-    static draw_netplay = function() {
-        var _white = make_colour_rgb(0xff, 0xff, 0xff);
-        var _grey  = make_colour_rgb(0x90, 0x90, 0x90);
-        var _amber = make_colour_rgb(0xff, 0xff, 0x99);
-
-        draw_box_string(10, 2, "Net play");
-
-        if (net_is_running()) {
-            /* In a game already - the panel is just a status board now. */
-            gfx_draw_string(NETPLAY_ROW_X, 56, "In a game. " + net_status_line(),
-                            _amber, -1);
-            return;
-        }
-
-        if (net_is_active()) {
-            var _role = "connected";
-            if (global.net_role == NetRole.host) {
-                _role = "YOU ARE THE HOST - pick a mission and press START";
-            } else {
-                _role = "connected - waiting for the host to start";
-            }
-            gfx_draw_string(NETPLAY_ROW_X, 56, _role, _amber, -1);
-
-            if (global.net_role == NetRole.host) {
-                draw_box_string(10, 18, "Mission:");
-                draw_box_string(20, 18, string(game_mission + 1));
-                draw_box_icon(33, 0, 237);   // Up
-                draw_box_icon(33, 16, 240);  // Down
-            }
-            return;
-        }
-
-        gfx_draw_string(NETPLAY_ROW_X, 56, "Pick a machine to play against:",
-                        _white, -1);
-
-        var _count = net_peer_count();
-        if (_count == 0) {
-            gfx_draw_string(NETPLAY_ROW_X, NETPLAY_ROW_Y,
-                            "nobody yet - open NET PLAY on the other pc,", _grey, -1);
-            gfx_draw_string(NETPLAY_ROW_X, NETPLAY_ROW_Y + NETPLAY_ROW_H,
-                            "or ADD an address if it is not on this network",
-                            _grey, -1);
-        }
-
-        var _rows = min(_count, NETPLAY_ROW_MAX);
-        for (var _i = 0; _i < _rows; _i++) {
-            var _peer = net_peer_at(_i);
-            var _y = NETPLAY_ROW_Y + _i * NETPLAY_ROW_H;
-
-            var _label = _peer.ip;
-            if (_peer.name != "") {
-                _label += "  (" + _peer.name + ")";
-            }
-
-            /* Live means it shouted within the last few seconds. A typed
-               address that is not answering stays listed and says so, rather
-               than disappearing while you are reading it. */
-            var _colour = _grey;
-            var _tail = "   no answer";
-            if (net_peer_is_live(_peer)) {
-                _colour = _white;
-                _tail = "";
-            }
-            if (_peer.manual) {
-                _tail += "   [added]";
-            }
-
-            gfx_draw_string(NETPLAY_ROW_X, _y, _label + _tail, _colour, -1);
-        }
-
-        gfx_draw_string(NETPLAY_ADD_X, NETPLAY_ADD_Y, "[ ADD AN ADDRESS ]",
-                        _white, -1);
-
-        if (net_status_line() != "") {
-            gfx_draw_string(NETPLAY_ROW_X, 216, net_status_line(), _amber, -1);
-        }
-    };
-
     static internal_draw = function() {
         gfx_fill_rect(0, 0, width, height, color_background);
         if (draw_focus && focused) {
@@ -609,6 +525,90 @@ function GameInitBox(_interface) : GuiObject() constructor {
             return 0x10b + _face;
         }
         return 0x119; /* sprite_face_none */
+    };
+
+    /// The NET PLAY panel.
+    ///
+    /// Everyone listed here is a potential host, including us. Picking one dials
+    /// it and makes us the client; if they pick us first we become the host
+    /// instead. Nothing here declares a role in advance, because until somebody
+    /// moves there is no role to declare.
+    static draw_netplay = function() {
+        var _white = make_colour_rgb(0xff, 0xff, 0xff);
+        var _grey  = make_colour_rgb(0x90, 0x90, 0x90);
+        var _amber = make_colour_rgb(0xff, 0xff, 0x99);
+
+        draw_box_string(10, 2, "Net play");
+
+        if (net_is_running()) {
+            /* In a game already - the panel is just a status board now. */
+            gfx_draw_string(NETPLAY_ROW_X, 56, "In a game. " + net_status_line(),
+                            _amber, -1);
+            return;
+        }
+
+        if (net_is_active()) {
+            var _role = "connected";
+            if (global.net_role == NetRole.host) {
+                _role = "YOU ARE THE HOST - pick a mission and press START";
+            } else {
+                _role = "connected - waiting for the host to start";
+            }
+            gfx_draw_string(NETPLAY_ROW_X, 56, _role, _amber, -1);
+
+            if (global.net_role == NetRole.host) {
+                draw_box_string(10, 18, "Mission:");
+                draw_box_string(20, 18, string(game_mission + 1));
+                draw_box_icon(33, 0, 237);   // Up
+                draw_box_icon(33, 16, 240);  // Down
+            }
+            return;
+        }
+
+        gfx_draw_string(NETPLAY_ROW_X, 56, "Pick a machine to play against:",
+                        _white, -1);
+
+        var _count = net_peer_count();
+        if (_count == 0) {
+            gfx_draw_string(NETPLAY_ROW_X, NETPLAY_ROW_Y,
+                            "nobody yet - open NET PLAY on the other pc,", _grey, -1);
+            gfx_draw_string(NETPLAY_ROW_X, NETPLAY_ROW_Y + NETPLAY_ROW_H,
+                            "or ADD an address if it is not on this network",
+                            _grey, -1);
+        }
+
+        var _rows = min(_count, NETPLAY_ROW_MAX);
+        for (var _i = 0; _i < _rows; _i++) {
+            var _peer = net_peer_at(_i);
+            var _y = NETPLAY_ROW_Y + _i * NETPLAY_ROW_H;
+
+            var _label = _peer.ip;
+            if (_peer.name != "") {
+                _label += "  (" + _peer.name + ")";
+            }
+
+            /* Live means it shouted within the last few seconds. A typed
+               address that is not answering stays listed and says so, rather
+               than disappearing while you are reading it. */
+            var _colour = _grey;
+            var _tail = "   no answer";
+            if (net_peer_is_live(_peer)) {
+                _colour = _white;
+                _tail = "";
+            }
+            if (_peer.manual) {
+                _tail += "   [added]";
+            }
+
+            gfx_draw_string(NETPLAY_ROW_X, _y, _label + _tail, _colour, -1);
+        }
+
+        gfx_draw_string(NETPLAY_ADD_X, NETPLAY_ADD_Y, "[ ADD AN ADDRESS ]",
+                        _white, -1);
+
+        if (net_status_line() != "") {
+            gfx_draw_string(NETPLAY_ROW_X, 216, net_status_line(), _amber, -1);
+        }
     };
 
     static internal_draw = function() {

@@ -59,4 +59,5 @@ Temporary Items
 *.old
 
 # GMRT build directory
-Build
+Buildtools/__pycache__/
+*.pyc
