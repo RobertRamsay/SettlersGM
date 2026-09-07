@@ -721,19 +721,31 @@ function serf_handle_free_walking_common(_serf) {
                 _serf.s.free_walking_neg_dist2 += 1;
                 if (_serf.s.free_walking_neg_dist2 >= 10) {
                     _serf.s.free_walking_neg_dist2 = 0;
-                    if (_other_serf.state == SerfState.transporting) {
-                        if (_map.has_flag(_new_pos2)) {
-                            if (_other_serf.s.walking_wait_counter != -1) {
-                                // int dir = other_serf->s.walking.dir;
-                                // if (dir < 0) dir += 6;
-                                show_debug_message("serf: TODO remove " +
-                                                   string(_other_serf.get_index()) +
-                                                   " from path");
+                    /* DELIBERATE DEPARTURE FROM FREESERF: only shove an ENEMY
+                       serf out of the way. Freeserf throws whoever is standing
+                       on the last tile into the lost state after ten tries,
+                       which was written for a knight arriving at an enemy door.
+                       Now that knights walk home to their own garrisons the
+                       serf in the way is usually one of our own transporters
+                       working that flag, and knocking him off his road to let a
+                       knight in the door is exactly the traffic damage the
+                       return-home change is meant to stop. Against our own men
+                       the knight simply waits his turn, below. */
+                    if (_serf.get_owner() != _other_serf.get_owner()) {
+                        if (_other_serf.state == SerfState.transporting) {
+                            if (_map.has_flag(_new_pos2)) {
+                                if (_other_serf.s.walking_wait_counter != -1) {
+                                    // int dir = other_serf->s.walking.dir;
+                                    // if (dir < 0) dir += 6;
+                                    show_debug_message("serf: TODO remove " +
+                                                       string(_other_serf.get_index()) +
+                                                       " from path");
+                                }
+                                _other_serf.set_lost_state();
                             }
+                        } else {
                             _other_serf.set_lost_state();
                         }
-                    } else {
-                        _other_serf.set_lost_state();
                     }
                 }
             }

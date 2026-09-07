@@ -61,3 +61,6 @@ Temporary Items
 # GMRT build directory
 Buildtools/__pycache__/
 *.pyc
+
+# Patch files handed over in chat, not part of the project.
+*.patch
