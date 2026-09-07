@@ -510,6 +510,66 @@ function net_handle_async(_async) {
 
     if (_type == network_type_connect) {
         show_debug_message("net: connect event, socket " + string(_async[? "socket"]));
+
+        /* Somebody picked US, which is what makes us the host. The role is
+           decided here rather than announced in advance, because until this
+           event arrives there is nothing to be host OF. */
+        if (global.net_role == NetRole.off && net_lobby_is_open()) {
+            var _their_ip = _async[? "ip"];
+
+            /* Both of us picked, in the same second. Each machine now has an
+               outbound connection and an inbound one, and if both kept the
+               inbound both would think they were host.
+
+               The tie-break is the session id, not the address: GameMaker has
+               no call that says what this machine's own IP is, and comparing
+               something we do not know to something we do is not a comparison.
+               Session ids we DO have both of - each machine made one at
+               startup and has been shouting it in every beacon. Lower id
+               hosts, and the two machines compare the same pair of numbers and
+               come to opposite conclusions, which is the whole requirement. */
+            if (global.net_dialling != "") {
+                var _theirs = net_peer_session(_their_ip);
+
+                if (_theirs >= 0 && _theirs < global.net_session_id) {
+                    show_debug_message("net: both picked - they host, keeping our dial");
+                    network_destroy(_async[? "socket"]);
+                    return;
+                }
+
+                if (_theirs < 0) {
+                    /* Never heard them shout, so there is nothing to compare -
+                       a manually added address that is not broadcasting. Keep
+                       our own dial and refuse theirs. If they do the same we
+                       both end up back in the lobby with nothing connected,
+                       which is visible and recoverable; two machines both
+                       believing they are host would not be. */
+                    show_debug_message("net: both picked, no beacon from them - "
+                                       + "refusing their dial, keeping ours");
+                    network_destroy(_async[? "socket"]);
+                    return;
+                }
+
+                show_debug_message("net: both picked - we host, dropping our dial");
+                if (global.net_socket >= 0) {
+                    network_destroy(global.net_socket);
+                    global.net_socket = -1;
+                }
+                global.net_dialling = "";
+            }
+
+            global.net_role  = NetRole.host;
+            global.net_phase = NetPhase.listening;
+            global.net_local_player = 0;
+            global.net_socket = _async[? "socket"];
+            ds_map_clear(global.net_turns);
+            ds_map_clear(global.net_checks);
+            global.net_outbox = [];
+            net_set_status(string(_their_ip) + " joined - you are the host");
+            net_log(global.net_status);
+            return;
+        }
+
         if (global.net_role == NetRole.host && global.net_phase == NetPhase.listening) {
             global.net_socket = _async[? "socket"];
             net_set_status("player 2 joined");
@@ -530,6 +590,14 @@ function net_handle_async(_async) {
     var _b = _async[? "buffer"];
     buffer_seek(_b, buffer_seek_start, 0);
     var _msg = buffer_read(_b, buffer_u8);
+
+    /* Discovery shares the async event with the game socket, so beacons are
+       told apart by their tag and handled before anything else. They arrive on
+       the UDP socket and carry the sender's address with them. */
+    if (_msg == NetBeacon.hello) {
+        net_receive_beacon(_b, _async[? "ip"]);
+        return;
+    }
 
     switch (_msg) {
     case NetMsg.start:
@@ -1906,4 +1974,341 @@ function net_begin(_interface, _game, _local_player) {
     global.net_phase = NetPhase.running;
     net_set_status("in game as player " + string(_local_player + 1));
     net_log(global.net_status);
+}
+
+// ================================================================ the lobby
+//
+// Every instance with the NET PLAY panel open is a potential host. It listens
+// on NET_PORT the whole time, and it shouts on NET_DISCOVERY_PORT once a second
+// so the others can list it. Roles are settled by who moves first: connect out
+// and you are the client, get connected to and you are the host. Nobody
+// declares a role in advance, because you cannot know which you will be until
+// somebody picks.
+//
+// The one case that needs a rule is both players picking each other inside the
+// same second. Then each machine has an outbound connection AND an inbound one,
+// and if both kept the inbound they would both think they were host. The
+// tie-break is the SESSION ID each machine made at startup and has been
+// shouting ever since - not the IP address, because GameMaker has no call that
+// says what this machine's own address is, and comparing a number we do not
+// have to one we do is not a comparison. Lower session id hosts. Both machines
+// compare the same pair of numbers and reach opposite answers, which is the
+// whole requirement.
+
+#macro NET_DISCOVERY_PORT   6511
+#macro NET_BEACON_FRAMES    45     // shout about every 0.75s at 60fps
+#macro NET_PEER_STALE_MS    4000   // gone from the list this long after it stops
+#macro NET_PEER_MAX         16
+#macro NET_INI_MANUAL       "manual"
+
+enum NetBeacon {
+    hello = 200        // u8 tag, then a u32 session id and a name string
+}
+
+function net_lobby_init() {
+    global.net_lobby_open   = false;
+    global.net_udp          = -1;
+    global.net_beacon_count = 0;
+
+    /* Peers we have heard from or been told about:
+       { ip, name, seen (ms), manual (bool) } */
+    global.net_peers = [];
+
+    /* Ours, so our own broadcast can be told apart from everyone else's - they
+       all arrive back at us, since a broadcast reaches the sender too. */
+    global.net_session_id = irandom(0x7FFFFFFF);
+    global.net_my_name = "";
+
+    /* The address we are dialling, kept so the tie-break can compare it. */
+    global.net_dialling = "";
+
+}
+
+function net_lobby_is_open() {
+    return global.net_lobby_open;
+}
+
+/// Open the lobby: listen for anyone who picks us, and start shouting.
+function net_lobby_open() {
+    if (global.net_lobby_open) {
+        return true;
+    }
+
+    global.net_lobby_open = true;
+    global.net_my_name = net_local_name();
+    net_load_manual_peers();
+
+    /* The TCP door. Opening it is not a claim to be the host - it is what makes
+       being picked possible. The role is decided in the connect event. */
+    if (global.net_server < 0 && !net_is_active()) {
+        global.net_server = network_create_server(network_socket_tcp, NET_PORT, 1);
+        if (global.net_server < 0) {
+            net_set_status("port " + string(NET_PORT) + " is busy - is a second copy running?");
+        }
+    }
+
+    /* The UDP one has to be BOUND to the discovery port, not just created:
+       an unbound socket can send a broadcast but never hear one. */
+    if (global.net_udp < 0) {
+        global.net_udp = network_create_socket_ext(network_socket_udp,
+                                                   NET_DISCOVERY_PORT);
+        if (global.net_udp < 0) {
+            show_debug_message("net: no UDP socket - discovery is off, "
+                               + "added addresses still work");
+        }
+    }
+
+    global.net_beacon_count = 0;
+    return true;
+}
+
+function net_lobby_close() {
+    if (!global.net_lobby_open) {
+        return;
+    }
+    global.net_lobby_open = false;
+
+    if (global.net_udp >= 0) {
+        network_destroy(global.net_udp);
+        global.net_udp = -1;
+    }
+
+    /* The TCP server stays if a game is running on it, and goes if we are just
+       leaving the lobby without having connected to anybody. */
+    if (!net_is_active() && global.net_server >= 0) {
+        network_destroy(global.net_server);
+        global.net_server = -1;
+    }
+
+    global.net_peers = [];
+}
+
+/// A name for this machine in other people's lists.
+///
+/// Empty for now, and the list shows the address instead. GameMaker has no call
+/// that gives the machine's name, and inventing one from something else - the
+/// last save file, say - would put a label in front of the only thing that
+/// actually identifies the machine. The field stays in the beacon so a name can
+/// be added later without changing the wire format.
+function net_local_name() {
+    return "";
+}
+
+// ------------------------------------------------------------- the beacon
+
+/// Called once a frame while the lobby is open.
+function net_lobby_step() {
+    if (!global.net_lobby_open) {
+        return;
+    }
+
+    net_expire_peers();
+
+    if (global.net_udp < 0) {
+        return;
+    }
+
+    global.net_beacon_count -= 1;
+    if (global.net_beacon_count > 0) {
+        return;
+    }
+    global.net_beacon_count = NET_BEACON_FRAMES;
+
+    var _b = global.net_send;
+    buffer_seek(_b, buffer_seek_start, 0);
+    buffer_write(_b, buffer_u8,     NetBeacon.hello);
+    buffer_write(_b, buffer_u32,    global.net_session_id);
+    buffer_write(_b, buffer_string, global.net_my_name);
+    network_send_broadcast(global.net_udp, NET_DISCOVERY_PORT, _b, buffer_tell(_b));
+}
+
+/// A beacon arrived. Ours comes back to us too, hence the session id.
+function net_receive_beacon(_b, _ip) {
+    var _session = buffer_read(_b, buffer_u32);
+    if (_session == global.net_session_id) {
+        return;
+    }
+
+    var _name = buffer_read(_b, buffer_string);
+    net_note_peer(_ip, _name, false);
+    net_note_peer_session(_ip, _session);
+}
+
+/// Record a peer, or refresh one we already have. A manual entry stays manual
+/// even once it starts answering, so it survives going quiet.
+function net_note_peer(_ip, _name, _manual) {
+    for (var _i = 0; _i < array_length(global.net_peers); _i++) {
+        var _p = global.net_peers[_i];
+        if (_p.ip == _ip) {
+            _p.seen = current_time;
+            if (_name != "") {
+                _p.name = _name;
+            }
+            if (_manual) {
+                _p.manual = true;
+            }
+            return;
+        }
+    }
+
+    if (array_length(global.net_peers) >= NET_PEER_MAX) {
+        return;
+    }
+
+    array_push(global.net_peers, {
+        ip:      _ip,
+        name:    _name,
+        seen:    current_time,
+        manual:  _manual,
+        session: -1          /* -1 until a beacon from it says otherwise */
+    });
+}
+
+/// Remember a peer's session id. It is what settles a simultaneous pick, so it
+/// is worth keeping even for a peer that was typed in rather than heard.
+function net_note_peer_session(_ip, _session) {
+    for (var _i = 0; _i < array_length(global.net_peers); _i++) {
+        if (global.net_peers[_i].ip == _ip) {
+            global.net_peers[_i].session = _session;
+            return;
+        }
+    }
+}
+
+/// A peer's session id, or -1 if we have never heard it shout.
+function net_peer_session(_ip) {
+    for (var _i = 0; _i < array_length(global.net_peers); _i++) {
+        if (global.net_peers[_i].ip == _ip) {
+            return global.net_peers[_i].session;
+        }
+    }
+    return -1;
+}
+
+/// Drop anyone who has stopped shouting. Manual entries are never dropped -
+/// they were typed in on purpose, and one that is switched off should read as
+/// "no answer" rather than vanishing while you look at it.
+function net_expire_peers() {
+    var _keep = [];
+    for (var _i = 0; _i < array_length(global.net_peers); _i++) {
+        var _p = global.net_peers[_i];
+        if (_p.manual || (current_time - _p.seen) < NET_PEER_STALE_MS) {
+            array_push(_keep, _p);
+        }
+    }
+    global.net_peers = _keep;
+}
+
+function net_peer_count() {
+    return array_length(global.net_peers);
+}
+
+function net_peer_at(_i) {
+    if (_i < 0 || _i >= array_length(global.net_peers)) {
+        return undefined;
+    }
+    return global.net_peers[_i];
+}
+
+/// Whether a peer has been heard from recently, whatever its origin.
+function net_peer_is_live(_peer) {
+    return ((current_time - _peer.seen) < NET_PEER_STALE_MS);
+}
+
+// ------------------------------------------------------- manual addresses
+
+/// Split on commas. Hand-rolled to match the rest of the port, which does not
+/// use string_split.
+function net_split_commas(_str) {
+    var _out = [];
+    var _from = 1;
+    var _n = string_length(_str);
+
+    while (_from <= _n + 1) {
+        var _to = _from;
+        while (_to <= _n && string_char_at(_str, _to) != ",") {
+            _to += 1;
+        }
+        array_push(_out, string_copy(_str, _from, _to - _from));
+        _from = _to + 1;
+    }
+
+    return _out;
+}
+
+function net_load_manual_peers() {
+    ini_open(PROGRESS_PATH);
+    var _list = ini_read_string(NET_INI_SECTION, NET_INI_MANUAL, "");
+    ini_close();
+
+    if (_list == "") {
+        return;
+    }
+
+    var _parts = net_split_commas(_list);
+    for (var _i = 0; _i < array_length(_parts); _i++) {
+        var _ip = string_trim(_parts[_i]);
+        if (_ip != "") {
+            /* seen is pushed into the past so it reads as "no answer" until it
+               actually answers, rather than looking live because it was typed. */
+            net_note_peer(_ip, "", true);
+            global.net_peers[array_length(global.net_peers) - 1].seen =
+                current_time - NET_PEER_STALE_MS;
+        }
+    }
+}
+
+function net_save_manual_peers() {
+    var _list = "";
+    for (var _i = 0; _i < array_length(global.net_peers); _i++) {
+        var _p = global.net_peers[_i];
+        if (!_p.manual) {
+            continue;
+        }
+        if (_list != "") {
+            _list += ",";
+        }
+        _list += _p.ip;
+    }
+
+    ini_open(PROGRESS_PATH);
+    ini_write_string(NET_INI_SECTION, NET_INI_MANUAL, _list);
+    ini_close();
+}
+
+function net_add_manual_peer(_ip) {
+    _ip = string_trim(_ip);
+    if (_ip == "") {
+        return false;
+    }
+    net_note_peer(_ip, "", true);
+    net_save_manual_peers();
+    return true;
+}
+
+function net_forget_peer(_ip) {
+    var _keep = [];
+    for (var _i = 0; _i < array_length(global.net_peers); _i++) {
+        if (global.net_peers[_i].ip != _ip) {
+            array_push(_keep, global.net_peers[_i]);
+        }
+    }
+    global.net_peers = _keep;
+    net_save_manual_peers();
+}
+
+// ------------------------------------------------------------ picking one
+
+/// Pick a peer: dial it. If it answers we are the client and it is the host.
+function net_lobby_pick(_ip) {
+    if (net_is_active()) {
+        return false;
+    }
+
+    global.net_dialling = _ip;
+    var _ok = net_join(_ip);
+    if (!_ok) {
+        global.net_dialling = "";
+    }
+    return _ok;
 }

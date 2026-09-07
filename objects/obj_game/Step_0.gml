@@ -93,6 +93,7 @@ if (keyboard_check_pressed(vk_f8) && !global.net_ip_prompt && !net_is_active()) 
     // of the text editing.
     keyboard_string = net_load_host_ip();
     global.net_ip_text = keyboard_string;
+    global.net_ip_prompt_mode = "join";
 }
 
 if (global.net_ip_prompt) {
@@ -106,6 +107,11 @@ if (global.net_ip_prompt) {
                indistinguishable from a prompt that did not work. */
             net_set_status("no address typed - press F8 and enter the HOST pc's IPv4");
             show_debug_message("net: " + global.net_status);
+        } else if (global.net_ip_prompt_mode == "add") {
+            /* The lobby's ADD ADDRESS row. It does not dial - it only puts the
+               address in the list, where picking it is a separate decision. */
+            net_add_manual_peer(_ip);
+            net_set_status("added " + _ip);
         } else {
             net_save_host_ip(_ip);
             net_join(_ip);
@@ -116,10 +122,17 @@ if (global.net_ip_prompt) {
     }
 }
 
-// The host starts the game as soon as somebody is actually connected.
+// The lobby's own heartbeat: shout, and age out anyone who has stopped.
+net_lobby_step();
+
+// F7's host starts mission 1 as soon as somebody connects, which is what made
+// two machines testable before there was any UI. The lobby does NOT auto-start:
+// there the host picks the mission and presses START, so the choice happens
+// after the roles are known rather than before.
 if (global.net_role == NetRole.host &&
     global.net_phase == NetPhase.listening &&
-    global.net_socket >= 0) {
+    global.net_socket >= 0 &&
+    !net_lobby_is_open()) {
     net_host_start_game(interface, 0);
 }
 

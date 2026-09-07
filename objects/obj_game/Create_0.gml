@@ -16,7 +16,8 @@ gfx_init();
 gui_init_globals();
 audio_init();
 cf_init();      // "borntodie" cheat state + its effects list
-net_init();     // two-player lockstep networking (idle until F7 / F8)
+net_init();     // two-player lockstep networking (idle until NET PLAY)
+net_lobby_init();   // discovery and the peer list, idle until the panel opens
 
 // Set by the async networking event when the host says which game to build, and
 // consumed by the Step event - a game must never be switched from inside an
@@ -28,6 +29,8 @@ global.net_pending_start = undefined;
 // put an address, and 127.0.0.1 is only ever the machine doing the typing.
 global.net_ip_prompt = false;
 global.net_ip_text = "";
+/* "join" dials the address, "add" only files it in the lobby's list. */
+global.net_ip_prompt_mode = "join";
 
 // Window: integer-scaled, pixel-perfect
 window_set_size(SCREEN_W * SCREEN_SCALE, SCREEN_H * SCREEN_SCALE);

@@ -204,14 +204,18 @@ enum GameInitAction {
     close,
     gen_random,
     apply_random,
-    show_load
+    show_load,
+    show_netplay,
+    netplay_add,
+    netplay_forget
 }
 
 /// GameInitBox::GameType
 enum GameType {
     custom = 0,
     mission = 1,
-    load = 2
+    load = 2,
+    netplay = 3
 }
 
 function game_init_init_tables() {
@@ -250,6 +254,7 @@ function game_init_init_tables() {
         GameInitAction.start_game,        20,  16, 32, 32,
         GameInitAction.toggle_game_type,  60,  16, 32, 32,
         GameInitAction.show_load,        292, 216, 32, 32,
+        GameInitAction.show_netplay,     256, 216, 32, 32,
         GameInitAction.show_options,     308,  16, 32, 32,
         GameInitAction.increment,        284,  16, 16, 16,
         GameInitAction.decrement,        284,  32, 16, 16,
@@ -261,6 +266,7 @@ function game_init_init_tables() {
         GameInitAction.start_game,        20,  16, 32, 32,
         GameInitAction.toggle_game_type,  60,  16, 32, 32,
         GameInitAction.show_load,        292, 216, 32, 32,
+        GameInitAction.show_netplay,     256, 216, 32, 32,
         GameInitAction.show_options,     308,  16, 32, 32,
         GameInitAction.increment,        220,  24, 24, 24,
         GameInitAction.decrement,        220,  16,  8,  8,
@@ -274,11 +280,34 @@ function game_init_init_tables() {
         GameInitAction.start_game,        20,  16, 32, 32,
         GameInitAction.toggle_game_type,  60,  16, 32, 32,
         GameInitAction.show_load,        292, 216, 32, 32,
+        GameInitAction.show_netplay,     256, 216, 32, 32,
+        GameInitAction.show_options,     308,  16, 32, 32,
+        GameInitAction.close,            324, 216, 16, 16,
+        -1
+    ];
+
+    /* NET PLAY. START and the mission arrows are here for the host, and simply
+       do nothing for the client - which one you are is not known until somebody
+       picks, so the panel cannot be laid out differently per role. */
+    global.game_init_clickmap_netplay = [
+        GameInitAction.start_game,        20,  16, 32, 32,
+        GameInitAction.increment,        284,  16, 16, 16,
+        GameInitAction.decrement,        284,  32, 16, 16,
+        GameInitAction.netplay_add,      256, 216, 32, 32,
         GameInitAction.show_options,     308,  16, 32, 32,
         GameInitAction.close,            324, 216, 16, 16,
         -1
     ];
 }
+
+/* Rows of the peer list, in box coordinates. */
+#macro NETPLAY_ROW_X      20
+#macro NETPLAY_ROW_Y      72
+#macro NETPLAY_ROW_H      14
+#macro NETPLAY_ROW_MAX    9
+
+/* The NET PLAY button: the last frame of spr_icon. */
+#macro NETPLAY_ICON       318
 
 /// Port of Random::Random() (random.cc lines 27-33): seed from the clock
 /// and consume one value.
@@ -327,6 +356,87 @@ function RandomInput() : GuiObject() constructor {
 
     static set_filter = function(_filter) {
         filter = _filter;
+    };
+
+    /// The NET PLAY panel.
+    ///
+    /// Everyone listed here is a potential host, including us. Picking one dials
+    /// it and makes us the client; if they pick us first we become the host
+    /// instead. Nothing here declares a role in advance, because until somebody
+    /// moves there is no role to declare.
+    static draw_netplay = function() {
+        var _white = make_colour_rgb(0xff, 0xff, 0xff);
+        var _grey  = make_colour_rgb(0x90, 0x90, 0x90);
+        var _amber = make_colour_rgb(0xff, 0xff, 0x99);
+
+        draw_box_string(10, 2, "Net play");
+
+        if (net_is_running()) {
+            /* In a game already - the panel is just a status board now. */
+            gfx_draw_string(NETPLAY_ROW_X, 56, "In a game. " + net_status_line(),
+                            _amber, -1);
+            return;
+        }
+
+        if (net_is_active()) {
+            var _role = "connected";
+            if (global.net_role == NetRole.host) {
+                _role = "YOU ARE THE HOST - pick a mission and press START";
+            } else {
+                _role = "connected - waiting for the host to start";
+            }
+            gfx_draw_string(NETPLAY_ROW_X, 56, _role, _amber, -1);
+
+            if (global.net_role == NetRole.host) {
+                draw_box_string(10, 18, "Mission:");
+                draw_box_string(20, 18, string(game_mission + 1));
+                draw_box_icon(33, 0, 237);   // Up
+                draw_box_icon(33, 16, 240);  // Down
+            }
+            return;
+        }
+
+        gfx_draw_string(NETPLAY_ROW_X, 56, "Pick a machine to play against:",
+                        _white, -1);
+
+        var _count = net_peer_count();
+        if (_count == 0) {
+            gfx_draw_string(NETPLAY_ROW_X, NETPLAY_ROW_Y,
+                            "nobody yet - open NET PLAY on the other pc,", _grey, -1);
+            gfx_draw_string(NETPLAY_ROW_X, NETPLAY_ROW_Y + NETPLAY_ROW_H,
+                            "or ADD an address if it is not on this network",
+                            _grey, -1);
+        }
+
+        var _rows = min(_count, NETPLAY_ROW_MAX);
+        for (var _i = 0; _i < _rows; _i++) {
+            var _peer = net_peer_at(_i);
+            var _y = NETPLAY_ROW_Y + _i * NETPLAY_ROW_H;
+
+            var _label = _peer.ip;
+            if (_peer.name != "") {
+                _label += "  (" + _peer.name + ")";
+            }
+
+            /* Live means it shouted within the last few seconds. A typed
+               address that is not answering stays listed and says so, rather
+               than disappearing while you are reading it. */
+            var _colour = _grey;
+            var _tail = "   no answer";
+            if (net_peer_is_live(_peer)) {
+                _colour = _white;
+                _tail = "";
+            }
+            if (_peer.manual) {
+                _tail += "   [added]";
+            }
+
+            gfx_draw_string(NETPLAY_ROW_X, _y, _label + _tail, _colour, -1);
+        }
+
+        if (net_status_line() != "") {
+            gfx_draw_string(NETPLAY_ROW_X, 200, net_status_line(), _amber, -1);
+        }
     };
 
     static internal_draw = function() {
@@ -517,6 +627,15 @@ function GameInitBox(_interface) : GuiObject() constructor {
             _i += 3;
         }
 
+        /* NET PLAY, beside LOAD and EXIT. Icon 318 is the last frame of
+           spr_icon. On the panel itself the same button reads ADD, because
+           that is the only thing left to press there. */
+        gfx_draw_sprite(256, 216, Asset.icon, NETPLAY_ICON);
+
+        if (game_type == GameType.netplay) {
+            draw_netplay();
+        }
+
         /* Game type settings */
         switch (game_type) {
             case GameType.mission: {
@@ -687,6 +806,22 @@ function GameInitBox(_interface) : GuiObject() constructor {
                 file_list.set_displayed(true);
                 break;
             }
+            case GameType.netplay: {
+                random_input.set_displayed(false);
+                file_list.set_displayed(false);
+                /* The mission the host would start. Netplay uses the mission
+                   list, so it needs a valid mission object the moment the panel
+                   opens rather than the first time an arrow is pressed. */
+                mission = game_info_get_mission(game_mission);
+                net_lobby_open();
+                break;
+            }
+        }
+
+        /* Leaving the panel stops the shouting and closes the door, unless a
+           game is already running on it. */
+        if (game_type != GameType.netplay) {
+            net_lobby_close();
         }
     };
 
@@ -745,6 +880,19 @@ function GameInitBox(_interface) : GuiObject() constructor {
     static handle_action = function(_action) {
         switch (_action) {
             case GameInitAction.start_game: {
+                if (game_type == GameType.netplay) {
+                    /* Only the host starts, and only once somebody is actually
+                       connected. The client's START does nothing at all, which
+                       is correct: it has nothing to tell the other machine. */
+                    if (global.net_role != NetRole.host || global.net_socket < 0) {
+                        break;
+                    }
+                    net_lobby_close();
+                    net_host_start_game(interface, game_mission);
+                    interface.close_game_init();
+                    break;
+                }
+
                 if (game_type == GameType.load) {
                     load_selected_save();
                     return;
@@ -797,6 +945,24 @@ function GameInitBox(_interface) : GuiObject() constructor {
                 load_selected_save();
                 break;
             }
+            case GameInitAction.show_netplay: {
+                set_game_type(GameType.netplay);
+                set_redraw();
+                break;
+            }
+            case GameInitAction.netplay_add: {
+                /* Borrows the same typed-address prompt F8 uses, in its "add"
+                   mode: this files the address in the list rather than dialling
+                   it, because picking it is a separate decision. */
+                global.net_ip_prompt = true;
+                global.net_ip_prompt_mode = "add";
+                keyboard_string = "";
+                global.net_ip_text = "";
+                break;
+            }
+            case GameInitAction.netplay_forget: {
+                break;
+            }
             case GameInitAction.show_options: {
                 if (interface != undefined) {
                     interface.open_popup(PopupType.options);
@@ -828,6 +994,7 @@ function GameInitBox(_interface) : GuiObject() constructor {
                 generate_map_preview();
                 break;
             case GameInitAction.close:
+                net_lobby_close();
                 /* Quitting in-game returns here, so this is the way out. */
                 game_end();
                 break;
@@ -877,6 +1044,9 @@ function GameInitBox(_interface) : GuiObject() constructor {
             case GameType.load:
                 _clickmap = global.game_init_clickmap_load;
                 break;
+            case GameType.netplay:
+                _clickmap = global.game_init_clickmap_netplay;
+                break;
             default:
                 return false;
         }
@@ -890,6 +1060,22 @@ function GameInitBox(_interface) : GuiObject() constructor {
                 return true;
             }
             _i += 5;
+        }
+
+        /* The peer rows are not in the clickmap because there is no fixed
+           number of them. Picking one dials it: if it answers, it is the host
+           and we are the client. */
+        if (game_type == GameType.netplay && !net_is_active()) {
+            var _row = (_cy - NETPLAY_ROW_Y) div NETPLAY_ROW_H;
+            if (_cy >= NETPLAY_ROW_Y && _row >= 0 && _row < net_peer_count() &&
+                _cx >= NETPLAY_ROW_X && _cx < NETPLAY_ROW_X + 300) {
+                var _peer = net_peer_at(_row);
+                if (_peer != undefined) {
+                    set_redraw();
+                    net_lobby_pick(_peer.ip);
+                }
+                return true;
+            }
         }
 
         /* Check player area */
