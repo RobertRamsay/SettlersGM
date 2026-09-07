@@ -297,11 +297,24 @@ function game_init_init_tables() {
        The two things the host does need - choosing the mission and starting it
        - are rows in the list's own style, drawn only when there is a host to do
        them. A control that cannot act should not be on screen. */
+    /* Two maps, because the panel is two different screens. The host's
+       controls sit exactly where the list of machines is drawn before anyone
+       has connected, and one shared map put them on top of it: the arrows ate
+       the first three characters of every row and START, at y 76..92, ate the
+       whole of the third machine in the list - a click there was caught by the
+       START entry, refused because there was no host yet, and never reached
+       the row underneath. So: the list's map while picking, the host's map
+       once picked. */
     global.game_init_clickmap_netplay = [
-        GameInitAction.increment,        NETPLAY_MISSION_X + 152, NETPLAY_MISSION_Y, 24, 16,
-        GameInitAction.decrement,        NETPLAY_MISSION_X,       NETPLAY_MISSION_Y, 24, 16,
-        GameInitAction.start_game,       NETPLAY_GO_X,  NETPLAY_GO_Y,  180, 16,
-        GameInitAction.netplay_add,      NETPLAY_ADD_X, NETPLAY_ADD_Y, 150, 16,
+        GameInitAction.netplay_add,      NETPLAY_ADD_X, NETPLAY_ADD_Y, 280, 16,
+        GameInitAction.close,            GAME_INIT_EXIT_X, GAME_INIT_EXIT_Y, 16, 16,
+        -1
+    ];
+
+    global.game_init_clickmap_netplay_host = [
+        GameInitAction.increment,        NETPLAY_MISSION_X + 152, NETPLAY_MISSION_Y, 40, 16,
+        GameInitAction.decrement,        NETPLAY_MISSION_X,       NETPLAY_MISSION_Y, 40, 16,
+        GameInitAction.start_game,       NETPLAY_GO_X,  NETPLAY_GO_Y,  240, 16,
         GameInitAction.close,            GAME_INIT_EXIT_X, GAME_INIT_EXIT_Y, 16, 16,
         -1
     ];
@@ -315,7 +328,10 @@ function game_init_init_tables() {
 #macro NETPLAY_ROW_X      20
 #macro NETPLAY_ROW_Y      52
 #macro NETPLAY_ROW_H      14
-#macro NETPLAY_ROW_MAX    7
+/* Five, not seven: this is a two-player game on a LAN, and the three lines
+   the status needs to explain a failed connection are worth more than rows
+   six and seven of a list that will never be that long. */
+#macro NETPLAY_ROW_MAX    5
 
 /* The NET PLAY button: the last frame of spr_icon. */
 #macro NETPLAY_ICON       318
@@ -344,13 +360,13 @@ function game_init_init_tables() {
 /* The line above the list that says what this screen is doing right now, and
    the one under it for whatever the net layer last said. */
 #macro NETPLAY_HEAD_Y     34
-#macro NETPLAY_STATUS_Y   180
+#macro NETPLAY_STATUS_Y   152
 
 /* What discovery has managed, above the status line. Its own place rather than
    an offset from something else, so moving one row does not silently land it on
    top of another. */
-#macro NETPLAY_HINT_Y     152
-#macro NETPLAY_DIAG_Y     166
+#macro NETPLAY_HINT_Y     124
+#macro NETPLAY_DIAG_Y     138
 
 /* How many characters fit on a line here. gfx_draw_string advances 8 pixels a
    character and nothing about it wraps or clips, so a line that is too long
@@ -640,21 +656,18 @@ function GameInitBox(_interface) : GuiObject() constructor {
         }
 
         if (net_is_active()) {
-            var _role = "Connected. Waiting for the host to start.";
+            /* Connected, not yet started. The word CLICK is on every line
+               that wants one, and off every line that does not: the whole
+               question from the other chair is "what do I press", and the
+               answer differs by role. */
             if (global.net_role == NetRole.host) {
-                _role = "YOU ARE THE HOST";
-            }
+                netplay_draw_wrapped(NETPLAY_ROW_X, NETPLAY_HEAD_Y,
+                                     "YOU ARE THE HOST - player 2 has joined",
+                                     _amber);
 
-            /* Start the body from where the heading actually ended, not from a
-               fixed line. "Connected - waiting for the host to start" wraps to
-               two lines and the next line was drawn straight through it. */
-            var _by = netplay_draw_wrapped(NETPLAY_ROW_X, NETPLAY_HEAD_Y,
-                                           _role, _amber) + NETPLAY_ROW_H;
-
-            if (global.net_role == NetRole.host) {
                 var _done = "";
                 if (progress_mission_is_done(game_mission)) {
-                    _done = "  (complete)";
+                    _done = "  (done)";
                 }
 
                 gfx_draw_string(NETPLAY_MISSION_X, NETPLAY_MISSION_Y,
@@ -664,78 +677,79 @@ function GameInitBox(_interface) : GuiObject() constructor {
                                 "[ > ]", _white, -1);
 
                 gfx_draw_string(NETPLAY_GO_X, NETPLAY_GO_Y,
-                                "[ START THIS MISSION ]", _white, -1);
+                                "[ CLICK HERE TO START ]", _white, -1);
 
-                netplay_draw_wrapped(NETPLAY_ROW_X, NETPLAY_GO_Y + 24,
-                                     "It begins on both machines at once.",
-                                     _grey);
+                var _hy = netplay_draw_wrapped(NETPLAY_ROW_X, NETPLAY_GO_Y + 24,
+                                               "CLICK < or > to choose the mission,"
+                                               + " then CLICK START.", _amber);
+                netplay_draw_wrapped(NETPLAY_ROW_X, _hy + 4,
+                                     "It begins on both pcs at once.", _grey);
             } else {
-                netplay_draw_wrapped(NETPLAY_ROW_X, _by,
-                                     "The host chooses the mission. Nothing to"
-                                     + " do here but wait.", _grey);
+                var _by = netplay_draw_wrapped(NETPLAY_ROW_X, NETPLAY_HEAD_Y,
+                                               "CONNECTED to " + global.net_peer_ip
+                                               + " - you are player 2", _amber);
+                netplay_draw_wrapped(NETPLAY_ROW_X, _by + NETPLAY_ROW_H,
+                                     "The host picks the mission and CLICKS"
+                                     + " START. Nothing to click on this pc -"
+                                     + " just wait, the game opens by itself.",
+                                     _grey);
+            }
+
+            if (net_status_line() != "") {
+                netplay_draw_wrapped(NETPLAY_ROW_X, NETPLAY_STATUS_Y,
+                                     net_status_line(), _amber);
             }
             return;
         }
 
         netplay_draw_wrapped(NETPLAY_ROW_X, NETPLAY_HEAD_Y,
-                             "Pick a machine to play against:", _white);
+                             "CLICK the other pc below to connect:", _white);
 
         var _count = net_peer_count();
         if (_count == 0) {
             var _y = netplay_draw_wrapped(NETPLAY_ROW_X, NETPLAY_ROW_Y,
                                           "Nobody yet. Open NET PLAY on the"
-                                          + " other pc.", _grey);
+                                          + " other pc too and it appears here.",
+                                          _grey);
 
             /* Discovery needs the UDP port. Two copies on ONE machine cannot
                both have it, and a firewall can refuse it outright - in either
                case the list will never fill itself, so say so here rather than
                leave somebody waiting for a row that cannot arrive. */
-            if (global.net_udp < 0) {
+            if (!global.net_udp_bound) {
                 netplay_draw_wrapped(NETPLAY_ROW_X, _y + NETPLAY_ROW_H,
-                                     "Auto-discovery is off on this machine -"
-                                     + " use ADD AN ADDRESS.", _amber);
+                                     "This pc can't listen for others (is a"
+                                     + " second copy running?). CLICK ADD below"
+                                     + " and type the other pc's IP.", _amber);
             } else {
                 netplay_draw_wrapped(NETPLAY_ROW_X, _y + NETPLAY_ROW_H,
-                                     "Not on the same network? Use ADD AN"
-                                     + " ADDRESS.", _grey);
+                                     "Not showing up? CLICK ADD below and type"
+                                     + " the other pc's IP.", _grey);
             }
         }
-
-        /* What discovery has actually managed, always, on both machines.
-           Sending but hearing nothing is a blocked port; hearing packets but
-           listing nobody is a fault in here. The two look identical from an
-           empty list and want opposite fixes, and comparing the two machines'
-           lines says which end is the quiet one. */
-        if (_count > 0) {
-            gfx_draw_string(NETPLAY_ROW_X, NETPLAY_HINT_Y,
-                            "NO ANSWER = not heard from yet.", _grey, -1);
-        }
-
-        netplay_draw_wrapped(NETPLAY_ROW_X, NETPLAY_DIAG_Y,
-                             net_discovery_summary(), _grey);
 
         var _rows = min(_count, NETPLAY_ROW_MAX);
         for (var _i = 0; _i < _rows; _i++) {
             var _peer = net_peer_at(_i);
             var _ry = NETPLAY_ROW_Y + _i * NETPLAY_ROW_H;
 
-            /* Live means it shouted within the last few seconds. A typed
-               address that is not answering stays listed and says so, rather
-               than disappearing while you are reading it. */
+            /* Every row starts with the one word that matters. Live means it
+               shouted within the last few seconds; a typed address that has
+               not is still listed, still says so, and is still clickable -
+               the beacon and the connection are different things, and a pc
+               whose beacon is being dropped by the router will still answer
+               a dial. */
             var _colour = _grey;
-            var _tail = "  no answer";
+            var _tail = "  not heard yet";
             if (net_peer_is_live(_peer)) {
                 _colour = _white;
-                _tail = "";
-            }
-            if (_peer.manual) {
-                _tail += "  [added]";
+                _tail = "  online";
             }
 
-            /* One row per machine, always. The address is the part that
-               identifies it, so when the whole line will not fit it is the name
-               that gets cut, not the address. */
-            var _label = _peer.ip;
+            /* The address is the part that identifies it, so when the whole
+               line will not fit it is the name that gets cut, not the
+               address. */
+            var _label = "[CLICK] " + _peer.ip;
             var _room = NETPLAY_COLS - string_length(_label)
                         - string_length(_tail);
             if (_peer.name != "" && _room > 4) {
@@ -749,12 +763,37 @@ function GameInitBox(_interface) : GuiObject() constructor {
             gfx_draw_string(NETPLAY_ROW_X, _ry, _label + _tail, _colour, -1);
         }
 
-        gfx_draw_string(NETPLAY_ADD_X, NETPLAY_ADD_Y, "[ ADD AN ADDRESS ]",
-                        _white, -1);
+        if (_count > 0) {
+            gfx_draw_string(NETPLAY_ROW_X, NETPLAY_HINT_Y,
+                            "Not heard yet? You can still CLICK it.", _grey, -1);
+        }
 
-        if (net_status_line() != "") {
-            netplay_draw_wrapped(NETPLAY_ROW_X, NETPLAY_STATUS_Y,
-                                 net_status_line(), _amber);
+        /* What discovery has actually managed, always, on both machines.
+           Sending but hearing nothing is a blocked port; hearing packets but
+           listing nobody is a fault in here. The two look identical from an
+           empty list and want opposite fixes, and comparing the two machines'
+           lines says which end is the quiet one. */
+        netplay_draw_wrapped(NETPLAY_ROW_X, NETPLAY_DIAG_Y,
+                             net_discovery_summary(), _grey);
+
+        if (global.net_ip_prompt && global.net_ip_prompt_mode == "add") {
+            /* The typing happens HERE, on the panel that asked for it, not in
+               small yellow text in the corner of the screen behind it. */
+            gfx_draw_string(NETPLAY_ROW_X, NETPLAY_STATUS_Y,
+                            "TYPE the other pc's IP, then press ENTER:",
+                            _amber, -1);
+            gfx_draw_string(NETPLAY_ROW_X, NETPLAY_STATUS_Y + NETPLAY_ROW_H,
+                            "> " + global.net_ip_text + "_", _white, -1);
+            gfx_draw_string(NETPLAY_ROW_X, NETPLAY_STATUS_Y + 2 * NETPLAY_ROW_H,
+                            "(ESC cancels)", _grey, -1);
+        } else {
+            gfx_draw_string(NETPLAY_ADD_X, NETPLAY_ADD_Y,
+                            "[ CLICK to ADD the other pc's IP ]", _white, -1);
+
+            if (net_status_line() != "") {
+                netplay_draw_wrapped(NETPLAY_ROW_X, NETPLAY_STATUS_Y,
+                                     net_status_line(), _amber);
+            }
         }
     };
 
@@ -1004,8 +1043,17 @@ function GameInitBox(_interface) : GuiObject() constructor {
         }
 
         /* Leaving the panel stops the shouting and closes the door, unless a
-           game is already running on it. */
+           game is already running on it. A connection that has not become a
+           game goes too - on both machines, since the other end sees the
+           drop and returns to its own lobby. Before this, the host pressing
+           EXIT with somebody joined was read by obj_game as F7's "lobby
+           closed, start mission 1 now", which is a surprising thing for a
+           button marked EXIT to do. */
         if (game_type != GameType.netplay) {
+            global.net_ip_prompt = false;
+            if (net_is_active() && !net_is_running()) {
+                net_close("left net play");
+            }
             net_lobby_close();
         }
     };
@@ -1152,6 +1200,7 @@ function GameInitBox(_interface) : GuiObject() constructor {
                 global.net_ip_prompt_mode = "add";
                 keyboard_string = "";
                 global.net_ip_text = "";
+                net_set_status("");
                 break;
             }
             case GameInitAction.netplay_forget: {
@@ -1268,6 +1317,9 @@ function GameInitBox(_interface) : GuiObject() constructor {
                 break;
             case GameType.netplay:
                 _clickmap = global.game_init_clickmap_netplay;
+                if (global.net_role == NetRole.host && global.net_socket >= 0) {
+                    _clickmap = global.game_init_clickmap_netplay_host;
+                }
                 break;
             default:
                 return false;

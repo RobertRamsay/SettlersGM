@@ -197,6 +197,16 @@ function net_init() {
     /* Which slice of the map the next world hash covers. Set from the turn
        number so the two machines always hash the same tiles. */
     global.net_map_slice = 0;
+
+    /* F7's host starts mission 1 the moment somebody joins; the lobby's host
+       does not - there the host chooses and presses START. This says which
+       kind of host we are, so leaving the lobby panel can never be mistaken
+       for "go". It used to be inferred from the panel being closed, which is
+       exactly what pressing EXIT does. */
+    global.net_autostart = false;
+
+    /* Who is on the other end, for the panel. */
+    global.net_peer_ip = "";
 }
 
 #macro NET_STATUS_SHOW_FRAMES 600   // ten seconds at 60fps
@@ -312,6 +322,7 @@ function net_host() {
     global.net_role  = NetRole.host;
     global.net_phase = NetPhase.listening;
     global.net_local_player = 0;
+    global.net_autostart = true;
     ds_map_clear(global.net_turns);
     ds_map_clear(global.net_checks);
     global.net_outbox = [];
@@ -379,19 +390,28 @@ function net_join(_ip) {
     if (global.net_socket < 0) {
         /* The return codes go on screen, not only in the log: which spelling
            failed and with what is the whole diagnosis. */
-        net_set_status("no answer on port " + string(NET_PORT) + " [" + _tried + "]");
+        /* Said the way it needs fixing, with the codes after for the log and
+           for anyone who wants them. The one cause that matters is the other
+           machine not having its NET PLAY panel open - that is what closes its
+           door - so that is what the line asks. */
+        net_set_status(string(_ip) + " did not answer - is NET PLAY open on"
+                       + " that pc? [port " + string(NET_PORT) + ": " + _tried
+                       + "]");
         show_debug_message("net: " + global.net_status);
+        net_log(global.net_status);
         return false;
     }
 
     global.net_role  = NetRole.client;
     global.net_phase = NetPhase.connecting;
     global.net_local_player = 1;
+    global.net_peer_ip = string(_ip);
     ds_map_clear(global.net_turns);
     ds_map_clear(global.net_checks);
     global.net_outbox = [];
-    net_set_status("connected to " + string(_ip) + " - waiting for start");
+    net_set_status("CONNECTED to " + string(_ip) + " - the host CLICKS START");
     show_debug_message("net: " + global.net_status);
+    net_log(global.net_status);
     return true;
 }
 
@@ -407,6 +427,9 @@ function net_close(_why) {
 
     global.net_role  = NetRole.off;
     global.net_phase = NetPhase.idle;
+    global.net_dialling = "";
+    global.net_peer_ip = "";
+    global.net_autostart = false;
     net_set_status(_why);
 
     ds_map_clear(global.net_turns);
@@ -414,6 +437,59 @@ function net_close(_why) {
     global.net_outbox = [];
 
     show_debug_message("net: closed - " + string(_why));
+    net_log("closed - " + string(_why));
+}
+
+/// Back to "nobody connected" WITHOUT leaving the lobby: the peer socket goes,
+/// the role goes, and the reason goes on the panel - but the door stays open
+/// so somebody can pick us again, and the list stays so we can pick them.
+///
+/// This is what a dropped connection means before a game has started. It used
+/// to go through net_fail, which is for a game in progress: it marks the
+/// session dead and leaves the role set, so the panel carried on saying
+/// "connected, waiting for the host" about a connection that no longer
+/// existed, and nothing on it could be clicked until the exe was restarted.
+function net_drop_to_lobby(_why) {
+    if (global.net_socket >= 0) {
+        network_destroy(global.net_socket);
+        global.net_socket = -1;
+    }
+
+    global.net_role  = NetRole.off;
+    global.net_phase = NetPhase.idle;
+    global.net_dialling = "";
+    global.net_peer_ip = "";
+    global.net_autostart = false;
+    net_set_status(_why);
+
+    ds_map_clear(global.net_turns);
+    ds_map_clear(global.net_checks);
+    global.net_outbox = [];
+
+    /* The door only matters while the panel is open. */
+    if (!net_lobby_is_open() && global.net_server >= 0) {
+        network_destroy(global.net_server);
+        global.net_server = -1;
+    }
+
+    show_debug_message("net: back to lobby - " + string(_why));
+    net_log("back to lobby - " + string(_why));
+}
+
+/// Somebody dialled us and we are keeping them: we are the host from here.
+function net_become_host(_socket, _their_ip) {
+    global.net_role  = NetRole.host;
+    global.net_phase = NetPhase.listening;
+    global.net_local_player = 0;
+    global.net_autostart = false;
+    global.net_socket = _socket;
+    global.net_peer_ip = string(_their_ip);
+    ds_map_clear(global.net_turns);
+    ds_map_clear(global.net_checks);
+    global.net_outbox = [];
+    net_set_status(string(_their_ip) + " joined - YOU ARE THE HOST. Pick a"
+                   + " mission and CLICK START");
+    net_log(global.net_status);
 }
 
 /// Stop dead, keeping the reason on screen. Used for a desync, where carrying
@@ -509,77 +585,124 @@ function net_handle_async(_async) {
     var _type = _async[? "type"];
 
     if (_type == network_type_connect) {
-        show_debug_message("net: connect event, socket " + string(_async[? "socket"]));
+        var _their_ip     = _async[? "ip"];
+        var _their_socket = _async[? "socket"];
+        show_debug_message("net: connect event, socket " + string(_their_socket)
+                           + " from " + string(_their_ip));
 
         /* Somebody picked US, which is what makes us the host. The role is
            decided here rather than announced in advance, because until this
            event arrives there is nothing to be host OF. */
-        if (global.net_role == NetRole.off && net_lobby_is_open()) {
-            var _their_ip = _async[? "ip"];
-
-            /* Both of us picked, in the same second. Each machine now has an
-               outbound connection and an inbound one, and if both kept the
-               inbound both would think they were host.
-
-               The tie-break is the session id, not the address: GameMaker has
-               no call that says what this machine's own IP is, and comparing
-               something we do not know to something we do is not a comparison.
-               Session ids we DO have both of - each machine made one at
-               startup and has been shouting it in every beacon. Lower id
-               hosts, and the two machines compare the same pair of numbers and
-               come to opposite conclusions, which is the whole requirement. */
-            if (global.net_dialling != "") {
-                var _theirs = net_peer_session(_their_ip);
-
-                if (_theirs >= 0 && _theirs < global.net_session_id) {
-                    show_debug_message("net: both picked - they host, keeping our dial");
-                    network_destroy(_async[? "socket"]);
-                    return;
-                }
-
-                if (_theirs < 0) {
-                    /* Never heard them shout, so there is nothing to compare -
-                       a manually added address that is not broadcasting. Keep
-                       our own dial and refuse theirs. If they do the same we
-                       both end up back in the lobby with nothing connected,
-                       which is visible and recoverable; two machines both
-                       believing they are host would not be. */
-                    show_debug_message("net: both picked, no beacon from them - "
-                                       + "refusing their dial, keeping ours");
-                    network_destroy(_async[? "socket"]);
-                    return;
-                }
-
-                show_debug_message("net: both picked - we host, dropping our dial");
-                if (global.net_socket >= 0) {
-                    network_destroy(global.net_socket);
-                    global.net_socket = -1;
-                }
-                global.net_dialling = "";
-            }
-
-            global.net_role  = NetRole.host;
-            global.net_phase = NetPhase.listening;
-            global.net_local_player = 0;
-            global.net_socket = _async[? "socket"];
-            ds_map_clear(global.net_turns);
-            ds_map_clear(global.net_checks);
-            global.net_outbox = [];
-            net_set_status(string(_their_ip) + " joined - you are the host");
-            net_log(global.net_status);
+        if (net_lobby_is_open() && global.net_role == NetRole.off) {
+            net_become_host(_their_socket, _their_ip);
             return;
         }
 
-        if (global.net_role == NetRole.host && global.net_phase == NetPhase.listening) {
-            global.net_socket = _async[? "socket"];
+        /* Both of us picked, in the same second. We have already dialled them
+           - so we are a client waiting for a start - and now they have dialled
+           us. Each machine has an outbound connection and an inbound one, and
+           if both kept the inbound both would think they were host.
+
+           This case used to be tested for while our role was still "off",
+           which it never is by the time the event arrives: net_join has
+           already made us a client. So neither machine ever ran the tie-break,
+           both sat as clients waiting for a host that did not exist, and the
+           spare sockets were left open.
+
+           The tie-break is the session id, not the address: GameMaker has no
+           call that says what this machine's own IP is, and comparing
+           something we do not know to something we do is not a comparison.
+           Session ids we DO have both of - each machine made one at startup
+           and has been shouting it in every beacon. Lower id hosts, and the
+           two machines compare the same pair of numbers and come to opposite
+           conclusions, which is the whole requirement. */
+        if (net_lobby_is_open() && global.net_role == NetRole.client &&
+            global.net_phase == NetPhase.connecting && global.net_dialling != "") {
+            var _theirs = net_peer_session(_their_ip);
+
+            if (_theirs >= 0 && _theirs < global.net_session_id) {
+                show_debug_message("net: both picked - they host, keeping our dial");
+                network_destroy(_their_socket);
+                return;
+            }
+
+            if (_theirs < 0) {
+                /* Never heard them shout, so there is nothing to compare - a
+                   typed-in address that is not broadcasting. Keep our own dial
+                   and refuse theirs. If they do the same we both end up back
+                   in the lobby with nothing connected, which is visible and
+                   recoverable; two machines both believing they are host would
+                   not be. */
+                show_debug_message("net: both picked, no beacon from them - "
+                                   + "refusing their dial, keeping ours");
+                network_destroy(_their_socket);
+                return;
+            }
+
+            show_debug_message("net: both picked - we host, dropping our dial");
+            if (global.net_socket >= 0) {
+                network_destroy(global.net_socket);
+                global.net_socket = -1;
+            }
+            global.net_dialling = "";
+            net_become_host(_their_socket, _their_ip);
+            return;
+        }
+
+        /* F7's host, waiting on its own. */
+        if (global.net_role == NetRole.host && global.net_phase == NetPhase.listening &&
+            global.net_socket < 0) {
+            global.net_socket = _their_socket;
+            global.net_peer_ip = string(_their_ip);
             net_set_status("player 2 joined");
             show_debug_message("net: " + global.net_status);
+            return;
         }
+
+        /* Anyone else knocking - a third machine, or somebody dialling in the
+           middle of a game - is turned away rather than left on a socket that
+           nothing will ever read. */
+        show_debug_message("net: refusing a connection from " + string(_their_ip)
+                           + " - already engaged");
+        network_destroy(_their_socket);
         return;
     }
 
     if (_type == network_type_disconnect) {
-        net_fail("the other player disconnected");
+        /* Only the peer counts. The host refuses spare connections above by
+           destroying them, and their going away must not be read as the real
+           player leaving. A client has only ever had the one socket. */
+        /* "socket" is the socket that went (on a server, the client that
+           left); "id" is the socket the event arrived on (on a client, its
+           own). The peer is whichever of those is our net_socket. Matching
+           on role alone was wrong for a client: in the both-picked case the
+           other machine hangs up the connection it made TO us, our server
+           reports that, and the dial we are keeping must not be dropped for
+           it. */
+        var _gone = _async[? "socket"];
+        var _on   = _async[? "id"];
+        var _is_peer = (global.net_socket >= 0) &&
+                       (_gone == global.net_socket || _on == global.net_socket);
+        if (!_is_peer) {
+            show_debug_message("net: disconnect of socket " + string(_gone)
+                               + " - not the peer, ignored");
+            return;
+        }
+
+        if (global.net_phase == NetPhase.dead) {
+            /* Already stopped, and the reason on screen - a desync, say - is
+               the one worth keeping. */
+            return;
+        }
+
+        if (net_is_running()) {
+            net_fail("the other player disconnected");
+            return;
+        }
+
+        /* Before a game: nothing to stop, just somebody to pick again. */
+        net_drop_to_lobby("the other pc dropped the connection - CLICK a"
+                          + " machine to try again");
         return;
     }
 
@@ -1967,6 +2090,16 @@ function net_begin(_interface, _game, _local_player) {
 
     _interface.close_game_init();
 
+    /* The lobby is over on BOTH machines. The host closed it before starting,
+       but the client never did - it kept shouting beacons for the whole game,
+       and kept its own door open on the TCP port. Nothing about a game in
+       progress wants either. */
+    net_lobby_close();
+    if (global.net_role == NetRole.client && global.net_server >= 0) {
+        network_destroy(global.net_server);
+        global.net_server = -1;
+    }
+
     /* Prime the pipeline: the first NET_TURN_DELAY turns can carry no commands
        because nobody has had a chance to issue any, but their packets still
        have to exist or neither machine could ever start. */
@@ -2012,6 +2145,7 @@ enum NetBeacon {
 function net_lobby_init() {
     global.net_lobby_open   = false;
     global.net_udp          = -1;
+    global.net_udp_bound    = false;
     global.net_beacon_count = 0;
 
     /* Peers we have heard from or been told about:
@@ -2082,9 +2216,16 @@ function net_lobby_open() {
     if (global.net_udp < 0) {
         global.net_udp = network_create_socket_ext(network_socket_udp,
                                                    NET_DISCOVERY_PORT);
+        global.net_udp_bound = (global.net_udp >= 0);
         if (global.net_udp < 0) {
-            show_debug_message("net: no UDP socket - discovery is off, "
-                               + "added addresses still work");
+            /* The port is taken - a second copy on this machine has it. An
+               unbound socket cannot hear anybody, but it can still SHOUT, so
+               the other side lists us even though we cannot list them. That
+               is enough: whoever can see the other one clicks. */
+            global.net_udp = network_create_socket(network_socket_udp);
+            show_debug_message("net: UDP " + string(NET_DISCOVERY_PORT)
+                               + " refused - sending only, socket "
+                               + string(global.net_udp));
         }
     }
 
@@ -2162,20 +2303,23 @@ function net_lobby_step() {
         global.net_beacons_sent += 1;
     }
 
-    /* And the same beacon straight at every address that was typed in, not
-       only to the broadcast address.
+    /* And the same beacon straight at every machine we know of - typed in OR
+       heard from - not only to the broadcast address.
 
        Broadcast is the half that firewalls and wireless access points quietly
        drop. A unicast datagram to a specific machine is ordinary traffic and
-       usually gets through where a broadcast does not - so adding an address on
-       ONE machine is enough for both to see each other: this machine learns
-       nothing new, but the far end hears from us and lists us without anybody
-       typing anything there. */
+       usually gets through where a broadcast does not.
+
+       Heard-from peers get one too, and that is the half that was missing.
+       With only typed-in addresses answered, adding the host's address on the
+       joining pc made the HOST hear the joiner - but the joiner still only had
+       the host's broadcast to go on, which is the thing that was not
+       arriving. So the host showed the joiner as online and the joiner showed
+       the host as "no answer", for as long as they cared to look. Now hearing
+       a machine means shouting back at it directly, so one typed-in address on
+       either side is enough for both lists to fill. */
     for (var _i = 0; _i < array_length(global.net_peers); _i++) {
         var _p = global.net_peers[_i];
-        if (!_p.manual) {
-            continue;
-        }
         network_send_udp(global.net_udp, _p.ip, NET_DISCOVERY_PORT, _b,
                          buffer_tell(_b));
     }
@@ -2285,8 +2429,11 @@ function net_expire_peers() {
 /// One line saying what discovery has actually managed to do, for the panel.
 function net_discovery_summary() {
     if (global.net_udp < 0) {
-        return "discovery off - UDP port " + string(NET_DISCOVERY_PORT)
-               + " refused";
+        return "discovery off - no UDP socket at all";
+    }
+    if (!global.net_udp_bound) {
+        return "can't hear others (UDP " + string(NET_DISCOVERY_PORT)
+               + " taken) - shouting only";
     }
     /* One line, forty characters. The last six digits of the id are enough to
        tell two machines apart at a glance, and the whole of it goes to the log

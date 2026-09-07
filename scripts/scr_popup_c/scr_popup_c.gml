@@ -1278,8 +1278,14 @@ function popup_handle_action(_popup, _action, _x, _y) {
       /* Leaving for the menu ends a networked session. Both of the lines below
          change the simulation on this machine only - the speed most of all -
          so the session has to be over before they run, not after. */
+      /* net_close, not net_fail: fail leaves the role and the sockets in
+         place so a stopped game stays on screen with its reason, which is
+         right for a desync and wrong for the menu - the role then blocked
+         NET PLAY from being used again until the exe was restarted. The
+         other machine sees the socket go and stops with "the other player
+         disconnected", which is the truth. */
       if (net_is_active()) {
-        net_fail("you left the game");
+        net_close("you left the game");
       }
       cf_stand_down(_game);
       _game.set_speed(0);

@@ -33,25 +33,26 @@ if (show_debug) {
 #macro NET_TEXT_WIDTH (SCREEN_W - 8)
 #macro NET_TEXT_LINE  12
 
-if (global.net_ip_prompt) {
-    /* Two callers, two meanings. F8 dials the address straight away; the
-       lobby's ADD only files it in the list, and telling somebody Enter
-       connects when it does not is worse than saying nothing. */
-    var _lead = "HOST PC's IP: ";
-    var _tail = "   (Enter connects, Esc cancels)";
-    if (global.net_ip_prompt_mode == "add") {
-        _lead = "ADDRESS TO ADD: ";
-        _tail = "   (Enter adds it to the list, Esc cancels)";
-    }
+// The NET PLAY panel says all of this itself, in its own place and its own
+// font, so while it is on screen the corner stays empty: the same line twice,
+// once on the panel and once floating over it, reads as two different things.
+var _netplay_panel = false;
+var _init_box = interface.get_game_init_box();
+if (_init_box != undefined && _init_box.game_type == GameType.netplay) {
+    _netplay_panel = true;
+}
 
-    var _prompt = _lead + global.net_ip_text + "_" +
-                  "   :" + string(NET_PORT) + _tail;
+if (global.net_ip_prompt && global.net_ip_prompt_mode == "join") {
+    /* F8's own prompt. The lobby's ADD prompt is drawn by the panel. */
+    var _prompt = "HOST PC's IP: " + global.net_ip_text + "_" +
+                  "   :" + string(NET_PORT) + "   (Enter connects, Esc cancels)";
     draw_set_colour(c_black);
     draw_text_ext(5, 5, _prompt, NET_TEXT_LINE, NET_TEXT_WIDTH);
     draw_set_colour(c_yellow);
     draw_text_ext(4, 4, _prompt, NET_TEXT_LINE, NET_TEXT_WIDTH);
     draw_set_colour(c_white);
-} else if (net_status_visible() || net_live_notice(interface.get_game()) != "") {
+} else if (!_netplay_panel &&
+           (net_status_visible() || net_live_notice(interface.get_game()) != "")) {
     /* Two different things share this line. The status ("player 2 joined", "in
        game as player 2") is news: worth reading once, clutter for the rest of
        the session, so it ages out after ten seconds. The live notice - whose

@@ -111,7 +111,7 @@ if (global.net_ip_prompt) {
             /* The lobby's ADD ADDRESS row. It does not dial - it only puts the
                address in the list, where picking it is a separate decision. */
             net_add_manual_peer(_ip);
-            net_set_status("added " + _ip);
+            net_set_status("added " + _ip + " - now CLICK it in the list");
         } else {
             net_save_host_ip(_ip);
             net_join(_ip);
@@ -129,10 +129,15 @@ net_lobby_step();
 // two machines testable before there was any UI. The lobby does NOT auto-start:
 // there the host picks the mission and presses START, so the choice happens
 // after the roles are known rather than before.
-if (global.net_role == NetRole.host &&
+//
+// Which kind of host we are is a flag net_host() sets, not "the panel is
+// closed" - a lobby host pressing EXIT on the panel also closes it, and that
+// used to start mission 1 on the spot.
+if (global.net_autostart &&
+    global.net_role == NetRole.host &&
     global.net_phase == NetPhase.listening &&
-    global.net_socket >= 0 &&
-    !net_lobby_is_open()) {
+    global.net_socket >= 0) {
+    global.net_autostart = false;
     net_host_start_game(interface, 0);
 }
 
