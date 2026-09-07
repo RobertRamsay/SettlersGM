@@ -1,0 +1,163 @@
+From a3e7b28684d5c2e3fc763cc61b9c8584313489c6 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 7 Sep 2026 13:39:24 +0000
+Subject: [PATCH] Give the NET PLAY panel the whole box
+
+The player faces with their supply bars, and the map preview, were still
+being drawn behind the list. Both are for setting up a game, and that
+already happened on the screen this one was opened from - here they are
+furniture sitting on top of the only thing the panel is for. The faces are
+skipped for this game type and the minimap is hidden while it is open, and
+put back on the way out.
+
+That frees the middle of the box, so the list now starts under the heading
+at y 60 and runs full width down to the ADD row, nine machines instead of
+eight squeezed into the strip beside a minimap.
+
+The connected view had the same amount of empty space and nothing in it,
+so it now says what the two ends can actually do: the host that the arrows
+pick the mission and START begins it on both machines at once, the client
+that the choice is not theirs.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DFktm5o1kLnS2Pgvyp8tD4
+---
+ scripts/scr_game_init/scr_game_init.gml | 50 +++++++++++++++++++------
+ 1 file changed, 39 insertions(+), 11 deletions(-)
+
+diff --git a/scripts/scr_game_init/scr_game_init.gml b/scripts/scr_game_init/scr_game_init.gml
+index c81cc5aa..b6b13aff 100644
+--- a/scripts/scr_game_init/scr_game_init.gml
++++ b/scripts/scr_game_init/scr_game_init.gml
+@@ -302,10 +302,14 @@ function game_init_init_tables() {
+ }
+ 
+ /* Rows of the peer list, in box coordinates. */
++/* The list of machines. With the player faces and the map preview gone from
++   this screen, the whole middle of the box is the list: it starts under the
++   heading and runs down to the ADD row, full width rather than squeezed into
++   the strip beside a minimap. */
+ #macro NETPLAY_ROW_X      20
+-#macro NETPLAY_ROW_Y      72
++#macro NETPLAY_ROW_Y      60
+ #macro NETPLAY_ROW_H      14
+-#macro NETPLAY_ROW_MAX    8
++#macro NETPLAY_ROW_MAX    9
+ 
+ /* The NET PLAY button: the last frame of spr_icon. */
+ #macro NETPLAY_ICON       318
+@@ -322,7 +326,12 @@ function game_init_init_tables() {
+    slot, which is where LOAD is drawn - a button that reads LOAD and adds an
+    address is worse than no button. */
+ #macro NETPLAY_ADD_X      20
+-#macro NETPLAY_ADD_Y      196
++#macro NETPLAY_ADD_Y      192
++
++/* The line above the list that says what this screen is doing right now, and
++   the one under it for whatever the net layer last said. */
++#macro NETPLAY_HEAD_Y     44
++#macro NETPLAY_STATUS_Y   214
+ 
+ /// Port of Random::Random() (random.cc lines 27-33): seed from the clock
+ /// and consume one value.
+@@ -542,8 +551,8 @@ function GameInitBox(_interface) : GuiObject() constructor {
+ 
+         if (net_is_running()) {
+             /* In a game already - the panel is just a status board now. */
+-            gfx_draw_string(NETPLAY_ROW_X, 56, "In a game. " + net_status_line(),
+-                            _amber, -1);
++            gfx_draw_string(NETPLAY_ROW_X, NETPLAY_HEAD_Y,
++                            "In a game. " + net_status_line(), _amber, -1);
+             return;
+         }
+ 
+@@ -554,19 +563,28 @@ function GameInitBox(_interface) : GuiObject() constructor {
+             } else {
+                 _role = "connected - waiting for the host to start";
+             }
+-            gfx_draw_string(NETPLAY_ROW_X, 56, _role, _amber, -1);
++            gfx_draw_string(NETPLAY_ROW_X, NETPLAY_HEAD_Y, _role, _amber, -1);
+ 
+             if (global.net_role == NetRole.host) {
+                 draw_box_string(10, 18, "Mission:");
+                 draw_box_string(20, 18, string(game_mission + 1));
+                 draw_box_icon(33, 0, 237);   // Up
+                 draw_box_icon(33, 16, 240);  // Down
++
++                gfx_draw_string(NETPLAY_ROW_X, NETPLAY_ROW_Y,
++                                "Arrows pick the mission. START begins it on",
++                                _grey, -1);
++                gfx_draw_string(NETPLAY_ROW_X, NETPLAY_ROW_Y + NETPLAY_ROW_H,
++                                "both machines at once.", _grey, -1);
++            } else {
++                gfx_draw_string(NETPLAY_ROW_X, NETPLAY_ROW_Y,
++                                "The host chooses the mission.", _grey, -1);
+             }
+             return;
+         }
+ 
+-        gfx_draw_string(NETPLAY_ROW_X, 56, "Pick a machine to play against:",
+-                        _white, -1);
++        gfx_draw_string(NETPLAY_ROW_X, NETPLAY_HEAD_Y,
++                        "Pick a machine to play against:", _white, -1);
+ 
+         var _count = net_peer_count();
+         if (_count == 0) {
+@@ -607,7 +625,8 @@ function GameInitBox(_interface) : GuiObject() constructor {
+                         _white, -1);
+ 
+         if (net_status_line() != "") {
+-            gfx_draw_string(NETPLAY_ROW_X, 216, net_status_line(), _amber, -1);
++            gfx_draw_string(NETPLAY_ROW_X, NETPLAY_STATUS_Y,
++                            net_status_line(), _amber, -1);
+         }
+     };
+ 
+@@ -705,8 +724,10 @@ function GameInitBox(_interface) : GuiObject() constructor {
+             }
+         }
+ 
+-        /* Game info */
+-        if (game_type != GameType.load) {
++        /* Game info. Not on NET PLAY: the faces and their supply bars are for
++           setting up a game, which has already happened on the screen behind
++           this one - here they are furniture sitting on top of the list. */
++        if (game_type != GameType.load && game_type != GameType.netplay) {
+             var _bx = 0;
+             var _by = 0;
+             for (var _p = 0; _p < GAME_MAX_PLAYER_COUNT; _p++) {
+@@ -814,11 +835,13 @@ function GameInitBox(_interface) : GuiObject() constructor {
+                 mission = game_info_get_mission(game_mission);
+                 random_input.set_displayed(false);
+                 file_list.set_displayed(false);
++                minimap.set_displayed(true);
+                 generate_map_preview();
+                 break;
+             }
+             case GameType.custom: {
+                 mission = custom_mission;
++                minimap.set_displayed(true);
+                 random_input.set_displayed(true);
+                 random_input.set_random(custom_mission.get_random_base());
+                 file_list.set_displayed(false);
+@@ -827,12 +850,17 @@ function GameInitBox(_interface) : GuiObject() constructor {
+             }
+             case GameType.load: {
+                 random_input.set_displayed(false);
++                minimap.set_displayed(true);
+                 file_list.set_displayed(true);
+                 break;
+             }
+             case GameType.netplay: {
+                 random_input.set_displayed(false);
+                 file_list.set_displayed(false);
++                /* The map preview is about which map you are starting, and that
++                   was chosen on the screen behind this one. It is also sitting
++                   exactly where the list of machines wants to be. */
++                minimap.set_displayed(false);
+                 /* The mission the host would start. Netplay uses the mission
+                    list, so it needs a valid mission object the moment the panel
+                    opens rather than the first time an arrow is pressed. */
+-- 
+2.43.0
+
