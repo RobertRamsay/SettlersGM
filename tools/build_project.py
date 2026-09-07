@@ -244,9 +244,9 @@ bake('map_mask_down', 81, 'map_ground', 33, 'spr_ground_down')
 # 13-15 darker brown, 16-19 the snow/rock greys. There is NO water tile in the
 # range - the water ground tile is 32. Freeserf's draw_path_segment picks
 # ground sprite 9 for a road over water, which here lands on tile 19 and comes
-# out the same grey as a mountain road; scr_viewport therefore keeps the
-# ordinary road sprite over water and fades it (PATH_WATER_ALPHA) instead.
-# Only sprites 0-2 (sand) and 6-8 (grey) are used.
+# out near-white, which is why a boat route looked like a mountain road.
+# draw_path_segment still uses sprite 9 there, but tints it (PATH_WATER_TINT)
+# and fades it (PATH_WATER_ALPHA). Sprites 3-5 are unused.
 bake('path_mask', 27, 'map_ground', 10, 'spr_path_baked', ground_base=10)
 
 # waves: full (unmasked) waves are spr_map_waves; masked with mask 40 up/down
