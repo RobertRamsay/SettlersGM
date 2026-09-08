@@ -457,6 +457,23 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
        means nothing once he is inside a building. */
     home_tries = 0;
 
+    /* Cross-country knight dispatch - see "Knights walk everywhere" in
+       scr_serf_c.gml. knight_dest_building is the index of the building this
+       knight has been sent to across open ground and whose request he is
+       counted against (stock[0].requested), or 0 when nobody is expecting him.
+       It is what lets his arrival be booked against the right building, and
+       what lets his request be cancelled if he never gets there. Saved with
+       the serf, because a knight can be halfway there when the game is saved.
+
+       knight_stuck_pos / knight_stuck_since are the watchdog: the tile he was
+       last seen on and the tick he was first seen there. A travelling knight
+       who has not changed tile for KNIGHT_STUCK_TICKS is kicked back into
+       motion. Both are recomputed from play, so a save from before they
+       existed simply starts them fresh. */
+    knight_dest_building = 0;
+    knight_stuck_pos = -1;
+    knight_stuck_since = 0;
+
     /* The C++ union `s`, flattened: every union member's fields become
        <member>_<field>. NOTE: the C++ relies on union aliasing between some
        members (same byte offsets B..F). walking <-> transporting alias is
@@ -1191,6 +1208,14 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
         s.leaving_building_dest = _dest;
         s.leaving_building_dir = _dir;
         s.leaving_building_next_state = SerfState.walking;
+
+        /* A knight turned out of a garrison (mode -2, "go to an inventory")
+           walks to the castle or a stock across country instead of hunting
+           for a road. See "Knights walk everywhere" in scr_serf_c.gml. If
+           there is no inventory to send him to, the road walk above stands. */
+        if (_field_B == -2 && serf_is_knight(self)) {
+            knight_leave_for_inventory(self);
+        }
     };
 
     /* Change serf state to lost, but make necessary clean up
@@ -1553,7 +1578,9 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
             var _building = game.get_building_at_pos(_map.move_up_left(pos));
             _building.requested_serf_reached(self);
 
-            if (_map.blocked_for(self, _map.move_up_left(pos))) {
+            /* A knight never waits at the door - see knight_enters_freely. */
+            if (_map.blocked_for(self, _map.move_up_left(pos)) &&
+                !knight_enters_freely(self)) {
                 animation = 85;
                 counter = 0;
                 set_state(SerfState.ready_to_enter);
@@ -2310,7 +2337,9 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
     static handle_serf_ready_to_enter_state = function() {
         var _new_pos = game.get_map().move_up_left(pos);
 
-        if (game.get_map().blocked_for(self, _new_pos)) {
+        /* A knight never waits at the door - see knight_enters_freely. */
+        if (game.get_map().blocked_for(self, _new_pos) &&
+            !knight_enters_freely(self)) {
             animation = 85;
             counter = 0;
             return;
@@ -2326,8 +2355,10 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
         var _map = game.get_map();
         var _new_pos = _map.move_down_right(pos);
 
-        if (_map.other_serf_at(self, pos)
-            || _map.blocked_for(self, _new_pos)) {
+        /* A knight never waits in the doorway - see knight_enters_freely. */
+        if ((_map.other_serf_at(self, pos)
+             || _map.blocked_for(self, _new_pos)) &&
+            !knight_enters_freely(self)) {
             animation = 82;
             counter = 0;
             return;
@@ -2732,7 +2763,20 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
         counter = 0;
 
         var _map = game.get_map();
-        if (_map.blocked_for(self, pos) || _map.blocked_for(self, _map.move_down_right(pos))) {
+
+        /* A knight sent to a military building leaves the moment he is called
+           and crosses the country to it - no road, no queue at the door. See
+           "Knights walk everywhere" in scr_serf_c.gml. Falls through to the
+           ported road walk only if the destination cannot be resolved. */
+        if (s.ready_to_leave_inventory_mode == -1 && serf_is_knight(self)) {
+            if (knight_leave_inventory_for_building(self)) {
+                return;
+            }
+        }
+
+        /* A knight never waits in the doorway - see knight_enters_freely. */
+        if ((_map.blocked_for(self, pos) || _map.blocked_for(self, _map.move_down_right(pos))) &&
+            !knight_enters_freely(self)) {
             animation = 82;
             counter = 0;
             return;

@@ -349,6 +349,39 @@ function Game() constructor {
         return get_serf_at_pos(_pos);
     };
 
+    /* Drop any entry on either layer of this tile that names a serf who is
+       not actually standing here: one who no longer exists, or one whose own
+       pos says he is somewhere else. The second kind is left behind by the
+       places that move a serf's pos without touching the map (start_walking
+       with change_pos false, the free-fight tile handoff) and is always
+       stale by the time anyone asks - a serf only ever reads the tile he is
+       on. get_serf_at_pos heals the first kind lazily; this heals both, on
+       demand, for the knight watchdog and the load-time pass. Never called
+       from the draw path. */
+    static heal_tile = function(_pos) {
+        var _index = map.get_serf_index(_pos);
+        if (_index != 0) {
+            var _serf = serfs.get(_index);
+            if (_serf == undefined || _serf.pos != _pos) {
+                show_debug_message("game: tile " + string(_pos) +
+                                   " named serf #" + string(_index) +
+                                   ", who is not there - cleared");
+                map.clear_serf_index_by_index(_pos, _index);
+            }
+        }
+
+        var _kindex = map.get_knight_index(_pos);
+        if (_kindex != 0) {
+            var _knight = serfs.get(_kindex);
+            if (_knight == undefined || _knight.pos != _pos) {
+                show_debug_message("game: tile " + string(_pos) +
+                                   " named knight #" + string(_kindex) +
+                                   ", who is not there - cleared");
+                map.clear_serf_index_by_index(_pos, _kindex);
+            }
+        }
+    };
+
     /* get_serf_at_pos restricted to the knight layer, healing as it goes. */
     static get_knight_at_pos = function(_pos) {
         var _index = map.get_knight_index(_pos);
@@ -562,6 +595,10 @@ function Game() constructor {
 
                 _data.building.knight_request_granted();
 
+                /* He will cross the country to it rather than walk the roads
+                   - see "Knights walk everywhere" in scr_serf_c.gml. The
+                   request he is counted against travels with him. */
+                _serf.knight_dest_building = _data.building.get_index();
                 _serf.go_out_from_inventory(_inv.get_index(),
                                             _data.building.get_flag_index(), -1);
 
@@ -636,6 +673,12 @@ function Game() constructor {
 
         var _r = flag_search_single(_dest, send_serf_to_flag_search_cb, true, false, _data);
         if (!_r) {
+            /* No inventory reachable by road. A knight does not need one:
+               send him from the nearest inventory as the crow flies - see
+               knight_dispatch_cross_country in scr_serf_c.gml. */
+            if ((_type < 0) && (_building != undefined)) {
+                return knight_dispatch_cross_country(self, _building, _type);
+            }
             return false;
         } else if (_data.inventory != undefined) {
             var _inventory = _data.inventory;
@@ -646,6 +689,9 @@ function Game() constructor {
                 _building.knight_request_granted();
 
                 _serf.set_type(SerfType.knight0);
+                /* Crosses the country to it - see "Knights walk everywhere"
+                   in scr_serf_c.gml. */
+                _serf.knight_dest_building = _building.get_index();
                 _serf.go_out_from_inventory(_inventory.get_index(),
                                             _building.get_flag_index(), -1);
 
@@ -2609,6 +2655,13 @@ function Game() constructor {
            A serf that was never placed has pos = -1, which is not a tile. */
         var _index = _serf.get_index();
         var _pos = _serf.pos;
+
+        /* A knight who dies on his way to a garrison hands his place back,
+           so the garrison asks for another. Nothing to do for anyone else. */
+        if (_serf.knight_dest_building != 0) {
+            knight_drop_dest(_serf);
+        }
+
         if (map != undefined && _pos >= 0) {
             /* clear_serf_index_by_index only clears an entry that still names
                this serf, on either layer, so the "only cleared when the tile

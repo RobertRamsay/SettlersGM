@@ -610,7 +610,17 @@ function Building(_game, _index) : GameObject(_game, _index) constructor {
         if (_in_stock >= 0) {
             stock[_in_stock].requested -= 1;
             if (stock[_in_stock].requested < 0) {
-                throw ("Failed to cancel unrequested resource delivery.");
+                /* Same family as requested_resource_delivered above: the
+                   count was already wrong when we got here, and throwing
+                   only decides that the game ends now rather than later.
+                   Clamp, log, carry on. */
+                show_debug_message("building: #" + string(get_index()) +
+                                   " type " + string(type) +
+                                   " at " + string(pos) +
+                                   " had delivery of resource " + string(_res) +
+                                   " (stock " + string(_in_stock) +
+                                   ") cancelled with none requested - clamped");
+                stock[_in_stock].requested = 0;
             }
         }
     };
@@ -661,7 +671,26 @@ function Building(_game, _index) : GameObject(_game, _index) constructor {
                     stock[_i].available += 1;
                     stock[_i].requested -= 1;
                     if (stock[_i].requested < 0) {
-                        throw ("Delivered more resources than requested.");
+                        /* Freeserf throws here ("Delivered more resources
+                           than requested"), and so did this port until it
+                           took a running game down. A resource that arrives
+                           unannounced is still a resource: keep it, clamp the
+                           request count, and say so loudly enough to be found
+                           in the log. The count can only have gone wrong
+                           upstream - a request cancelled for a delivery that
+                           was still on its way is the usual shape - and one
+                           extra item in stock delays the next request, which
+                           is harmless. */
+                        show_debug_message("building: #" + string(get_index()) +
+                                           " type " + string(type) +
+                                           " at " + string(pos) +
+                                           " was delivered resource " +
+                                           string(_resource) +
+                                           " (stock " + string(_i) +
+                                           ") with none requested - kept it; " +
+                                           "available now " +
+                                           string(stock[_i].available));
+                        stock[_i].requested = 0;
                     }
                     return;
                 }
@@ -1468,6 +1497,13 @@ function Building(_game, _index) : GameObject(_game, _index) constructor {
             default:
                 throw ("NOT_REACHED: Building.update_military");
                 break;
+        }
+
+        /* A stale knight-layer entry on the door tile would stop this
+           garrison ever turning a knight out. Heal it before asking. */
+        var _door = game.get_map().move_down_right(pos);
+        if (game.get_map().has_knight(_door)) {
+            game.heal_tile(_door);
         }
 
         var _total_knights = stock[0].requested + stock[0].available;

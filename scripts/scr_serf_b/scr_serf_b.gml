@@ -1085,6 +1085,9 @@ function serf_handle_serf_lost_state(_serf) {
            still runs unchanged. */
         if (_serf.get_type() >= SerfType.knight0 &&
             _serf.get_type() <= SerfType.knight4) {
+            /* If a garrison was expecting him, it is not getting him: hand
+               the place back so it asks again. */
+            knight_drop_dest(_serf);
             if (knight_send_home(_serf)) {
                 return;
             }

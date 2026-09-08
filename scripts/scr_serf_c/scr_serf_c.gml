@@ -337,14 +337,42 @@ function serf_handle_knight_occupy_enemy_building(_serf) {
   var building =
         _serf.game.get_building_at_pos(_serf.game.get_map().move_up_left(_serf.pos));
   if (building != undefined) {
+    /* Our own castle or stock: straight in, no waiting, whether he came back
+       from a fight, was turned out of a hut, or was sent here on purpose.
+       Freeserf only knew the castle here; a knight sent to a stock across
+       country (see "Knights walk everywhere") ends up at this door too. */
+    if (!building.is_burning() && building.is_done() &&
+        building.has_inventory() &&
+        building.get_owner() == _serf.owner) {
+      _serf.home_tries = 0;   /* he is home; start counting again next time */
+      _serf.knight_dest_building = 0;
+      _serf.enter_building(-2, 0);
+      return;
+    }
+
     if (!building.is_burning() && building.is_military()) {
       if (building.get_owner() == _serf.owner) {
         /* Enter building if there is space. */
         if (building.get_type() == BuildingType.castle) {
           _serf.home_tries = 0;   /* he is home; start counting again next time */
+          _serf.knight_dest_building = 0;
           _serf.enter_building(-2, 0);
           return;
+        } else if (_serf.knight_dest_building == building.get_index()) {
+          /* The garrison that asked for him. His place was booked in
+             stock[0].requested when he was called out (knight_request_granted),
+             so he is taken in the way a knight arriving by road is - holder,
+             then requested_knight_arrived once he is through the door - and
+             NOT through knight_occupy(), which would book him a second time. */
+          _serf.home_tries = 0;
+          _serf.knight_dest_building = 0;
+          building.requested_serf_reached(_serf);
+          _serf.enter_building(-1, 0);
+          return;
         } else {
+          /* Somewhere he was not expected. If he was expected elsewhere, that
+             request is given back first so the other garrison asks again. */
+          knight_drop_dest(_serf);
           if (building.is_enough_place_for_knight()) {
             /* Enter building */
             _serf.home_tries = 0; /* he is home; start counting again next time */
@@ -577,6 +605,490 @@ function knight_send_home(_serf) {
   }
 
   return true;
+}
+
+/// ---------------------------------------------------------------------------
+/// Knights walk everywhere. DELIBERATE DEPARTURE FROM FREESERF.
+/// ---------------------------------------------------------------------------
+/// knight_send_home above took knights OFF the roads on the way back from a
+/// fight. This takes them off on the way OUT as well, so that a knight is never
+/// path bound at all:
+///
+///   - A knight called out of the castle or a stock to man a hut, tower or
+///     fortress (Game.send_serf_to_flag, mode -1) leaves the moment he is
+///     called and crosses the country straight to that building's door -
+///     knight_leave_inventory_for_building.
+///
+///   - A knight turned out of a garrison because it wants fewer men
+///     (Building.update_military, mode -2) crosses the country to the nearest
+///     castle or stock - knight_leave_for_inventory.
+///
+///   - If the hut's flag has no road to an inventory at all, the knight is
+///     still sent, from whichever inventory is nearest as the crow flies -
+///     knight_dispatch_cross_country. KNIGHT_DISPATCH_WITHOUT_ROAD turns that
+///     off if a road should stay a requirement.
+///
+/// The walk itself is the ported knight_free_walking state, entered the way
+/// Player.start_attack enters it: the distance is measured from the building
+/// tile the knight is still standing on, and leave_building() then takes him
+/// one step down-right without decrementing it, so the walk runs out one
+/// step down-right of the destination - at its flag, where
+/// knight_occupy_enemy_building looks for the building at move_up_left(pos).
+///
+/// Bookkeeping: a knight called out for a garrison is counted in that
+/// building's stock[0].requested from the moment he is called
+/// (knight_request_granted). Serf.knight_dest_building remembers which one, so
+/// that arriving books him in the same way a knight arriving by road did
+/// (requested_serf_reached, then requested_knight_arrived from the door) and
+/// so that the request can be handed back (knight_drop_dest) if he never
+/// arrives - killed on the way, or lost.
+///
+/// Doors: knights are phantoms (MAP_KNIGHTS_PHANTOM), blocked only by other
+/// knights, and there is nothing to be gained by making one queue behind
+/// another in a doorway. knight_enters_freely lets every knight walk in and
+/// out of any building without waiting for the tile to clear. Two knights on
+/// the building tile at once is harmless: claim_serf_index only ever names
+/// the later one, clear_serf_index only clears an entry naming the caller,
+/// so the tile is empty again as soon as both are through.
+///
+/// Watchdog: a knight who is meant to be travelling (walking, free walking,
+/// lost, waiting at a door) and has not changed tile for KNIGHT_STUCK_TICKS is
+/// kicked - the tiles around him are healed of stale entries and he is sent
+/// off again, to the building that is expecting him if there still is one,
+/// otherwise home. A loaded game runs the same kick over every knight once
+/// (savegame_kick_knights), which is what unsticks a save in which knights
+/// were standing still.
+
+/// A knight who has not moved for this many game ticks while he is supposed
+/// to be going somewhere is sent on his way again. Game ticks: about ten
+/// seconds at normal speed.
+#macro KNIGHT_STUCK_TICKS 1000
+
+/// Send a knight to a hut even when its flag has no road to any inventory.
+#macro KNIGHT_DISPATCH_WITHOUT_ROAD true
+
+function serf_is_knight(_serf) {
+  if (_serf == undefined) {
+    return false;
+  }
+  var _type = _serf.get_type();
+  return (_type >= SerfType.knight0) && (_type <= SerfType.knight4);
+}
+
+/// Knights walk through doorways without waiting for the tile to clear.
+function knight_enters_freely(_serf) {
+  return serf_is_knight(_serf);
+}
+
+/// Distance a knight standing INSIDE a building (on its tile) must free walk
+/// to arrive at the door of _building. Same convention as Player.start_attack:
+/// measured destination first, from the tile he is on now, and the step
+/// leave_building() takes down-right is deliberately not subtracted.
+function knight_dist_from_inside(_serf, _building) {
+  var _map = _serf.game.get_map();
+  return {
+    col: _map.dist_x(_building.get_position(), _serf.pos),
+    row: _map.dist_y(_building.get_position(), _serf.pos)
+  };
+}
+
+/// Distance a knight standing OUTDOORS must free walk to reach the door of
+/// _building, the way knight_send_home measures it.
+function knight_dist_from_outside(_serf, _building) {
+  var _map = _serf.game.get_map();
+  var _door = _map.move_down_right(_building.get_position());
+  return {
+    col: _map.dist_x(_door, _serf.pos),
+    row: _map.dist_y(_door, _serf.pos)
+  };
+}
+
+/// Set an outdoor knight free walking to the door of _building, right now.
+function knight_free_walk_to_building(_serf, _building) {
+  var _dist = knight_dist_from_outside(_serf, _building);
+
+  _serf.state = SerfState.knight_free_walking;
+  _serf.s.free_walking_dist_col = _dist.col;
+  _serf.s.free_walking_dist_row = _dist.row;
+  _serf.s.free_walking_neg_dist1 = 0;   /* 0, not -128: arrive at the door,
+                                           do not go looking for roads */
+  _serf.s.free_walking_neg_dist2 = 0;
+  _serf.s.free_walking_flags = 0;
+  if (_dist.col == 0 && _dist.row == 0) {
+    /* Already standing at the door: report arrival instead of stepping away
+       and back, which is what a zero distance would otherwise do. */
+    _serf.s.free_walking_flags = (1 << 3);
+  }
+  _serf.animation = 82;
+  _serf.counter = 0;
+  _serf.tick = _serf.game.get_tick() & 0xFFFF;
+}
+
+/// The nearest castle or stock of this knight's owner that is finished, not
+/// burning, and takes serfs in. Deterministic: index order, integer distance.
+function knight_pick_inventory(_serf) {
+  var _game = _serf.game;
+  var _map = _game.get_map();
+  var _buildings = _game.get_player_buildings(_game.get_player(_serf.get_owner()));
+  var _count = array_length(_buildings);
+
+  var _best = undefined;
+  var _best_dist = 0;
+
+  for (var _i = 0; _i < _count; _i++) {
+    var _b = _buildings[_i];
+    if (_b == undefined) {
+      continue;
+    }
+    if (_b.is_burning() || !_b.is_done() || !_b.has_inventory()) {
+      continue;
+    }
+    var _flag = _game.get_flag(_b.get_flag_index());
+    if (_flag == undefined || !_flag.accepts_serfs()) {
+      continue;
+    }
+
+    var _door = _map.move_down_right(_b.get_position());
+    var _dist = abs(_map.dist_x(_door, _serf.pos)) +
+                abs(_map.dist_y(_door, _serf.pos));
+    if (_best == undefined || _dist < _best_dist) {
+      _best = _b;
+      _best_dist = _dist;
+    }
+  }
+
+  return _best;
+}
+
+/// Is _building still somewhere this knight can be sent: exists, ours,
+/// finished, not burning, and either an inventory or a military building.
+function knight_dest_is_valid(_serf, _building) {
+  if (_building == undefined) {
+    return false;
+  }
+  if (_building.get_owner() != _serf.get_owner()) {
+    return false;
+  }
+  if (_building.is_burning() || !_building.is_done()) {
+    return false;
+  }
+  return _building.has_inventory() || _building.is_military();
+}
+
+/// Hand back the request this knight was counted against, because he is not
+/// going to arrive. Safe to call when there is nothing to hand back.
+function knight_drop_dest(_serf) {
+  var _index = _serf.knight_dest_building;
+  if (_index == 0) {
+    return;
+  }
+  _serf.knight_dest_building = 0;
+
+  var _building = _serf.game.get_building(_index);
+  if (_building == undefined) {
+    return;
+  }
+  if (_building.get_owner() != _serf.get_owner()) {
+    return;
+  }
+  /* Only a garrison counts knights in stock[0]. An inventory never booked
+     him, and anything else never asked for a knight at all. */
+  if (_building.has_inventory() || !_building.is_military() ||
+      _building.is_burning()) {
+    return;
+  }
+  _building.requested_serf_lost();
+}
+
+/// Called from Serf.go_out_from_building for a knight turned out of a
+/// garrison (mode -2). Redirects the leaving_building_* fields the caller has
+/// just filled in so that he free walks to the nearest inventory instead of
+/// taking the roads. Returns false, leaving the road walk in place, if there
+/// is no inventory to send him to.
+function knight_leave_for_inventory(_serf) {
+  var _building = knight_pick_inventory(_serf);
+  if (_building == undefined) {
+    return false;
+  }
+
+  var _dist = knight_dist_from_inside(_serf, _building);
+
+  _serf.knight_dest_building = _building.get_index();
+  _serf.home_tries = 0;
+  _serf.s.leaving_building_next_state = SerfState.knight_free_walking;
+  _serf.s.leaving_building_field_B = _dist.col;   /* -> free_walking_dist_col */
+  _serf.s.leaving_building_dest = _dist.row;      /* -> free_walking_dist_row */
+  _serf.s.leaving_building_dest2 = 0;             /* -> free_walking_neg_dist1 */
+  _serf.s.leaving_building_dir = 0;               /* -> free_walking_neg_dist2 */
+
+  if (global.serf_verbose_log) {
+    show_debug_message("serf: knight " + string(_serf.get_index()) +
+                       " turned out, walking to inventory building " +
+                       string(_building.get_index()));
+  }
+  return true;
+}
+
+/// Called from Serf.handle_serf_ready_to_leave_inventory_state for a knight
+/// in mode -1 (sent to a building). Leaves the inventory at once and free
+/// walks to the building behind the destination flag. Returns false if that
+/// flag has no military building behind it, in which case the caller carries
+/// on with the ported road walk.
+function knight_leave_inventory_for_building(_serf) {
+  var _game = _serf.game;
+  var _flag = _game.get_flag(_serf.s.ready_to_leave_inventory_dest);
+  if (_flag == undefined || !_flag.has_building()) {
+    return false;
+  }
+  var _building = _flag.get_building();
+  if (_building == undefined || !_building.is_military()) {
+    return false;
+  }
+
+  var _dist = knight_dist_from_inside(_serf, _building);
+
+  var _inventory = _game.get_inventory(_serf.s.ready_to_leave_inventory_inv_index);
+  if (_inventory != undefined) {
+    _inventory.serf_away();
+  }
+
+  _serf.knight_dest_building = _building.get_index();
+  _serf.home_tries = 0;
+
+  _serf.leave_building(0);
+  _serf.s.leaving_building_next_state = SerfState.knight_free_walking;
+  _serf.s.leaving_building_field_B = _dist.col;   /* -> free_walking_dist_col */
+  _serf.s.leaving_building_dest = _dist.row;      /* -> free_walking_dist_row */
+  _serf.s.leaving_building_dest2 = 0;             /* -> free_walking_neg_dist1 */
+  _serf.s.leaving_building_dir = 0;               /* -> free_walking_neg_dist2 */
+
+  if (global.serf_verbose_log) {
+    show_debug_message("serf: knight " + string(_serf.get_index()) +
+                       " called out for building " + string(_building.get_index()) +
+                       " (dist " + string(_dist.col) + "," + string(_dist.row) + ")");
+  }
+  return true;
+}
+
+/// Game.send_serf_to_flag found no inventory by road. Pick the nearest of the
+/// owner's inventories that holds a knight of the wanted grade (or the makings
+/// of one, when any grade will do) and call him out from there. _type is the
+/// negative "knight of at least this grade" code send_serf_to_flag uses.
+/// Returns true if a knight was sent.
+function knight_dispatch_cross_country(_game, _building, _type) {
+  if (!KNIGHT_DISPATCH_WITHOUT_ROAD) {
+    return false;
+  }
+  var _map = _game.get_map();
+  var _player = _game.get_player(_building.get_owner());
+  var _inventories = _game.get_player_inventories(_player);
+  var _count = array_length(_inventories);
+
+  var _best_inv = undefined;
+  var _best_bld = undefined;
+  var _best_type = -1;
+  var _best_dist = 0;
+
+  for (var _i = 0; _i < _count; _i++) {
+    var _inv = _inventories[_i];
+    if (_inv == undefined) {
+      continue;
+    }
+    var _bld = _game.get_building(_inv.get_building_index());
+    if (_bld == undefined || _bld.is_burning() || !_bld.is_done()) {
+      continue;
+    }
+
+    var _knight_type = -1;
+    for (var _k = 4; _k >= -_type - 1; _k--) {
+      if (_inv.have_serf(SerfType.knight0 + _k)) {
+        _knight_type = _k;
+        break;
+      }
+    }
+    if (_knight_type < 0 && _type == -1) {
+      if (_inv.have_serf(SerfType.generic) &&
+          _inv.get_count_of(ResourceType.sword) > 0 &&
+          _inv.get_count_of(ResourceType.shield) > 0) {
+        _knight_type = 5;   /* "make one" */
+      }
+    }
+    if (_knight_type < 0) {
+      continue;
+    }
+
+    var _dist = abs(_map.dist_x(_building.get_position(), _bld.get_position())) +
+                abs(_map.dist_y(_building.get_position(), _bld.get_position()));
+    if (_best_inv == undefined || _dist < _best_dist) {
+      _best_inv = _inv;
+      _best_bld = _bld;
+      _best_type = _knight_type;
+      _best_dist = _dist;
+    }
+  }
+
+  if (_best_inv == undefined) {
+    return false;
+  }
+
+  var _serf = undefined;
+  if (_best_type == 5) {
+    _serf = _best_inv.call_out_serf(SerfType.generic);
+    _serf.set_type(SerfType.knight0);
+    _best_inv.pop_resource(ResourceType.sword);
+    _best_inv.pop_resource(ResourceType.shield);
+  } else {
+    _serf = _best_inv.call_out_serf(SerfType.knight0 + _best_type);
+  }
+
+  _building.knight_request_granted();
+  _serf.knight_dest_building = _building.get_index();
+  _serf.go_out_from_inventory(_best_inv.get_index(), _building.get_flag_index(), -1);
+
+  if (global.serf_verbose_log) {
+    show_debug_message("serf: knight " + string(_serf.get_index()) +
+                       " sent cross country from building " +
+                       string(_best_bld.get_index()) + " to " +
+                       string(_building.get_index()));
+  }
+  return true;
+}
+
+/// The building a free-walking knight is heading for, worked out from the
+/// distance left to walk the way cf_try_open_siege does: dist runs out at the
+/// attack tile, one step down-right of the building. undefined if there is no
+/// building there.
+function knight_free_walk_target(_serf) {
+  var _map = _serf.game.get_map();
+  var _geom = _map.geom;
+  var _dc = (_geom.pos_col(_serf.pos) + _serf.s.free_walking_dist_col) & _geom.col_mask;
+  var _dr = (_geom.pos_row(_serf.pos) + _serf.s.free_walking_dist_row) & _geom.row_mask;
+  var _dest = _geom.pos(_dc, _dr);
+  return _serf.game.get_building_at_pos(_map.move_up_left(_dest));
+}
+
+/// A knight sent to attack queues at the enemy's door while the duel ahead of
+/// him plays out, and that can take longer than the watchdog's patience. He
+/// is walking at an enemy military building with nobody expecting him at
+/// home, and that is the shape the watchdog must leave alone.
+function knight_is_attacking(_serf) {
+  if (_serf.state != SerfState.knight_free_walking) {
+    return false;
+  }
+  if (_serf.knight_dest_building != 0) {
+    return false;
+  }
+  if (_serf.s.free_walking_neg_dist1 == -128) {
+    return false;   /* a lost knight looking for a flag, not an attacker */
+  }
+  var _target = knight_free_walk_target(_serf);
+  if (_target == undefined) {
+    return false;
+  }
+  return _target.is_military() && _target.get_owner() != _serf.get_owner();
+}
+
+/// Is this a state in which a knight is supposed to be getting somewhere.
+function knight_is_travelling(_serf) {
+  switch (_serf.state) {
+    case SerfState.walking:
+    case SerfState.knight_free_walking:
+    case SerfState.lost:
+    case SerfState.ready_to_enter:
+    case SerfState.knight_occupy_enemy_building:
+      return true;
+    default:
+      return false;
+  }
+}
+
+/// Send a travelling knight off again from where he stands. Used by the
+/// watchdog and by the load-time pass. The tiles around him are healed first,
+/// so whatever stale entry was holding him up is gone before he tries again.
+function knight_kick(_serf, _why) {
+  var _game = _serf.game;
+  var _map = _game.get_map();
+
+  _game.heal_tile(_serf.pos);
+  for (var _d = Direction.right; _d <= Direction.up; _d++) {
+    _game.heal_tile(_map.move(_serf.pos, _d));
+  }
+
+  /* A knight still on the roads (an older save, or the road fallback) has
+     his destination in the walking fields: -1 is "the building behind this
+     flag", -2 is "any inventory". Take it over so he can cross country. */
+  if (_serf.state == SerfState.walking && _serf.knight_dest_building == 0) {
+    if (_serf.s.walking_dir1 == -1) {
+      var _flag = _game.get_flag(_serf.s.walking_dest);
+      if (_flag != undefined && _flag.has_building()) {
+        var _bld = _flag.get_building();
+        if (_bld != undefined) {
+          _serf.knight_dest_building = _bld.get_index();
+        }
+      }
+    }
+    if (_serf.s.walking_dir1 == -2 || _serf.knight_dest_building == 0) {
+      var _inv_bld = knight_pick_inventory(_serf);
+      if (_inv_bld != undefined) {
+        _serf.knight_dest_building = _inv_bld.get_index();
+      }
+    }
+  }
+
+  var _dest = undefined;
+  if (_serf.knight_dest_building != 0) {
+    _dest = _game.get_building(_serf.knight_dest_building);
+    if (!knight_dest_is_valid(_serf, _dest)) {
+      knight_drop_dest(_serf);
+      _dest = undefined;
+    }
+  }
+
+  /* Clear an engagement link he cannot be holding in any of these states, so
+     the viewport's "additional serf" draw never follows it. */
+  _serf.s.attacking_def_index = 0;
+
+  if (_dest != undefined) {
+    show_debug_message("serf: knight " + string(_serf.get_index()) + " kicked (" +
+                       _why + "), walking to building " +
+                       string(_dest.get_index()));
+    knight_free_walk_to_building(_serf, _dest);
+    return;
+  }
+
+  show_debug_message("serf: knight " + string(_serf.get_index()) + " kicked (" +
+                     _why + "), going home");
+  _serf.home_tries = 0;
+  _serf.set_state(SerfState.lost);
+  _serf.s.lost_field_B = 0;
+  _serf.counter = 0;
+  _serf.tick = _game.get_tick() & 0xFFFF;
+}
+
+/// Run every update for every knight, before his state handler. Notes the
+/// tile he is on; if he is meant to be travelling and has not changed tile
+/// for KNIGHT_STUCK_TICKS, kicks him.
+function knight_watchdog(_serf) {
+  var _now = _serf.game.get_tick() & 0xFFFF;
+
+  if (!knight_is_travelling(_serf) || knight_is_attacking(_serf)) {
+    _serf.knight_stuck_pos = _serf.pos;
+    _serf.knight_stuck_since = _now;
+    return;
+  }
+
+  if (_serf.pos != _serf.knight_stuck_pos) {
+    _serf.knight_stuck_pos = _serf.pos;
+    _serf.knight_stuck_since = _now;
+    return;
+  }
+
+  if (((_now - _serf.knight_stuck_since) & 0xFFFF) < KNIGHT_STUCK_TICKS) {
+    return;
+  }
+
+  _serf.knight_stuck_since = _now;
+  knight_kick(_serf, "not moved for " + string(KNIGHT_STUCK_TICKS) + " ticks");
 }
 
 function serf_handle_state_knight_free_walking(_serf) {
@@ -1089,6 +1601,12 @@ function serf_handle_serf_defending_castle_state(_serf) {
 /* Per-tick state machine. Handlers ported in this file are called directly as
    serf_<name>(_serf); handlers ported in parts A/B are called as Serf methods. */
 function serf_update(_serf) {
+  /* Knights who should be going somewhere and are not get sent on their way
+     again - see knight_watchdog under "Knights walk everywhere". */
+  if (serf_is_knight(_serf)) {
+    knight_watchdog(_serf);
+  }
+
   switch (_serf.state) {
   case SerfState.null_state: /* 0 */
     break;

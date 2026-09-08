@@ -352,8 +352,52 @@ function savegame_decode_game(_data) {
     }
 
     savegame_fix_serf_layers(_game);
+    savegame_kick_knights(_game);
 
     return _game;
+}
+
+/// Get every travelling knight moving again the moment a game is loaded.
+///
+/// A save can hold knights standing still for reasons that no longer apply:
+/// a knight queued on a road behind traffic from before knights left the
+/// roads, one waiting at a door for a tile that a stale entry says is taken,
+/// one whose road walk was cancelled by an older build and never restarted.
+/// Rather than wait KNIGHT_STUCK_TICKS for the watchdog to notice each of
+/// them, every knight in a travelling state is kicked here, once: the tiles
+/// around him are healed and he is sent off again, to the building that is
+/// expecting him if there is one, otherwise home. Knights indoors, fighting,
+/// or besieging are not touched.
+///
+/// Deterministic - it runs the same on every machine that loads the file.
+function savegame_kick_knights(_game) {
+    var _serfs = _game.serfs.objects;
+    var _n = array_length(_serfs);
+    var _kicked = 0;
+
+    for (var _i = 0; _i < _n; _i++) {
+        var _serf = _serfs[_i];
+        if (_serf == undefined) {
+            continue;
+        }
+        if (!serf_is_knight(_serf)) {
+            continue;
+        }
+        if (_serf.pos < 0) {
+            continue;
+        }
+        if (!knight_is_travelling(_serf) || knight_is_attacking(_serf)) {
+            continue;
+        }
+
+        knight_kick(_serf, "loaded");
+        _kicked += 1;
+    }
+
+    if (_kicked > 0) {
+        show_debug_message("savegame: kicked " + string(_kicked) +
+                           " travelling knights into motion");
+    }
 }
 
 /// Put every serf named by the map on the occupancy layer his type calls for.
