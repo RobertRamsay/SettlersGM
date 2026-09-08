@@ -20,12 +20,6 @@
 // tinted blue and drawn faded so the boat route sits under the surface instead
 // of reading as a white mountain road. Both are safe to tweak by hand; the
 // tint is plain r,g,b (GML swaps the order internally). See draw_path_segment.
-/* Birdsong: how long between attempts, in frames at 60fps. One try every
-   two to five seconds, and only some of those land on a tree, so a wood is
-   alive and a bare hillside is quiet. */
-#macro AMBIENT_MIN_GAP    120
-#macro AMBIENT_EXTRA_GAP  180
-
 #macro PATH_WATER_ALPHA 0.7
 #macro PATH_WATER_TINT make_colour_rgb(200, 240, 255)
 
@@ -638,9 +632,6 @@ function Viewport(_interface, _map) : GuiObject() constructor {
     offset_x = 0;
     offset_y = 0;
     last_tick = 0;
-
-    /* Frames until the next attempt at birdsong. See ambient_step. */
-    ambient_wait = 0;
 
     /* Which buildings this viewport currently has a looping sound going for,
        indexed by building index.
@@ -3212,67 +3203,6 @@ function Viewport(_interface, _map) : GuiObject() constructor {
         if (_tick_xor >= (1 << 3)) {
             set_redraw();
         }
-
-        ambient_step();
-    };
-
-    /// Birdsong in the trees.
-    ///
-    /// NOT ported from Freeserf - the four chirp samples were extracted and
-    /// registered with everything else and then never played by anything, so
-    /// the woods have been silent since the beginning. This is the Amiga
-    /// behaviour put back rather than a port of code that exists.
-    ///
-    /// A random point on screen is tried every so often and a bird sings only
-    /// if there is actually a tree there, so the song follows the woods around
-    /// as the view scrolls, comes from where the trees are rather than from the
-    /// middle, and stops over open ground - all of which falls out of asking
-    /// the map rather than keeping a list.
-    ///
-    /// COSMETIC RANDOMNESS ONLY. irandom(), never game.random_int(): the game's
-    /// generator is simulation state, shared tick for tick with the other
-    /// machine in a network game and replayed exactly from a save. Drawing from
-    /// it to decide when a bird sings would desynchronise a game and make a
-    /// reloaded save play out differently, for birdsong.
-    static ambient_step = function() {
-        if (ambient_wait > 0) {
-            ambient_wait -= 1;
-            return;
-        }
-        ambient_wait = AMBIENT_MIN_GAP + irandom(AMBIENT_EXTRA_GAP);
-
-        if (map == undefined || width <= 0 || height <= 0) {
-            return;
-        }
-
-        var _lx = irandom(width - 1);
-        var _ly = irandom(height - 1);
-        var _pos = map_pos_from_screen_pix(_lx, _ly);
-        var _obj = map.get_obj(_pos);
-
-        /* Trees and pines only. Palms are desert and the water trees are in
-           the water, where the original had other noises. */
-        var _leafy = (_obj >= MapObject.tree0 && _obj <= MapObject.tree7) ||
-                     (_obj >= MapObject.pine0 && _obj <= MapObject.pine7);
-        if (!_leafy) {
-            return;
-        }
-
-        var _which = irandom(3);
-        var _sfx = Sfx.bird_chirp0;
-        if (_which == 1) {
-            _sfx = Sfx.bird_chirp1;
-        } else if (_which == 2) {
-            _sfx = Sfx.bird_chirp2;
-        } else if (_which == 3) {
-            _sfx = Sfx.bird_chirp3;
-        }
-
-        /* Through the ordinary positional path, so a bird is quieter towards
-           the edge of the view, panned to the side it is on, and silent off
-           screen - and so it competes for the four voices like everything
-           else rather than talking over a fight. */
-        play_sound_at(_sfx, _lx, _ly);
     };
 
     // ------------------------------------------------------------ coordinates
