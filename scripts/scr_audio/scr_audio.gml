@@ -207,6 +207,42 @@ function sfx_note_played(_asset) {
     global.sfx_recent_next = (global.sfx_recent_next + 1) % SFX_RECENT;
 }
 
+/// Is this sample still coming out of the speakers right now?
+///
+/// SFX_REPEAT_MS answers a different question - "did this start very recently"
+/// - and 110 ms of it is far shorter than a sample. This is the Amiga's own
+/// rule, from the four-slot queue at 0x1ae90: a sound already sounding is not
+/// queued again. Without it, a request repeated every few frames does not
+/// retrigger one sound, it stacks copies of it across all four voices.
+function sfx_asset_is_playing(_asset) {
+    for (var _i = 0; _i < SFX_VOICES; _i++) {
+        if (global.sfx_voice_asset[_i] != _asset) {
+            continue;
+        }
+        var _handle = global.sfx_voice_handle[_i];
+        if (_handle < 0) {
+            continue;
+        }
+        if (audio_is_playing(_handle)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/// sfx_start, but never on top of itself. For sounds that are asked for far
+/// more often than they last - the landscape ambience - where a second copy is
+/// not a louder wind, it is a wasted voice.
+///
+/// Returns true if it was played.
+function sfx_start_once(_asset, _gain, _pan) {
+    audio_get_instance();
+    if (sfx_asset_is_playing(_asset)) {
+        return false;
+    }
+    return sfx_start(_asset, _gain, _pan, false);
+}
+
 /// Start _asset on one of the four voices. _gain is 0..1 before the base level,
 /// _pan is -1..1. _force is for interface feedback, which is answering the
 /// player and must never be swallowed by the map being busy.
@@ -287,6 +323,7 @@ function sfx_start(_asset, _gain, _pan, _force) {
 
     global.sfx_voice_handle[_slot] = _handle;
     global.sfx_voice_gain[_slot] = _gain;
+    global.sfx_voice_asset[_slot] = _asset;
     sfx_note_played(_asset);
     return true;
 }
@@ -398,6 +435,10 @@ function audio_init() {
        to ask whether a slot exists yet. */
     global.sfx_voice_handle = array_create(SFX_VOICES, -1);
     global.sfx_voice_gain = array_create(SFX_VOICES, 0);
+    /* What each voice is playing, so sfx_asset_is_playing can answer without
+       asking the engine about handles that belong to other samples. -1 is "no
+       sample", and no asset index is ever -1. */
+    global.sfx_voice_asset = array_create(SFX_VOICES, -1);
     global.sfx_recent_asset = array_create(SFX_RECENT, -1);
     global.sfx_recent_time = array_create(SFX_RECENT, -100000);
     global.sfx_recent_next = 0;
@@ -525,6 +566,7 @@ function audio_stop_sfx() {
     for (var _k = 0; _k < SFX_VOICES; _k++) {
         global.sfx_voice_handle[_k] = -1;
         global.sfx_voice_gain[_k] = 0;
+        global.sfx_voice_asset[_k] = -1;
     }
 }
 

@@ -24,16 +24,21 @@
    whose meaning is not obvious - so this is the one number here that is a
    judgement rather than a reading. Low, because it plays constantly. */
 /* How often ambience fires. The Amiga's own values are in the right-hand
-   column; each of ours is HALF as often, which is one more bit in the mask.
-   The original runs at the Amiga's frame rate and through its own four-slot
-   queue, and at our rate its numbers came out busier than they should - so
-   these are a deliberate departure, kept in the original's idiom so the
-   difference is one bit and visible.
+   column; each of ours is a QUARTER as often, which is two more bits in the
+   mask. The original runs at the Amiga's frame rate and through its own
+   four-slot queue, and at our rate its numbers came out busier than they
+   should - so these are a deliberate departure, kept in the original's idiom
+   so the difference is a bit count and visible.
+
+   The stacking that made them busier is fixed separately and properly, in
+   sfx_start_once: ambience can no longer play on top of itself, which is what
+   the original's queue enforces. These masks are what is left after that -
+   taste, not mechanism.
 
    Setting all three back to the Amiga column restores its exact behaviour. */
-#macro AMBIENT_BIRD_MASK   0x7FF     /* Amiga 0x3FF:  trees out of 1024 */
-#macro AMBIENT_WATER_MASK  0x1F00    /* Amiga 0xF00:  one frame in 16   */
-#macro AMBIENT_WIND_MASK   0x7000    /* Amiga 0x3000: one frame in 4    */
+#macro AMBIENT_BIRD_MASK   0xFFF     /* Amiga 0x3FF:  trees out of 1024 */
+#macro AMBIENT_WATER_MASK  0x3F00    /* Amiga 0xF00:  one frame in 16   */
+#macro AMBIENT_WIND_MASK   0xF000    /* Amiga 0x3000: one frame in 4    */
 
 #macro AMBIENT_WIND_GAIN  0.25
 
@@ -3281,10 +3286,18 @@ function Viewport(_interface, _map) : GuiObject() constructor {
     ///
     /// What stops that being a racket is the original's four-slot sound queue
     /// at 0x1ae90, which REJECTS a sound already queued. Requesting wind six
-    /// times a second does nothing until the last one has finished. Our mixer
-    /// already does the same thing with four voices and SFX_REPEAT_MS, which
-    /// is why this can be a faithful port of the rates rather than a tamed
-    /// version of them.
+    /// times a second does nothing until the last one has finished.
+    ///
+    /// That last sentence was written here before it was true of us, and it
+    /// was the whole reason the ambience sounded wrong. SFX_REPEAT_MS is
+    /// 110 ms; wind and water are about a second long each. So a request every
+    /// 160 ms was admitted every time, and the mixer did what it is supposed
+    /// to do with a request - it started ANOTHER copy on ANOTHER voice. Four
+    /// winds and waters played over each other, four voices deep, drowning the
+    /// birds they were meant to sit under. It was not that the rates were too
+    /// high; it was that nothing stopped a sound stacking on itself.
+    /// play_sound_at_view goes through sfx_start_once, which is the queue's
+    /// rule: not while that sample is still playing.
     ///
     /// COSMETIC RANDOMNESS ONLY. irandom(), never game.random_int(): the
     /// game's generator is simulation state, shared tick for tick with the
@@ -3325,12 +3338,15 @@ function Viewport(_interface, _map) : GuiObject() constructor {
     /// either, only a volume. It still goes through the mixer, so it competes
     /// for the four voices like everything else instead of talking over a
     /// fight.
+    ///
+    /// sfx_start_once, not sfx_start: the landscape may not play a second wind
+    /// over the first one. See the queue at 0x1ae90 in ambient_step's notes.
     static play_sound_at_view = function(_sound, _gain) {
         var _asset = sfx_asset_for(_sound);
         if (_asset < 0) {
             return;
         }
-        sfx_start(_asset, _gain, 0, false);
+        sfx_start_once(_asset, _gain, 0);
     };
 
     // ------------------------------------------------------------ coordinates
