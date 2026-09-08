@@ -22,8 +22,8 @@
 /// short or hole-y one of these shows up much later as an undefined terrain
 /// type deep inside the minimap or the viewport.
 #macro SAVEGAME_MAP_ARRAYS ["height", "type_up", "type_down", "mineral", \
-                            "res_amount", "obj", "serf", "owner", "obj_index", \
-                            "paths", "idle_serf"]
+                            "res_amount", "obj", "serf", "knight", "owner", \
+                            "obj_index", "paths", "idle_serf"]
 #macro SAVEGAME_SLOTS 10
 
 /// Labels starting with this were generated rather than typed, so there is no
@@ -351,7 +351,100 @@ function savegame_decode_game(_data) {
         return undefined;
     }
 
+    savegame_fix_serf_layers(_game);
+
     return _game;
+}
+
+/// Put every serf named by the map on the occupancy layer his type calls for.
+///
+/// The map carries two of them - see MAP_KNIGHTS_PHANTOM in scr_map.gml - and
+/// which one a serf belongs on follows from his type, so it can always be
+/// recomputed rather than trusted. That matters in two cases:
+///
+///   - A file written before the knight layer existed has every knight on the
+///     ordinary layer. Left alone they would block traffic as they used to,
+///     and worse, the first knight to step off a tile would clear the wrong
+///     layer and leave a tile naming somebody who has gone.
+///
+///   - A file written with MAP_KNIGHTS_PHANTOM set the other way round from
+///     the build now loading it.
+///
+/// Cheap enough to do unconditionally: one pass over the tiles, no allocation,
+/// and it runs once per load. Doing it every time rather than on a version
+/// check means there is no way to load a file into the wrong arrangement.
+function savegame_fix_serf_layers(_game) {
+    var _map = _game.map;
+    if (_map == undefined) {
+        return;
+    }
+
+    var _count = _map.geom.tile_count;
+    var _moved = 0;
+    var _dropped = 0;
+
+    for (var _pos = 0; _pos < _count; _pos++) {
+        /* Read both layers before writing either. */
+        var _si = _map.serf[_pos];
+        var _ki = _map.knight[_pos];
+
+        if (_si == 0 && _ki == 0) {
+            continue;
+        }
+
+        var _a = _game.serfs.get(_si);
+        var _b = _game.serfs.get(_ki);
+
+        /* An index naming a serf who no longer exists is dropped here rather
+           than carried forward to crash the first reader that trips over it. */
+        if (_si != 0 && _a == undefined) {
+            _dropped += 1;
+        }
+        if (_ki != 0 && _b == undefined && _ki != _si) {
+            _dropped += 1;
+        }
+
+        _map.clear_tile_occupancy(_pos);
+
+        if (_a != undefined) {
+            /* He was on the ordinary layer, so he has moved if he now wants
+               the knight one. */
+            if (map_serf_is_phantom(_a)) {
+                _moved += 1;
+            }
+            _map.claim_serf_index(_pos, _a);
+        }
+
+        /* Skip when both layers named the same serf: the claim above already
+           placed him once, correctly. */
+        if (_b != undefined && _ki != _si) {
+            if (!map_serf_is_phantom(_b)) {
+                _moved += 1;
+            }
+
+            /* Two different serfs wanting the same layer cannot both stand
+               here. Keep the one already placed and let the other be found by
+               the ordinary stale-tile healing; silently overwriting would lose
+               a serf from the map without anybody noticing. */
+            if (_map.blocked_for(_b, _pos)) {
+                show_debug_message("savegame: serf #" + string(_ki) +
+                                   " and serf #" + string(_si) +
+                                   " both claim tile " + string(_pos) +
+                                   " on the same layer - keeping #" + string(_si));
+            } else {
+                _map.claim_serf_index(_pos, _b);
+            }
+        }
+    }
+
+    if (_moved > 0) {
+        show_debug_message("savegame: moved " + string(_moved) +
+                           " serfs onto the occupancy layer their type calls for");
+    }
+    if (_dropped > 0) {
+        show_debug_message("savegame: dropped " + string(_dropped) +
+                           " map tiles naming serfs that no longer exist");
+    }
 }
 
 /// Every per-tile array must be present and the right length. Reporting here

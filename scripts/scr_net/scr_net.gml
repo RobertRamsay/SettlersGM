@@ -1449,6 +1449,12 @@ function net_hash_parts(_game) {
             _h = net_hash_fold(_h, _map.obj_index[_t2]);
             _h = net_hash_fold(_h, _map.owner[_t2]);
             _h = net_hash_fold(_h, _map.serf[_t2]);
+            /* The knight occupancy layer is simulation state like any other -
+               see MAP_KNIGHTS_PHANTOM in scr_map.gml - so it is hashed with
+               the rest. It is deterministic on both machines: which layer a
+               serf lands on follows from his type, and nothing about it
+               depends on what either player is looking at. */
+            _h = net_hash_fold(_h, _map.knight[_t2]);
             _h = net_hash_fold(_h, _map.res_amount[_t2]);
         }
     }

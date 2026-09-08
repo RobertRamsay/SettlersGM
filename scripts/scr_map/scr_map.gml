@@ -5,7 +5,8 @@
 // inline accessors of class Map) and src/map.cc lines 76-772 (spiral
 // pattern tables, map_space_from_obj, constructor, get_rnd_coord,
 // get_gold_deposit, init_spiral_pos_pattern, init_tiles, set_height,
-// set_object, remove_ground_deposit, remove_fish, set_serf_index,
+// set_object, remove_ground_deposit, remove_fish, set_serf_index (replaced
+// here by claim_serf_index/clear_serf_index - see MAP_KNIGHTS_PHANTOM),
 // update_public, update_hidden, update, is_road_segment_valid,
 // place_road_segments, remove_road_backref_until_flag,
 // remove_road_backrefs, remove_road_segment, road_segment_in_water,
@@ -448,6 +449,41 @@ function map_get_spiral_pattern() {
     return global.map_spiral_pattern;
 }
 
+/// ---------------------------------------------------------------------------
+/// Knights as phantoms. DELIBERATE DEPARTURE FROM FREESERF.
+/// ---------------------------------------------------------------------------
+/// Freeserf has exactly one serf per map tile, and every serf blocks every
+/// other. Knights crossing the country to a fight, or walking home from one,
+/// therefore stand in the road: they occupy tiles transporters need, they queue
+/// at flags, and a group of them coming back from a battle throttles the supply
+/// network for as long as the walk takes.
+///
+/// Here knights get an occupancy layer of their own. A knight is stopped only
+/// by another knight - which combat needs, since it finds its opponent by
+/// looking at the neighbouring tiles - and is invisible to everybody else, who
+/// walk straight through him. Serfs ignore knights; knights ignore serfs.
+///
+/// The whole thing hangs off this one switch. With it false every serf goes on
+/// the ordinary layer exactly as before, the knight layer stays empty, and
+/// blocked_for() reduces to has_serf(): the game behaves precisely as it did.
+/// That is deliberate - it keeps a way back if this ever misbehaves in a
+/// network game, and it let the plumbing be landed and tested separately from
+/// the change in behaviour.
+#macro MAP_KNIGHTS_PHANTOM true
+
+/// Whether this serf belongs on the knight layer.
+function map_serf_is_phantom(_serf) {
+    if (!MAP_KNIGHTS_PHANTOM) {
+        return false;
+    }
+    if (_serf == undefined) {
+        return false;
+    }
+
+    var _type = _serf.get_type();
+    return (_type >= SerfType.knight0) && (_type <= SerfType.knight4);
+}
+
 /// @function MapUpdateState()
 /// @desc Port of Map::UpdateState.
 function MapUpdateState() constructor {
@@ -480,6 +516,12 @@ function Map(_geom) constructor {
 
     // GameTile fields
     serf = array_create(geom.tile_count, 0);
+    /* Second occupancy layer, holding knights only. See map_serf_is_phantom()
+       below for what it is for. Freeserf has one serf per tile and nothing
+       else; this array is ours. It is written only through claim_serf_index()
+       and clear_serf_index(), and the savegame normalises both layers on load
+       so a file written before this existed still comes back correct. */
+    knight = array_create(geom.tile_count, 0);
     owner = array_create(geom.tile_count, 0);
     obj_index = array_create(geom.tile_count, 0);
     paths = array_create(geom.tile_count, 0);
@@ -587,8 +629,116 @@ function Map(_geom) constructor {
     static get_res_type = function(_pos) { return mineral[_pos]; };
     static get_res_amount = function(_pos) { return res_amount[_pos]; };
     static get_res_fish = function(_pos) { return get_res_amount(_pos); };
+    /* The ordinary occupancy layer. These two keep their exact original
+       meaning - "is a NON-KNIGHT serf standing here" - which is why the many
+       collision tests scattered through the port did not have to change to
+       make knights stop obstructing traffic. */
     static get_serf_index = function(_pos) { return serf[_pos]; };
     static has_serf = function(_pos) { return (serf[_pos] != 0); };
+
+    /* The knight layer. */
+    static get_knight_index = function(_pos) { return knight[_pos]; };
+    static has_knight = function(_pos) { return (knight[_pos] != 0); };
+
+    /* Either layer. For code that wants to know whether ANYBODY is standing
+       here, regardless of whether they obstruct anyone. */
+    static has_any_serf = function(_pos) {
+        return (serf[_pos] != 0) || (knight[_pos] != 0);
+    };
+    static get_any_serf_index = function(_pos) {
+        if (serf[_pos] != 0) {
+            return serf[_pos];
+        }
+        return knight[_pos];
+    };
+
+    /* Which layer blocks this serf from stepping onto a tile. A knight is
+       stopped only by another knight; everyone else is stopped only by a
+       non-knight. That is the whole of "knights are no obstacle". */
+    static blocked_for = function(_serf, _pos) {
+        if (map_serf_is_phantom(_serf)) {
+            return (knight[_pos] != 0);
+        }
+        return (serf[_pos] != 0);
+    };
+
+    /* Would a knight be blocked from standing here, asked without a serf in
+       hand. Building.update_military needs this to decide whether the door is
+       clear before turning a knight out. */
+    static blocked_for_knight = function(_pos) {
+        if (MAP_KNIGHTS_PHANTOM) {
+            return (knight[_pos] != 0);
+        }
+        return (serf[_pos] != 0);
+    };
+
+    /* Is this serf the one this tile names, on whichever layer he uses. */
+    static serf_is_at = function(_pos, _serf) {
+        var _index = _serf.get_index();
+        return (serf[_pos] == _index) || (knight[_pos] == _index);
+    };
+
+    /* Is somebody OTHER than this serf standing here and blocking him. Replaces
+       the `get_serf_index(pos) != index && has_serf(pos)` idiom the port uses
+       to mean "another serf has taken my tile", which cannot be written in
+       terms of one layer any more. */
+    static other_serf_at = function(_serf, _pos) {
+        var _index = _serf.get_index();
+        if (map_serf_is_phantom(_serf)) {
+            return (knight[_pos] != 0) && (knight[_pos] != _index);
+        }
+        return (serf[_pos] != 0) && (serf[_pos] != _index);
+    };
+
+    /* Put a serf on the tile, on whichever layer he belongs to. */
+    static claim_serf_index = function(_pos, _serf) {
+        if (map_serf_is_phantom(_serf)) {
+            knight[_pos] = _serf.get_index();
+        } else {
+            serf[_pos] = _serf.get_index();
+        }
+    };
+
+    /* Take a serf off a tile. Only ever clears an entry that names this serf,
+       so one serf can no longer wipe a tile another serf is standing on - the
+       "tile points at a serf that is gone" family of bugs cannot start here. */
+    static clear_serf_index = function(_pos, _serf) {
+        var _index = _serf.get_index();
+        if (serf[_pos] == _index) {
+            serf[_pos] = 0;
+        }
+        if (knight[_pos] == _index) {
+            knight[_pos] = 0;
+        }
+    };
+
+    /* Clear a tile when there is no serf object to hand: the stale-tile
+       healing in Game and Building, which knows only the index. */
+    static clear_serf_index_by_index = function(_pos, _index) {
+        if (serf[_pos] == _index) {
+            serf[_pos] = 0;
+        }
+        if (knight[_pos] == _index) {
+            knight[_pos] = 0;
+        }
+    };
+
+    /* Empty a tile completely, both layers, without needing to know who is on
+       it. Only for rebuilding occupancy wholesale - savegame_fix_serf_layers
+       clears each tile before re-placing whoever the file said was there.
+       Ordinary code wants clear_serf_index, which will not touch an entry
+       belonging to somebody else. */
+    static clear_tile_occupancy = function(_pos) {
+        serf[_pos] = 0;
+        knight[_pos] = 0;
+    };
+
+    /* Move a serf between layers, for when his type changes while he is
+       standing on the map (a knight being promoted, say). */
+    static relayer_serf = function(_pos, _serf) {
+        clear_serf_index(_pos, _serf);
+        claim_serf_index(_pos, _serf);
+    };
 
     static has_flag = function(_pos) { return (get_obj(_pos) == MapObject.flag); };
     static has_building = function(_pos) {
@@ -699,12 +849,18 @@ function Map(_geom) constructor {
         res_amount[_pos] -= _amount;
     };
 
-    /* Set the index of the serf occupying map position. */
-    static set_serf_index = function(_pos, _index) {
-        serf[_pos] = _index;
+    /* Set the index of the serf occupying map position.
+       DELIBERATELY REMOVED - use claim_serf_index(pos, serf) to put a serf on
+       a tile, clear_serf_index(pos, serf) to take him off, or
+       clear_serf_index_by_index(pos, index) when only the index is known.
+       Those pick the right occupancy layer; this one could not, because it was
+       given a bare index and had no way to tell a knight from a transporter.
+       It is gone rather than deprecated so that a call site missed during the
+       conversion fails to compile instead of silently writing to the wrong
+       layer, which would show up much later as an invisible serf or a tile
+       pointing at somebody who has left.
 
-        /* TODO Mark dirty in viewport. */
-    };
+       Restoring a save writes the layers directly - see savegame_fix_layers. */
 
     /* Update public parts of the map data. */
     static update_public = function(_pos, _rnd) {

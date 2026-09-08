@@ -1064,7 +1064,8 @@ function Building(_game, _index) : GameObject(_game, _index) constructor {
                         if (_map.has_serf(_flag_pos)) {
                             _serf = game.get_serf_at_pos(_flag_pos);
                             if (_serf == undefined || _serf.get_pos() != _flag_pos) {
-                                _map.set_serf_index(_flag_pos, 0);
+                                _map.clear_serf_index_by_index(
+                                    _flag_pos, _map.get_serf_index(_flag_pos));
                             }
                         }
                     }
@@ -1428,7 +1429,8 @@ function Building(_game, _index) : GameObject(_game, _index) constructor {
         if (_map.has_serf(_flag_pos)) {
             var _serf5 = game.get_serf_at_pos(_flag_pos);
             if (_serf5 == undefined || _serf5.get_pos() != _flag_pos) {
-                _map.set_serf_index(_flag_pos, 0);
+                _map.clear_serf_index_by_index(
+                    _flag_pos, _map.get_serf_index(_flag_pos));
             }
         }
     };
@@ -1477,7 +1479,7 @@ function Building(_game, _index) : GameObject(_game, _index) constructor {
                                                              ResourceType.none);
             }
         } else if (_needed_occupants < _present_knights &&
-                   !game.get_map().has_serf(
+                   !game.get_map().blocked_for_knight(
                        game.get_map().move_down_right(pos))) {
             /* Kick least trained knight out. */
             var _leaving_serf = undefined;

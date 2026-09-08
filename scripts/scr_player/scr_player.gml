@@ -643,9 +643,15 @@ function Player(_game, _index) : GameObject(_game, _index) constructor {
             }
 
             var _flag_pos = _map.move_down_right(_b.get_position());
-            if (_map.has_serf(_flag_pos)) {
-                /* Check if building is under siege. */
-                var _s = game.get_serf_at_pos(_flag_pos);
+            if (_map.has_any_serf(_flag_pos)) {
+                /* Check if building is under siege. The besieger is a knight,
+                   so look on the knight layer first - otherwise a transporter
+                   sharing the flag would hide him and the hut would be treated
+                   as free to attack from. */
+                var _s = game.get_knight_at_pos(_flag_pos);
+                if (_s == undefined) {
+                    _s = game.get_serf_at_pos(_flag_pos);
+                }
                 if (_s != undefined && _s.get_owner() != index) {
                     continue;
                 }
@@ -947,7 +953,7 @@ function Player(_game, _index) : GameObject(_game, _index) constructor {
         _inventory.specialize_serf(_serf, SerfType.transporter_inventory);
         _serf.init_inventory_transporter(_inventory);
 
-        game.get_map().set_serf_index(_serf.get_pos(), _serf.get_index());
+        game.get_map().claim_serf_index(_serf.get_pos(), _serf);
 
         var _building = game.get_building(building);
         _building.set_first_knight(_serf.get_index());

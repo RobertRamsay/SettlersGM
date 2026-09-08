@@ -836,10 +836,14 @@ function cf_find_target(_serf) {
     var _map = _serf.game.get_map();
     for (var _i = 0; _i < CF_MOP_RADIUS; _i++) {
         var _p = _map.pos_add_spirally(_serf.pos, _i);
-        if (!_map.has_serf(_p)) {
+        if (!_map.has_any_serf(_p)) {
             continue;
         }
-        var _other = _serf.game.get_serf_at_pos(_p);
+        /* Knight layer first: the target is always a knight. */
+        var _other = _serf.game.get_knight_at_pos(_p);
+        if (_other == undefined) {
+            _other = _serf.game.get_serf_at_pos(_p);
+        }
         if (_other == undefined) {
             continue;
         }

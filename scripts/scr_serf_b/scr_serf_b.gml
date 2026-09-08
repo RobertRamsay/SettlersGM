@@ -168,7 +168,7 @@ function serf_handle_serf_free_walking_state_dest_reached(_serf) {
 
                 var _new_pos = _map.move_up_left(_serf.pos);
                 var _obj = _map.get_obj(_new_pos);
-                if (!_map.has_serf(_new_pos) &&
+                if (!_map.blocked_for(_serf, _new_pos) &&
                     _obj >= MapObject.stone0 &&
                     _obj <= MapObject.stone7) {
                     _serf.counter = 0;
@@ -384,7 +384,7 @@ function serf_handle_serf_free_walking_switch_with_other(_serf) {
     var _map = _serf.game.get_map();
     for (var _i = 0; _i < 6; _i++) {
         _new_pos = _map.move(_serf.pos, _i);
-        if (_map.has_serf(_new_pos)) {
+        if (_map.blocked_for(_serf, _new_pos)) {
             _other_serf = _serf.game.get_serf_at_pos(_new_pos);
             if (_other_serf == undefined) {
                 continue;   /* tile pointed at a serf that is gone */
@@ -431,9 +431,15 @@ function serf_handle_serf_free_walking_switch_with_other(_serf) {
             _serf.s.free_walking_flags = (1 << 3);
         }
 
-        /* Switch with other serf. */
-        _map.set_serf_index(_serf.pos, _other_serf.index);
-        _map.set_serf_index(_new_pos, _serf.index);
+        /* Switch with other serf.
+           Both tiles are released before either is claimed. With one occupancy
+           array the overwrite did the release implicitly; now that a serf can
+           be on either layer, claiming first would leave the mover's old entry
+           behind on the layer the new occupant does not use. */
+        _map.clear_serf_index(_serf.pos, _serf);
+        _map.clear_serf_index(_new_pos, _other_serf);
+        _map.claim_serf_index(_serf.pos, _other_serf);
+        _map.claim_serf_index(_new_pos, _serf);
 
         _other_serf.animation = _serf.get_walking_animation(_map.get_height(_serf.pos) -
                                                             _map.get_height(_other_serf.pos),
@@ -514,7 +520,7 @@ function serf_handle_free_walking_follow_edge(_serf) {
 
         if (_serf.state == SerfState.knight_free_walking &&
             _serf.s.free_walking_neg_dist1 != -128 &&
-            _serf.game.get_map().has_serf(_new_pos)) {
+            _serf.game.get_map().blocked_for(_serf, _new_pos)) {
             /* Wait for other serfs */
             _serf.s.free_walking_flags = 0;
             _serf.animation = 82;
@@ -531,7 +537,7 @@ function serf_handle_free_walking_follow_edge(_serf) {
         var _new_pos = _map.move(_serf.pos, _dir_arr[_a0 + _i]);
         if (((_water && _map.get_obj(_new_pos) == 0) ||
              (!_water && !_map.is_in_water(_new_pos) &&
-              serf_can_pass_map_pos(_serf, _new_pos))) && !_map.has_serf(_new_pos)) {
+              serf_can_pass_map_pos(_serf, _new_pos))) && !_map.blocked_for(_serf, _new_pos)) {
             _dir = _dir_arr[_a0 + _i];
             _i0 = _i;
             break;
@@ -648,7 +654,7 @@ function serf_handle_free_walking_common(_serf) {
     if (((_water && _map.get_obj(_new_pos) == 0) ||
          (!_water && !_map.is_in_water(_new_pos) &&
           serf_can_pass_map_pos(_serf, _new_pos))) &&
-        !_map.has_serf(_new_pos)) {
+        !_map.blocked_for(_serf, _new_pos)) {
         serf_handle_serf_free_walking_switch_on_dir(_serf, _dir);
         return;
     }
@@ -682,7 +688,7 @@ function serf_handle_free_walking_common(_serf) {
            to skip to - treating it as "nobody in the way" and falling through is
            exactly what already happens when the tile is genuinely empty. */
         var _other_serf = undefined;
-        if (_map.has_serf(_new_pos2)) {
+        if (_map.blocked_for(_serf, _new_pos2)) {
             _other_serf = _serf.game.get_serf_at_pos(_new_pos2);
         }
 
@@ -697,10 +703,15 @@ function serf_handle_free_walking_common(_serf) {
             if (_w.result &&
                 (_other_dir == reverse_direction(_d) || _other_dir == Direction.none) &&
                 _other_serf.switch_waiting(reverse_direction(_d))) {
-                /* Do the switch */
+                /* Do the switch.
+                   Release both tiles before claiming either: the two serfs may
+                   sit on different occupancy layers, so a claim alone no longer
+                   overwrites the entry that was there. _serf.pos is still his
+                   old tile at this point; he is moved to _new_pos2 below. */
+                _map.clear_serf_index(_serf.pos, _serf);
+                _map.clear_serf_index(_new_pos2, _other_serf);
                 _other_serf.pos = _serf.pos;
-                _map.set_serf_index(_other_serf.pos,
-                                    _other_serf.get_index());
+                _map.claim_serf_index(_other_serf.pos, _other_serf);
                 _other_serf.animation =
                     _serf.get_walking_animation(_map.get_height(_other_serf.pos) -
                                                 _map.get_height(_new_pos2),
@@ -712,7 +723,7 @@ function serf_handle_free_walking_common(_serf) {
                 _serf.counter = global.serf_counter_from_animation[_serf.animation];
 
                 _serf.pos = _new_pos2;
-                _map.set_serf_index(_serf.pos, _serf.index);
+                _map.claim_serf_index(_serf.pos, _serf);
                 return;
             }
 
@@ -763,7 +774,7 @@ function serf_handle_free_walking_common(_serf) {
         var _new_pos3 = _map.move(_serf.pos, _dir);
         if (((_water && _map.get_obj(_new_pos3) == 0) ||
              (!_water && !_map.is_in_water(_new_pos3) &&
-              serf_can_pass_map_pos(_serf, _new_pos3))) && !_map.has_serf(_new_pos3)) {
+              serf_can_pass_map_pos(_serf, _new_pos3))) && !_map.blocked_for(_serf, _new_pos3)) {
             _i0 = _i;
             break;
         }
@@ -959,7 +970,7 @@ function serf_handle_stonecutter_free_walking(_serf) {
     var _map = _serf.game.get_map();
     while (_serf.counter < 0) {
         var _pos_ = _map.move_up_left(_serf.pos);
-        if (!_map.has_serf(_serf.pos) && _map.get_obj(_pos_) >= MapObject.stone0 &&
+        if (!_map.blocked_for(_serf, _serf.pos) && _map.get_obj(_pos_) >= MapObject.stone0 &&
             _map.get_obj(_pos_) <= MapObject.stone7) {
             _serf.s.free_walking_neg_dist1 += _serf.s.free_walking_dist_col;
             _serf.s.free_walking_neg_dist2 += _serf.s.free_walking_dist_row;
@@ -999,7 +1010,7 @@ function serf_handle_serf_stonecutting_state(_serf) {
         }
 
         var _map = _serf.game.get_map();
-        if (_map.has_serf(_map.move_down_right(_serf.pos))) {
+        if (_map.blocked_for(_serf, _map.move_down_right(_serf.pos))) {
             _serf.counter = 0;
             return;
         }
@@ -1031,7 +1042,7 @@ function serf_handle_serf_sawing_state(_serf) {
             _serf.animation = 124;
             _serf.counter = global.serf_counter_from_animation[_serf.animation];
             _serf.tick = _serf.game.get_tick();
-            _serf.game.get_map().set_serf_index(_serf.pos, _serf.index);
+            _serf.game.get_map().claim_serf_index(_serf.pos, _serf);
         }
     } else {
         var _delta = (_serf.game.get_tick() - _serf.tick) & 0xFFFF;
@@ -1042,7 +1053,7 @@ function serf_handle_serf_sawing_state(_serf) {
             return;
         }
 
-        _serf.game.get_map().set_serf_index(_serf.pos, 0);
+        _serf.game.get_map().clear_serf_index(_serf.pos, _serf);
         _serf.set_state(SerfState.move_resource_out);
         _serf.s.move_resource_out_res = 1 + ResourceType.plank;
         _serf.s.move_resource_out_res_dest = 0;
@@ -1226,8 +1237,8 @@ function serf_handle_free_sailing(_serf) {
 
 /// @function serf_handle_serf_escape_building_state(_serf)
 function serf_handle_serf_escape_building_state(_serf) {
-    if (!_serf.game.get_map().has_serf(_serf.pos)) {
-        _serf.game.get_map().set_serf_index(_serf.pos, _serf.index);
+    if (!_serf.game.get_map().blocked_for(_serf, _serf.pos)) {
+        _serf.game.get_map().claim_serf_index(_serf.pos, _serf);
         _serf.animation = 82;
         _serf.counter = 0;
         _serf.tick = _serf.game.get_tick();
@@ -1273,11 +1284,11 @@ function serf_handle_serf_mining_state(_serf) {
                 if (_building.use_resource_in_stock(0)) {
                     /* Eat the food. */
                     _serf.s.mining_substate = 3;
-                    _map.set_serf_index(_serf.pos, _serf.index);
+                    _map.claim_serf_index(_serf.pos, _serf);
                     _serf.animation = 125;
                     _serf.counter = global.serf_counter_from_animation[_serf.animation];
                 } else {
-                    _map.set_serf_index(_serf.pos, _serf.index);
+                    _map.claim_serf_index(_serf.pos, _serf);
                     _serf.animation = 98;
                     _serf.counter += 256;
                     if (_serf.counter < 0) {
@@ -1287,7 +1298,7 @@ function serf_handle_serf_mining_state(_serf) {
                 break;
             case 2:
                 _serf.s.mining_substate = 3;
-                _map.set_serf_index(_serf.pos, _serf.index);
+                _map.claim_serf_index(_serf.pos, _serf);
                 _serf.animation = 125;
                 _serf.counter = global.serf_counter_from_animation[_serf.animation];
                 break;
@@ -1299,7 +1310,7 @@ function serf_handle_serf_mining_state(_serf) {
                 break;
             case 4: {
                 _building.start_playing_sfx();
-                _map.set_serf_index(_serf.pos, 0);
+                _map.clear_serf_index(_serf.pos, _serf);
                 /* fall through */
             }
             case 5:
@@ -1327,7 +1338,7 @@ function serf_handle_serf_mining_state(_serf) {
                 break;
             }
             case 8:
-                _map.set_serf_index(_serf.pos, _serf.index);
+                _map.claim_serf_index(_serf.pos, _serf);
                 _serf.s.mining_substate = 9;
                 _building.stop_playing_sfx();
                 _serf.animation = 127;
@@ -1340,13 +1351,13 @@ function serf_handle_serf_mining_state(_serf) {
                 _serf.counter = global.serf_counter_from_animation[_serf.animation];
                 break;
             case 10:
-                _map.set_serf_index(_serf.pos, 0);
+                _map.clear_serf_index(_serf.pos, _serf);
                 if (_serf.s.mining_res == 0) {
                     _serf.s.mining_substate = 0;
                     _serf.counter = 0;
                 } else {
                     var _res = _serf.s.mining_res;
-                    _map.set_serf_index(_serf.pos, 0);
+                    _map.clear_serf_index(_serf.pos, _serf);
 
                     _serf.set_state(SerfState.move_resource_out);
                     _serf.s.move_resource_out_res = _res;
@@ -1384,7 +1395,7 @@ function serf_handle_serf_smelting_state(_serf) {
             _serf.counter = global.serf_counter_from_animation[_serf.animation];
             _serf.tick = _serf.game.get_tick();
 
-            _serf.game.get_map().set_serf_index(_serf.pos, _serf.index);
+            _serf.game.get_map().claim_serf_index(_serf.pos, _serf);
         }
     } else {
         var _delta = (_serf.game.get_tick() - _serf.tick) & 0xFFFF;
@@ -1414,7 +1425,7 @@ function serf_handle_serf_smelting_state(_serf) {
                 _player.increase_res_count(_res - 1);
                 return;
             } else if (_serf.s.smelting_counter == 0) {
-                _serf.game.get_map().set_serf_index(_serf.pos, 0);
+                _serf.game.get_map().clear_serf_index(_serf.pos, _serf);
             }
 
             _serf.counter += 384;
@@ -1618,7 +1629,7 @@ function serf_handle_serf_milling_state(_serf) {
             _serf.counter = global.serf_counter_from_animation[_serf.animation];
             _serf.tick = _serf.game.get_tick();
 
-            _serf.game.get_map().set_serf_index(_serf.pos, _serf.index);
+            _serf.game.get_map().claim_serf_index(_serf.pos, _serf);
         }
     } else {
         var _delta = (_serf.game.get_tick() - _serf.tick) & 0xFFFF;
@@ -1639,11 +1650,11 @@ function serf_handle_serf_milling_state(_serf) {
                 _player.increase_res_count(ResourceType.flour);
                 return;
             } else if (_serf.s.milling_mode == 3) {
-                _serf.game.get_map().set_serf_index(_serf.pos, _serf.index);
+                _serf.game.get_map().claim_serf_index(_serf.pos, _serf);
                 _serf.animation = 137;
                 _serf.counter = global.serf_counter_from_animation[_serf.animation];
             } else {
-                _serf.game.get_map().set_serf_index(_serf.pos, 0);
+                _serf.game.get_map().clear_serf_index(_serf.pos, _serf);
                 _serf.counter += 1500;
             }
         }
@@ -1661,7 +1672,7 @@ function serf_handle_serf_baking_state(_serf) {
             _serf.counter = global.serf_counter_from_animation[_serf.animation];
             _serf.tick = _serf.game.get_tick();
 
-            _serf.game.get_map().set_serf_index(_serf.pos, _serf.index);
+            _serf.game.get_map().claim_serf_index(_serf.pos, _serf);
         }
     } else {
         var _delta = (_serf.game.get_tick() - _serf.tick) & 0xFFFF;
@@ -1684,7 +1695,7 @@ function serf_handle_serf_baking_state(_serf) {
                 return;
             } else {
                 _building.start_activity();
-                _serf.game.get_map().set_serf_index(_serf.pos, 0);
+                _serf.game.get_map().clear_serf_index(_serf.pos, _serf);
                 _serf.counter += 1500;
             }
         }
@@ -1707,7 +1718,7 @@ function serf_handle_serf_pigfarming_state(_serf) {
             _serf.counter = global.serf_counter_from_animation[_serf.animation];
             _serf.tick = _serf.game.get_tick();
 
-            _serf.game.get_map().set_serf_index(_serf.pos, _serf.index);
+            _serf.game.get_map().claim_serf_index(_serf.pos, _serf);
         }
     } else {
         var _delta = (_serf.game.get_tick() - _serf.tick) & 0xFFFF;
@@ -1718,7 +1729,7 @@ function serf_handle_serf_pigfarming_state(_serf) {
             _serf.s.pigfarming_mode += 1;
             if ((_serf.s.pigfarming_mode & 1) != 0) {
                 if (_serf.s.pigfarming_mode != 7) {
-                    _serf.game.get_map().set_serf_index(_serf.pos, _serf.index);
+                    _serf.game.get_map().claim_serf_index(_serf.pos, _serf);
                     _serf.animation = 139;
                     _serf.counter = global.serf_counter_from_animation[_serf.animation];
                 } else if (_building.pigs_count() == 8 ||
@@ -1740,13 +1751,13 @@ function serf_handle_serf_pigfarming_state(_serf) {
                     _serf.animation = 139;
                     _serf.counter = global.serf_counter_from_animation[_serf.animation];
                     _serf.tick = _serf.game.get_tick();
-                    _serf.game.get_map().set_serf_index(_serf.pos, _serf.index);
+                    _serf.game.get_map().claim_serf_index(_serf.pos, _serf);
                 } else {
                     _serf.s.pigfarming_mode = 0;
                 }
                 return;
             } else {
-                _serf.game.get_map().set_serf_index(_serf.pos, 0);
+                _serf.game.get_map().clear_serf_index(_serf.pos, _serf);
                 if (_building.pigs_count() < 8 &&
                     _serf.game.random_int() < _breeding_prob[_building.pigs_count() - 1]) {
                     _building.place_new_pig();
@@ -1768,7 +1779,7 @@ function serf_handle_serf_butchering_state(_serf) {
             _serf.counter = global.serf_counter_from_animation[_serf.animation];
             _serf.tick = _serf.game.get_tick();
 
-            _serf.game.get_map().set_serf_index(_serf.pos, _serf.index);
+            _serf.game.get_map().claim_serf_index(_serf.pos, _serf);
         }
     } else {
         var _delta = (_serf.game.get_tick() - _serf.tick) & 0xFFFF;
@@ -1777,7 +1788,7 @@ function serf_handle_serf_butchering_state(_serf) {
 
         if (_serf.counter < 0) {
             /* Done butchering. */
-            _serf.game.get_map().set_serf_index(_serf.pos, 0);
+            _serf.game.get_map().clear_serf_index(_serf.pos, _serf);
 
             _serf.set_state(SerfState.move_resource_out);
             _serf.s.move_resource_out_res = 1 + ResourceType.meat;
@@ -1813,7 +1824,7 @@ function serf_handle_serf_making_weapon_state(_serf) {
         _serf.counter = global.serf_counter_from_animation[_serf.animation];
         _serf.tick = _serf.game.get_tick();
 
-        _serf.game.get_map().set_serf_index(_serf.pos, _serf.index);
+        _serf.game.get_map().claim_serf_index(_serf.pos, _serf);
     } else {
         var _delta = (_serf.game.get_tick() - _serf.tick) & 0xFFFF;
         _serf.tick = _serf.game.get_tick();
@@ -1824,7 +1835,7 @@ function serf_handle_serf_making_weapon_state(_serf) {
             if (_serf.s.making_weapon_mode == 7) {
                 /* Done making sword or shield. */
                 _building.stop_activity();
-                _serf.game.get_map().set_serf_index(_serf.pos, 0);
+                _serf.game.get_map().clear_serf_index(_serf.pos, _serf);
 
                 var _res = ResourceType.sword;
                 if (_building.is_playing_sfx()) {
@@ -1863,7 +1874,7 @@ function serf_handle_serf_making_tool_state(_serf) {
             _serf.counter = global.serf_counter_from_animation[_serf.animation];
             _serf.tick = _serf.game.get_tick();
 
-            _serf.game.get_map().set_serf_index(_serf.pos, _serf.index);
+            _serf.game.get_map().claim_serf_index(_serf.pos, _serf);
         }
     } else {
         var _delta = (_serf.game.get_tick() - _serf.tick) & 0xFFFF;
@@ -1874,7 +1885,7 @@ function serf_handle_serf_making_tool_state(_serf) {
             _serf.s.making_tool_mode += 1;
             if (_serf.s.making_tool_mode == 4) {
                 /* Done making tool. */
-                _serf.game.get_map().set_serf_index(_serf.pos, 0);
+                _serf.game.get_map().clear_serf_index(_serf.pos, _serf);
 
                 var _player = _serf.game.get_player(_serf.get_owner());
                 var _total_tool_prio = 0;
@@ -1930,7 +1941,7 @@ function serf_handle_serf_building_boat_state(_serf) {
         _serf.counter = global.serf_counter_from_animation[_serf.animation];
         _serf.tick = _serf.game.get_tick();
 
-        _map.set_serf_index(_serf.pos, _serf.index);
+        _map.claim_serf_index(_serf.pos, _serf);
     } else {
         var _delta = (_serf.game.get_tick() - _serf.tick) & 0xFFFF;
         _serf.tick = _serf.game.get_tick();
@@ -1941,14 +1952,14 @@ function serf_handle_serf_building_boat_state(_serf) {
             if (_serf.s.building_boat_mode == 9) {
                 /* Boat done. */
                 var _new_pos = _map.move_down_right(_serf.pos);
-                if (_map.has_serf(_new_pos)) {
+                if (_map.blocked_for(_serf, _new_pos)) {
                     /* Wait for flag to be free. */
                     _serf.s.building_boat_mode -= 1;
                     _serf.counter = 0;
                 } else {
                     /* Drop boat at flag. */
                     _building.boat_clear();
-                    _map.set_serf_index(_serf.pos, 0);
+                    _map.clear_serf_index(_serf.pos, _serf);
 
                     _serf.set_state(SerfState.move_resource_out);
                     _serf.s.move_resource_out_res = 1 + ResourceType.boat;

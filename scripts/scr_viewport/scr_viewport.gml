@@ -2311,7 +2311,12 @@ function Viewport(_interface, _map) : GuiObject() constructor {
         var _arr_3 = global.viewport_arr_3;
 
         for (var _i = 0; _i < _cols; _i++) {
-            /* Active serf */
+            /* Active serf.
+               Both occupancy layers are drawn, not just the ordinary one, or
+               every knight in the field would be invisible - see
+               MAP_KNIGHTS_PHANTOM in scr_map.gml. The ordinary serf is drawn
+               first so that a knight sharing his tile appears in front of him,
+               which reads better than the reverse. */
             if (map.has_serf(_pos)) {
                 var _serf = interface.get_game().peek_serf_at_pos(_pos);
 
@@ -2328,6 +2333,15 @@ function Viewport(_interface, _map) : GuiObject() constructor {
                      _serf.get_mining_substate() != 9 &&
                      _serf.get_mining_substate() != 10))) {
                     draw_active_serf(_serf, _pos, _x_base, _y_base);
+                }
+            }
+
+            if (map.has_knight(_pos)) {
+                var _knight = interface.get_game().peek_knight_at_pos(_pos);
+                /* Knights are never in the mining states, so the substate test
+                   the ordinary layer needs does not apply here. */
+                if (_knight != undefined) {
+                    draw_active_serf(_knight, _pos, _x_base, _y_base);
                 }
             }
 
@@ -2361,7 +2375,9 @@ function Viewport(_interface, _map) : GuiObject() constructor {
        current position. */
     static draw_serf_row_behind = function(_pos, _y_base, _cols, _x_base) {
         for (var _i = 0; _i < _cols; _i++) {
-            /* Active serf */
+            /* Active serf. Only the ordinary layer is consulted here, unlike
+               draw_serf_row above: this row draws nothing but serfs deep in the
+               mining states, and a knight is never a miner. */
             if (map.has_serf(_pos)) {
                 var _serf = interface.get_game().peek_serf_at_pos(_pos);
 

@@ -178,8 +178,7 @@ function serf_handle_serf_knight_leave_for_fight_state(_serf) {
   _serf.tick = _serf.game.get_tick() & 0xFFFF;
   _serf.counter = 0;
 
-  if (_serf.game.get_map().get_serf_index(_serf.pos) == _serf.index ||
-      !_serf.game.get_map().has_serf(_serf.pos)) {
+  if (!_serf.game.get_map().other_serf_at(_serf, _serf.pos)) {
     _serf.leave_building(1);
   }
 }
@@ -321,7 +320,7 @@ function serf_handle_serf_knight_attacking_defeat_state(_serf) {
   _serf.counter -= delta;
 
   if (_serf.counter < 0) {
-    _serf.game.get_map().set_serf_index(_serf.pos, 0);
+    _serf.game.get_map().clear_serf_index(_serf.pos, _serf);
     _serf.game.delete_serf(_serf);
   }
 }
@@ -600,8 +599,15 @@ function serf_handle_state_knight_free_walking(_serf) {
     for (var d = Direction.right; d <= Direction.up; d++) {
       var pos_ = map.move(_serf.pos, d);
 
-      if (map.has_serf(pos_)) {
-        var _other = _serf.game.get_serf_at_pos(pos_);
+      if (map.has_any_serf(pos_)) {
+        /* Both candidates below are knights, so look on the knight layer
+           first: a knight sharing a tile with a transporter must not be
+           hidden behind him. The fall-back is the ordinary layer, which is
+           where every knight lives while MAP_KNIGHTS_PHANTOM is off. */
+        var _other = _serf.game.get_knight_at_pos(pos_);
+        if (_other == undefined) {
+          _other = _serf.game.get_serf_at_pos(pos_);
+        }
         if (_other == undefined) {
           /* Belt and braces. Game.delete_serf now clears the map tile it is
              leaving, so a tile should never point at a serf that is gone -
@@ -721,7 +727,9 @@ function serf_handle_state_knight_engage_attacking_free_join(_serf) {
     }
 
     _other.start_walking(d, 32, 0);
-    _serf.game.get_map().set_serf_index(other_pos, 0);
+    /* start_walking with change_pos 0 advanced _other's pos without touching
+       the map, so the tile he came from still names him. */
+    _serf.game.get_map().clear_serf_index(other_pos, _other);
   }
 }
 
@@ -818,8 +826,12 @@ function serf_handle_serf_knight_attacking_defeat_free_state(_serf) {
     _other.counter = 0;
     _other.tick = _serf.game.get_tick() & 0xFFFF;
 
-    /* Remove itself. */
-    _serf.game.get_map().set_serf_index(_serf.pos, _other.index);
+    /* Remove itself, handing the tile to the survivor. Released first so that
+       the loser leaves no entry behind on his own layer. delete_serf below
+       clears only entries that still name the serf being deleted, so the
+       survivor's claim is safe from it. */
+    _serf.game.get_map().clear_serf_index(_serf.pos, _serf);
+    _serf.game.get_map().claim_serf_index(_serf.pos, _other);
     _serf.game.delete_serf(_serf);
   }
 }
@@ -845,7 +857,7 @@ function serf_handle_serf_state_knight_leave_for_walk_to_fight(_serf) {
   _serf.counter = 0;
 
   var map = _serf.game.get_map();
-  if (map.get_serf_index(_serf.pos) != _serf.index && map.has_serf(_serf.pos)) {
+  if (map.other_serf_at(_serf, _serf.pos)) {
     _serf.animation = 82;
     _serf.counter = 0;
     return;
@@ -854,7 +866,7 @@ function serf_handle_serf_state_knight_leave_for_walk_to_fight(_serf) {
   var building = _serf.game.get_building(map.get_obj_index(_serf.pos));
   var new_pos = map.move_down_right(_serf.pos);
 
-  if (!map.has_serf(new_pos)) {
+  if (!map.blocked_for(_serf, new_pos)) {
     /* For clean state change, save the values first. */
     /* TODO maybe knight_leave_for_walk_to_fight can
        share leaving_building state vars. */
@@ -925,9 +937,9 @@ function serf_handle_serf_idle_on_path_state(_serf) {
   }
 
   var map = _serf.game.get_map();
-  if (!map.has_serf(_serf.pos)) {
+  if (!map.blocked_for(_serf, _serf.pos)) {
     map.clear_idle_serf(_serf.pos);
-    map.set_serf_index(_serf.pos, _serf.index);
+    map.claim_serf_index(_serf.pos, _serf);
 
     var dir = _serf.s.idle_on_path_field_E;
 
@@ -944,10 +956,10 @@ function serf_handle_serf_idle_on_path_state(_serf) {
 
 function serf_handle_serf_wait_idle_on_path_state(_serf) {
   var map = _serf.game.get_map();
-  if (!map.has_serf(_serf.pos)) {
+  if (!map.blocked_for(_serf, _serf.pos)) {
     /* Duplicate code from handle_serf_idle_on_path_state() */
     map.clear_idle_serf(_serf.pos);
-    map.set_serf_index(_serf.pos, _serf.index);
+    map.claim_serf_index(_serf.pos, _serf);
 
     var dir = _serf.s.idle_on_path_field_E;
 
@@ -995,14 +1007,14 @@ function serf_handle_scatter_state(_serf) {
 
 function serf_handle_serf_finished_building_state(_serf) {
   var map = _serf.game.get_map();
-  if (!map.has_serf(map.move_down_right(_serf.pos))) {
+  if (!map.blocked_for(_serf, map.move_down_right(_serf.pos))) {
     _serf.state = SerfState.ready_to_leave;
     _serf.s.leaving_building_dest = 0;
     _serf.s.leaving_building_field_B = -2;
     _serf.s.leaving_building_dir = 0;
     _serf.s.leaving_building_next_state = SerfState.walking;
 
-    if (map.get_serf_index(_serf.pos) != _serf.index && map.has_serf(_serf.pos)) {
+    if (map.other_serf_at(_serf, _serf.pos)) {
       _serf.animation = 82;
     }
   }
@@ -1010,9 +1022,9 @@ function serf_handle_serf_finished_building_state(_serf) {
 
 function serf_handle_serf_wake_at_flag_state(_serf) {
   var map = _serf.game.get_map();
-  if (!map.has_serf(_serf.pos)) {
+  if (!map.blocked_for(_serf, _serf.pos)) {
     map.clear_idle_serf(_serf.pos);
-    map.set_serf_index(_serf.pos, _serf.index);
+    map.claim_serf_index(_serf.pos, _serf);
     _serf.tick = _serf.game.get_tick() & 0xFFFF;
     _serf.counter = 0;
 

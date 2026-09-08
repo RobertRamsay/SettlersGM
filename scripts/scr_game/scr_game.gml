@@ -283,11 +283,29 @@ function Game() constructor {
     /// That was the multiplayer desync whose signature was every serf field
     /// differing while serf_count and rnd matched exactly: the same serfs, the
     /// same decisions, different ground.
+    /* Read-only: never heals a stale tile, because healing writes to the map
+       and the viewport calls this from the draw path, where only what is on
+       screen would get healed. Checks the ordinary layer first and the knight
+       layer second, so it still returns whoever is standing here. */
     static peek_serf_at_pos = function(_pos) {
-        return serfs.get(map.get_serf_index(_pos));
+        var _serf = serfs.get(map.get_serf_index(_pos));
+        if (_serf != undefined) {
+            return _serf;
+        }
+        return serfs.get(map.get_knight_index(_pos));
+    };
+
+    /* The knight standing here, if any, ignoring anybody on the ordinary
+       layer. Combat needs this: a knight looking for an opponent must not be
+       handed the transporter he happens to be sharing a tile with. */
+    static peek_knight_at_pos = function(_pos) {
+        return serfs.get(map.get_knight_index(_pos));
     };
 
     static get_serf_at_pos = function(_pos) {
+        /* Both layers are healed, not just the one that answers. A stale entry
+           left on either is the "tile points at a serf that is gone" bug, and
+           it crashes whichever reader trips over it first. */
         var _index = map.get_serf_index(_pos);
         var _serf = serfs.get(_index);
         if (_serf == undefined && _index != 0) {
@@ -298,7 +316,31 @@ function Game() constructor {
                a hole that crashes the next reader. */
             show_debug_message("game: tile " + string(_pos) + " pointed at serf #" +
                                string(_index) + ", which is gone - cleared");
-            map.set_serf_index(_pos, 0);
+            map.clear_serf_index_by_index(_pos, _index);
+        }
+
+        var _kindex = map.get_knight_index(_pos);
+        var _knight = serfs.get(_kindex);
+        if (_knight == undefined && _kindex != 0) {
+            show_debug_message("game: tile " + string(_pos) + " pointed at knight #" +
+                               string(_kindex) + ", which is gone - cleared");
+            map.clear_serf_index_by_index(_pos, _kindex);
+        }
+
+        if (_serf != undefined) {
+            return _serf;
+        }
+        return _knight;
+    };
+
+    /* get_serf_at_pos restricted to the knight layer, healing as it goes. */
+    static get_knight_at_pos = function(_pos) {
+        var _index = map.get_knight_index(_pos);
+        var _serf = serfs.get(_index);
+        if (_serf == undefined && _index != 0) {
+            show_debug_message("game: tile " + string(_pos) + " pointed at knight #" +
+                               string(_index) + ", which is gone - cleared");
+            map.clear_serf_index_by_index(_pos, _index);
         }
         return _serf;
     };
@@ -1302,7 +1344,9 @@ function Game() constructor {
                 path_serf_idle_to_wait_state(_pos);
             }
 
-            if (map.has_serf(_pos)) {
+            /* Either layer: a knight standing here has to be dealt with
+               too, or he is left believing he is on a road that has gone. */
+            if (map.has_any_serf(_pos)) {
                 var _serf = get_serf_at_pos(_pos);
                 if (_serf == undefined) {
                     /* tile pointed at a serf that is gone */
@@ -2033,8 +2077,8 @@ function Game() constructor {
     };
 
     static demolish_flag_ = function(_pos) {
-        /* Handle any serf at pos. */
-        if (map.has_serf(_pos)) {
+        /* Handle any serf at pos - either layer, knights included. */
+        if (map.has_any_serf(_pos)) {
             var _serf = get_serf_at_pos(_pos);
             if (_serf != undefined) {
                 _serf.flag_deleted(_pos);
@@ -2550,9 +2594,11 @@ function Game() constructor {
         var _index = _serf.get_index();
         var _pos = _serf.pos;
         if (map != undefined && _pos >= 0) {
-            if (map.get_serf_index(_pos) == _index) {
-                map.set_serf_index(_pos, 0);
-            }
+            /* clear_serf_index_by_index only clears an entry that still names
+               this serf, on either layer, so the "only cleared when the tile
+               still points at THIS serf" rule above is now enforced by the map
+               rather than by remembering to test for it here. */
+            map.clear_serf_index_by_index(_pos, _index);
 
             /* pos and the map do not always agree. start_walking(dir, slope,
                false) advances pos while deliberately leaving the map alone -
@@ -2562,9 +2608,7 @@ function Game() constructor {
                catches it without walking the whole map. */
             for (var _d = Direction.right; _d <= Direction.up; _d++) {
                 var _n = map.move(_pos, _d);
-                if (map.get_serf_index(_n) == _index) {
-                    map.set_serf_index(_n, 0);
-                }
+                map.clear_serf_index_by_index(_n, _index);
             }
         }
         serfs.erase(_index);

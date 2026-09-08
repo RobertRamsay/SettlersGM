@@ -707,6 +707,21 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
         var _old_type = type;
         type = _new_type;
 
+        /* A serf standing on the map when his type changes may have just
+           crossed the knight boundary - a generic serf promoted to knight0, or
+           a knight killed off to SerfType.dead - so his occupancy belongs on
+           the other layer from this moment on. Moving him here is what keeps
+           the two layers honest without every caller having to think about it.
+           Costs nothing when he is indoors: serf_is_at is false for a serf the
+           map does not list, and there is then nothing to move.
+           See MAP_KNIGHTS_PHANTOM in scr_map.gml. */
+        if (pos >= 0 && game != undefined) {
+            var _map_st = game.get_map();
+            if (_map_st != undefined && _map_st.serf_is_at(pos, self)) {
+                _map_st.relayer_serf(pos, self);
+            }
+        }
+
         /* Register this type as transporter */
         if (_new_type == SerfType.transporter_inventory) {
             _new_type = SerfType.transporter;
@@ -1365,9 +1380,9 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
         var _map = game.get_map();
         var _new_pos = _map.move(pos, _dir);
 
-        if (!_map.has_serf(_new_pos)) {
+        if (!_map.blocked_for(self, _new_pos)) {
             /* Change direction, not occupied. */
-            _map.set_serf_index(pos, 0);
+            _map.clear_serf_index(pos, self);
             animation = get_walking_animation(_map.get_height(_new_pos) -
                                               _map.get_height(pos), _dir, 0);
             s.walking_dir = reverse_direction(_dir);
@@ -1385,7 +1400,7 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
                 _other_serf.switch_waiting(reverse_direction(_dir))) {
                 /* Do the switch */
                 _other_serf.pos = pos;
-                _map.set_serf_index(_other_serf.pos, _other_serf.get_index());
+                _map.claim_serf_index(_other_serf.pos, _other_serf);
                 _other_serf.animation =
                     get_walking_animation(_map.get_height(_other_serf.pos) -
                                           _map.get_height(_new_pos),
@@ -1409,7 +1424,7 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
             s.walking_wait_counter = 0;
         }
         pos = _new_pos;
-        _map.set_serf_index(pos, get_index());
+        _map.claim_serf_index(pos, self);
         counter += global.serf_counter_from_animation[animation];
         if (_alt_end && counter < 0) {
             if (_map.has_flag(_new_pos)) {
@@ -1477,8 +1492,8 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
         counter += (_slope * global.serf_counter_from_animation[animation]) >> 5;
 
         if (_change_pos) {
-            _map.set_serf_index(pos, 0);
-            _map.set_serf_index(_new_pos, get_index());
+            _map.clear_serf_index(pos, self);
+            _map.claim_serf_index(_new_pos, self);
         }
 
         pos = _new_pos;
@@ -1493,7 +1508,7 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
 
         start_walking(Direction.up_left, 32, !_join_pos);
         if (_join_pos) {
-            game.get_map().set_serf_index(pos, get_index());
+            game.get_map().claim_serf_index(pos, self);
         }
 
         var _building = game.get_building_at_pos(pos);
@@ -1515,7 +1530,7 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
         }
 
         if (_join_pos) {
-            game.get_map().set_serf_index(pos, 0);
+            game.get_map().clear_serf_index(pos, self);
         }
         start_walking(Direction.down_right, _slope, !_join_pos);
 
@@ -1529,7 +1544,7 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
             var _building = game.get_building_at_pos(_map.move_up_left(pos));
             _building.requested_serf_reached(self);
 
-            if (_map.has_serf(_map.move_up_left(pos))) {
+            if (_map.blocked_for(self, _map.move_up_left(pos))) {
                 animation = 85;
                 counter = 0;
                 set_state(SerfState.ready_to_enter);
@@ -1580,7 +1595,7 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
             for (var _i = 0; _i < 100; _i++) {
                 _pos = _map.move(_pos, _dir);
 
-                if (!_map.has_serf(_pos)) {
+                if (!_map.blocked_for(self, _pos)) {
                     break;
                 } else if (_map.get_serf_index(_pos) == index) {
                     /* We have found a loop, try a different direction. */
@@ -1811,7 +1826,7 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
                         s.idle_on_path_rev_dir = _rev_dir;
                         s.idle_on_path_flag = _flag2.get_index();
                         _map.set_idle_serf(pos);
-                        _map.set_serf_index(pos, 0);
+                        _map.clear_serf_index(pos, self);
                         return;
                     }
                 }
@@ -1820,7 +1835,7 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
     };
 
     static enter_inventory = function() {
-        game.get_map().set_serf_index(pos, 0);
+        game.get_map().clear_serf_index(pos, self);
         var _building = game.get_building_at_pos(pos);
         set_state(SerfState.idle_in_stock);
         /*serf->s.idle_in_stock.field_B = 0;
@@ -1850,7 +1865,7 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
                     if (s.entering_building_field_B == -2) {
                         enter_inventory();
                     } else {
-                        _map.set_serf_index(pos, 0);
+                        _map.clear_serf_index(pos, self);
                         var _flag_index = _map.get_obj_index(_map.move_down_right(pos));
                         var _flag = game.get_flag(_flag_index);
 
@@ -1906,7 +1921,7 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
                     }
                     break;
                 case SerfType.transporter_inventory:
-                    _map.set_serf_index(pos, 0);
+                    _map.clear_serf_index(pos, self);
                     set_state(SerfState.wait_for_resource_out);
                     counter = 63;
                     break;
@@ -1914,7 +1929,7 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
                     if (s.entering_building_field_B == -2) {
                         enter_inventory();
                     } else {
-                        _map.set_serf_index(pos, 0);
+                        _map.clear_serf_index(pos, self);
                         set_state(SerfState.planning_logging);
                     }
                     break;
@@ -1922,7 +1937,7 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
                     if (s.entering_building_field_B == -2) {
                         enter_inventory();
                     } else {
-                        _map.set_serf_index(pos, 0);
+                        _map.clear_serf_index(pos, self);
                         if (s.entering_building_field_B != 0) {
                             var _building_sw = game.get_building_at_pos(pos);
                             var _flag_index_sw = _map.get_obj_index(_map.move_down_right(pos));
@@ -1938,7 +1953,7 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
                     if (s.entering_building_field_B == -2) {
                         enter_inventory();
                     } else {
-                        _map.set_serf_index(pos, 0);
+                        _map.clear_serf_index(pos, self);
                         set_state(SerfState.planning_stone_cutting);
                     }
                     break;
@@ -1946,7 +1961,7 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
                     if (s.entering_building_field_B == -2) {
                         enter_inventory();
                     } else {
-                        _map.set_serf_index(pos, 0);
+                        _map.clear_serf_index(pos, self);
                         set_state(SerfState.planning_planting);
                     }
                     break;
@@ -1954,7 +1969,7 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
                     if (s.entering_building_field_B == -2) {
                         enter_inventory();
                     } else {
-                        _map.set_serf_index(pos, 0);
+                        _map.clear_serf_index(pos, self);
                         var _building_mn = game.get_building_at_pos(pos);
                         var _bld_type = _building_mn.get_type();
 
@@ -1978,7 +1993,7 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
                     if (s.entering_building_field_B == -2) {
                         enter_inventory();
                     } else {
-                        _map.set_serf_index(pos, 0);
+                        _map.clear_serf_index(pos, self);
 
                         var _building_sm = game.get_building_at_pos(pos);
 
@@ -2010,7 +2025,7 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
                     if (s.entering_building_field_B == -2) {
                         enter_inventory();
                     } else {
-                        _map.set_serf_index(pos, 0);
+                        _map.clear_serf_index(pos, self);
                         set_state(SerfState.planning_fishing);
                     }
                     break;
@@ -2018,7 +2033,7 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
                     if (s.entering_building_field_B == -2) {
                         enter_inventory();
                     } else {
-                        _map.set_serf_index(pos, 0);
+                        _map.clear_serf_index(pos, self);
 
                         if (s.entering_building_field_B != 0) {
                             var _building_pf = game.get_building_at_pos(pos);
@@ -2042,7 +2057,7 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
                     if (s.entering_building_field_B == -2) {
                         enter_inventory();
                     } else {
-                        _map.set_serf_index(pos, 0);
+                        _map.clear_serf_index(pos, self);
 
                         if (s.entering_building_field_B != 0) {
                             var _building_bt = game.get_building_at_pos(pos);
@@ -2059,7 +2074,7 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
                     if (s.entering_building_field_B == -2) {
                         enter_inventory();
                     } else {
-                        _map.set_serf_index(pos, 0);
+                        _map.clear_serf_index(pos, self);
                         set_state(SerfState.planning_farming);
                     }
                     break;
@@ -2067,7 +2082,7 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
                     if (s.entering_building_field_B == -2) {
                         enter_inventory();
                     } else {
-                        _map.set_serf_index(pos, 0);
+                        _map.clear_serf_index(pos, self);
 
                         if (s.entering_building_field_B != 0) {
                             var _building_ml = game.get_building_at_pos(pos);
@@ -2084,7 +2099,7 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
                     if (s.entering_building_field_B == -2) {
                         enter_inventory();
                     } else {
-                        _map.set_serf_index(pos, 0);
+                        _map.clear_serf_index(pos, self);
 
                         if (s.entering_building_field_B != 0) {
                             var _building_bk = game.get_building_at_pos(pos);
@@ -2101,7 +2116,7 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
                     if (s.entering_building_field_B == -2) {
                         enter_inventory();
                     } else {
-                        _map.set_serf_index(pos, 0);
+                        _map.clear_serf_index(pos, self);
                         if (s.entering_building_field_B != 0) {
                             var _building_bb = game.get_building_at_pos(pos);
                             var _flag_bb = game.get_flag_at_pos(_map.move_down_right(pos));
@@ -2117,7 +2132,7 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
                     if (s.entering_building_field_B == -2) {
                         enter_inventory();
                     } else {
-                        _map.set_serf_index(pos, 0);
+                        _map.clear_serf_index(pos, self);
                         if (s.entering_building_field_B != 0) {
                             var _building_tm = game.get_building_at_pos(pos);
                             var _flag_tm = game.get_flag_at_pos(_map.move_down_right(pos));
@@ -2134,7 +2149,7 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
                     if (s.entering_building_field_B == -2) {
                         enter_inventory();
                     } else {
-                        _map.set_serf_index(pos, 0);
+                        _map.clear_serf_index(pos, self);
                         if (s.entering_building_field_B != 0) {
                             var _building_ws = game.get_building_at_pos(pos);
                             var _flag_ws = game.get_flag_at_pos(_map.move_down_right(pos));
@@ -2156,7 +2171,7 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
                     }
                     break;
                 case SerfType.generic: {
-                    _map.set_serf_index(pos, 0);
+                    _map.clear_serf_index(pos, self);
 
                     var _building_gn = game.get_building_at_pos(pos);
                     var _inventory = _building_gn.get_inventory();
@@ -2182,7 +2197,7 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
                             set_state(SerfState.lost);
                             counter = 0;
                         } else {
-                            _map.set_serf_index(pos, 0);
+                            _map.clear_serf_index(pos, self);
 
                             if (_building_kn.has_inventory()) {
                                 set_state(SerfState.defending_castle);
@@ -2277,7 +2292,7 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
     static handle_serf_ready_to_enter_state = function() {
         var _new_pos = game.get_map().move_up_left(pos);
 
-        if (game.get_map().has_serf(_new_pos)) {
+        if (game.get_map().blocked_for(self, _new_pos)) {
             animation = 85;
             counter = 0;
             return;
@@ -2293,8 +2308,8 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
         var _map = game.get_map();
         var _new_pos = _map.move_down_right(pos);
 
-        if ((_map.get_serf_index(pos) != index && _map.has_serf(pos))
-            || _map.has_serf(_new_pos)) {
+        if (_map.other_serf_at(self, pos)
+            || _map.blocked_for(self, _new_pos)) {
             animation = 82;
             counter = 0;
             return;
@@ -2325,7 +2340,7 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
                 }
                 var _new_pos = _map.move(pos, _dir);
 
-                if (_map.has_serf(_new_pos)) {
+                if (_map.blocked_for(self, _new_pos)) {
                     var _other_serf = game.get_serf_at_pos(_new_pos);
                     if (_other_serf == undefined) {
                         break;  /* tile pointed at a serf that is gone */
@@ -2336,10 +2351,16 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
                     if (_w.result &&
                         _other_dir == reverse_direction(_dir) &&
                         _other_serf.switch_waiting(_other_dir)) {
-                        /* Do the switch */
+                        /* Do the switch.
+                           Release both tiles before claiming either: the two
+                           serfs may sit on different occupancy layers, so a
+                           claim alone no longer overwrites what was there.
+                           `pos` is still this serf's old tile here; he is moved
+                           to _new_pos further down. */
+                        _map.clear_serf_index(pos, self);
+                        _map.clear_serf_index(_new_pos, _other_serf);
                         _other_serf.pos = pos;
-                        _map.set_serf_index(_other_serf.pos,
-                                            _other_serf.get_index());
+                        _map.claim_serf_index(_other_serf.pos, _other_serf);
                         _other_serf.animation =
                             get_walking_animation(_map.get_height(_other_serf.pos) -
                                                   _map.get_height(_new_pos),
@@ -2359,7 +2380,7 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
                         return;
                     }
                 } else {
-                    _map.set_serf_index(pos, 0);
+                    _map.clear_serf_index(pos, self);
                     if (_d != 0) {
                         animation =
                             get_walking_animation(_map.get_height(_new_pos) -
@@ -2369,7 +2390,7 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
                     }
                 }
 
-                _map.set_serf_index(_new_pos, get_index());
+                _map.claim_serf_index(_new_pos, self);
                 pos = _new_pos;
                 s.digging_substate = 3;
                 counter += global.serf_counter_from_animation[animation];
@@ -2427,7 +2448,7 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
                             }
                             show_debug_message("serf:   found at: " + string(s.digging_dig_pos) + ".");
                             /* Digging spot found */
-                            if (_map.has_serf(_new_pos2)) {
+                            if (_map.blocked_for(self, _new_pos2)) {
                                 /* Occupied by other serf, wait */
                                 s.digging_substate = 0;
                                 animation = 87 - s.digging_dig_pos;
@@ -2574,7 +2595,7 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
         var _building = game.get_building(_inventory.get_building_index());
 
         if (_building.build_progress()) { /* Finished */
-            game.get_map().set_serf_index(pos, 0);
+            game.get_map().clear_serf_index(pos, self);
             set_state(SerfState.wait_for_resource_out);
         }
     };
@@ -2584,8 +2605,8 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
         counter = 0;
 
         var _map = game.get_map();
-        if ((_map.get_serf_index(pos) != index && _map.has_serf(pos)) ||
-            _map.has_serf(_map.move_down_right(pos))) {
+        if (_map.other_serf_at(self, pos) ||
+            _map.blocked_for(self, _map.move_down_right(pos))) {
             /* Occupied by serf, wait */
             animation = 82;
             counter = 0;
@@ -2693,7 +2714,7 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
         counter = 0;
 
         var _map = game.get_map();
-        if (_map.has_serf(pos) || _map.has_serf(_map.move_down_right(pos))) {
+        if (_map.blocked_for(self, pos) || _map.blocked_for(self, _map.move_down_right(pos))) {
             animation = 82;
             counter = 0;
             return;
@@ -2703,7 +2724,7 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
             var _flag = game.get_flag(s.ready_to_leave_inventory_dest);
             if (_flag.has_building()) {
                 var _building = _flag.get_building();
-                if (_map.has_serf(_building.get_position())) {
+                if (_map.blocked_for(self, _building.get_position())) {
                     animation = 82;
                     counter = 0;
                     return;
