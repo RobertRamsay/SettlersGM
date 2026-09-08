@@ -527,6 +527,36 @@ function net_send_start(_mission_index, _rnd) {
     network_send_packet(net_peer_socket(), _b, buffer_tell(_b));
 }
 
+/* In-game message text: how wide it may run, how far apart the lines sit, and
+   how many characters fit on one. The game's own font is fixed width at
+   GFX_TEXT_CHAR_W pixels a character, so the column count is just the usable
+   width divided by that. */
+#macro NET_TEXT_WIDTH (SCREEN_W - 8)
+#macro NET_TEXT_LINE  12
+#macro NET_TEXT_COLS  ((SCREEN_W - 8) div GFX_TEXT_CHAR_W)
+
+/* Below this line is the panel, so chat steps back out of the way rather than
+   covering the controls. The panel is 40 tall; the extra covers the row of
+   chat that sits just above it. */
+#macro NET_CHAT_FADE_Y (SCREEN_H - 52)
+#macro NET_CHAT_DIM    0.4
+
+/// One in-game message, drawn in the game's own font with the dropped shadow,
+/// wrapped to the screen.
+///
+/// gfx_* coordinates are relative to the current GUI origin, which the floats
+/// move about as they draw, so it is put back to the screen corner first.
+/// NET_TEXT_COLS is the usable width divided by the font's fixed 8 pixels.
+function net_draw_message(_text, _colour) {
+    gfx_set_origin(0, 0);
+    var _lines = gfx_wrap_string(_text, NET_TEXT_COLS);
+    var _y = 4;
+    for (var _li = 0; _li < array_length(_lines); _li++) {
+        gfx_draw_string_shadow(4, _y, _lines[_li], _colour, 1);
+        _y += NET_TEXT_LINE;
+    }
+}
+
 /// ---------------------------------------------------------------------------
 /// Chat
 /// ---------------------------------------------------------------------------

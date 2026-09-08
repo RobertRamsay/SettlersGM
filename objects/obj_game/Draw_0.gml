@@ -30,8 +30,11 @@ if (show_debug) {
 //
 // draw_text_ext wraps at NET_TEXT_WIDTH and breaks on spaces, so the numbers
 // stay whole; NET_TEXT_LINE is the line height it steps by.
-#macro NET_TEXT_WIDTH (SCREEN_W - 8)
-#macro NET_TEXT_LINE  12
+/* The on-screen text metrics live in scr_net.gml, beside net_draw_message
+   which uses them - a script cannot sensibly depend on a macro declared in an
+   object event, even though GML makes them global. */
+
+
 
 // The NET PLAY panel says all of this itself, in its own place and its own
 // font, so while it is on screen the corner stays empty: the same line twice,
@@ -48,6 +51,22 @@ if (_init_box != undefined && _init_box.game_type == GameType.netplay) {
    the box is open, in which case they stay up while you are reading them. */
 if (net_is_active() || global.net_chat_open ||
     array_length(global.net_chat_lines) > 0) {
+    /* Chat sits over the bottom of the screen, where the panel is, so it can
+       cover the controls. Putting the pointer down there is as clear a signal
+       as any that the panel is what you are looking at, so the words step back
+       to NET_CHAT_DIM rather than disappearing - still readable, no longer in
+       the way. mouse_x/mouse_y are room coordinates and GameMaker has already
+       divided the window scale out of them, so they are in the same space as
+       everything drawn here. */
+    /* gfx_* coordinates are relative to the current GUI origin, which the
+       floats move about as they draw. Put it back to the screen corner. */
+    gfx_set_origin(0, 0);
+
+    var _chat_alpha = 1;
+    if (mouse_y >= NET_CHAT_FADE_Y) {
+        _chat_alpha = NET_CHAT_DIM;
+    }
+
     var _chat_n = array_length(global.net_chat_lines);
     var _chat_y = SCREEN_H - 16 - (_chat_n * NET_TEXT_LINE);
     if (global.net_chat_open) {
@@ -62,22 +81,16 @@ if (net_is_active() || global.net_chat_open ||
             _who = "YOU: ";
             _col = c_white;
         }
-        draw_set_colour(c_black);
-        draw_text(5, _chat_y + 1, _who + _line.text);
-        draw_set_colour(_col);
-        draw_text(4, _chat_y, _who + _line.text);
+        gfx_draw_string_shadow(4, _chat_y, _who + _line.text, _col, _chat_alpha);
         _chat_y += NET_TEXT_LINE;
     }
 
     if (global.net_chat_open) {
-        /* A caret, so an empty box still looks like somewhere to type. */
-        var _typed = "SAY: " + global.net_chat_text + "_";
-        draw_set_colour(c_black);
-        draw_text(5, _chat_y + 1, _typed);
-        draw_set_colour(c_yellow);
-        draw_text(4, _chat_y, _typed);
+        /* A caret, so an empty box still looks like somewhere to type. The box
+           you are typing into does not dim - you are looking straight at it. */
+        gfx_draw_string_shadow(4, _chat_y,
+                               "SAY: " + global.net_chat_text + "_", c_yellow, 1);
     }
-    draw_set_colour(c_white);
 }
 
 /* The crash notice sits above all of it: it is asking a question, and the run
@@ -125,11 +138,7 @@ if (global.crash_notice != "") {
     /* F8's own prompt. The lobby's ADD prompt is drawn by the panel. */
     var _prompt = "HOST PC's IP: " + global.net_ip_text + "_" +
                   "   :" + string(NET_PORT) + "   (Enter connects, Esc cancels)";
-    draw_set_colour(c_black);
-    draw_text_ext(5, 5, _prompt, NET_TEXT_LINE, NET_TEXT_WIDTH);
-    draw_set_colour(c_yellow);
-    draw_text_ext(4, 4, _prompt, NET_TEXT_LINE, NET_TEXT_WIDTH);
-    draw_set_colour(c_white);
+    net_draw_message(_prompt, c_yellow);
 } else if (!_netplay_panel &&
            (net_status_visible() || net_live_notice(interface.get_game()) != "")) {
     /* Two different things share this line. The status ("player 2 joined", "in
@@ -144,9 +153,6 @@ if (global.crash_notice != "") {
     }
     _msg += net_live_notice(interface.get_game());
 
-    draw_set_colour(c_black);
-    draw_text_ext(5, 5, _msg, NET_TEXT_LINE, NET_TEXT_WIDTH);
-    draw_set_colour(c_white);
-    draw_text_ext(4, 4, _msg, NET_TEXT_LINE, NET_TEXT_WIDTH);
+    net_draw_message(_msg, c_white);
     draw_set_colour(c_white);
 }

@@ -570,10 +570,12 @@ function crash_handle_async(_async) {
 /// Master switch. false and nothing is ever sent.
 #macro REPORT_ENABLED     true
 
-/// While true, the result of every send is put on screen and logged loudly -
-/// which is what makes this a test mode. Turn it off before other people play:
-/// they should never see a line about a report either succeeding or failing.
-#macro REPORT_TEST_MODE   true
+/// While true, the result of every send is put on screen as well as logged.
+/// OFF now that the webhook is confirmed working: a player has no use for a
+/// line about a report succeeding, and none at all for one about it failing.
+/// The debug log still records the status, the HTTP code and the reply, so
+/// turning this back on is only ever needed to watch it happen live.
+#macro REPORT_TEST_MODE   false
 
 /// Discord's webhooks are rate limited (roughly 30 requests a minute) and a
 /// burst gets the webhook disabled rather than throttled. One start cannot be

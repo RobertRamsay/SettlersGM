@@ -118,7 +118,11 @@ function gfx_get_sprite_height(_asset, _index) {
 }
 
 /// Full form: Frame::draw_sprite(x, y, res, index, use_off, color, progress)
-function gfx_draw_sprite_full(_x, _y, _asset, _index, _use_off, _color, _progress) {
+/// _alpha defaults to 1, which takes the same path this always took - every
+/// existing caller is unaffected. Below 1 the sprite goes through
+/// draw_sprite_ext instead, which is the only way to get alpha on it.
+function gfx_draw_sprite_full(_x, _y, _asset, _index, _use_off, _color, _progress,
+                              _alpha = 1) {
     var _a = global.gfx_assets[_asset];
     if (_a == undefined) {
         return;
@@ -138,10 +142,14 @@ function gfx_draw_sprite_full(_x, _y, _asset, _index, _use_off, _color, _progres
     var _mask = _a[1];
     if (_progress >= 1) {
         if (_spr != -1) {
-            draw_sprite(_spr, _index, _sx, _sy);
+            if (_alpha >= 1) {
+                draw_sprite(_spr, _index, _sx, _sy);
+            } else {
+                draw_sprite_ext(_spr, _index, _sx, _sy, 1, 1, 0, c_white, _alpha);
+            }
         }
         if (_mask != -1 && _color != -1) {
-            draw_sprite_ext(_mask, _index, _sx, _sy, 1, 1, 0, _color, 1);
+            draw_sprite_ext(_mask, _index, _sx, _sy, 1, 1, 0, _color, _alpha);
         }
     } else {
         // Only the lower `progress` part of the sprite is drawn (building construction).
@@ -304,18 +312,18 @@ function gfx_draw_line(_x, _y, _x1, _y1, _color) {
     draw_set_color(c_white);
 }
 
-function gfx_draw_char_sprite(_x, _y, _c, _color, _shadow) {
+function gfx_draw_char_sprite(_x, _y, _c, _color, _shadow, _alpha = 1) {
     var _s = global.gfx_font_map[_c & 0xFF];
     if (_s < 0) {
         return;
     }
     if (_shadow != -1) {
-        gfx_draw_sprite_full(_x, _y, Asset.font_shadow, _s, false, _shadow, 1);
+        gfx_draw_sprite_full(_x, _y, Asset.font_shadow, _s, false, _shadow, 1, _alpha);
     }
-    gfx_draw_sprite_full(_x, _y, Asset.font, _s, false, _color, 1);
+    gfx_draw_sprite_full(_x, _y, Asset.font, _s, false, _color, 1, _alpha);
 }
 
-function gfx_draw_string(_x, _y, _str, _color, _shadow) {
+function gfx_draw_string(_x, _y, _str, _color, _shadow, _alpha = 1) {
     var _cx = _x;
     var _n = string_length(_str);
     for (var _i = 1; _i <= _n; _i++) {
@@ -326,7 +334,7 @@ function gfx_draw_string(_x, _y, _str, _color, _shadow) {
             _y += 8;
             _cx = _x;
         } else {
-            gfx_draw_char_sprite(_cx, _y, _c, _color, _shadow);
+            gfx_draw_char_sprite(_cx, _y, _c, _color, _shadow, _alpha);
             _cx += 8;
         }
     }
@@ -350,4 +358,72 @@ function gfx_draw_number(_x, _y, _value, _color, _shadow) {
         gfx_draw_char_sprite(_x + 8 * _i, _y, ord("0") + (_value mod 10), _color, _shadow);
         _value = _value div 10;
     }
+}
+
+
+/// The game's own font with a dropped shadow: black, one pixel right and two
+/// down, at 0.8 of whatever alpha the text itself is drawn at.
+///
+/// This is not Asset.font_shadow, which is a separate outline sprite drawn in
+/// register with the glyph. Over the map an outline is not enough - the shadow
+/// has to be offset to lift the words off whatever terrain is behind them.
+///
+/// Fixed width, 8 pixels a character, so a caller wanting to know how wide a
+/// line came out can just multiply.
+#macro GFX_TEXT_SHADOW_ALPHA 0.8
+#macro GFX_TEXT_CHAR_W       8
+
+function gfx_draw_string_shadow(_x, _y, _str, _color, _alpha = 1) {
+    gfx_draw_string(_x + 1, _y + 2, _str, c_black, -1,
+                    _alpha * GFX_TEXT_SHADOW_ALPHA);
+    gfx_draw_string(_x, _y, _str, _color, -1, _alpha);
+}
+
+/// Break a string into lines of at most _cols characters, on spaces where it
+/// can. The font is fixed width, so _cols is just pixels div 8.
+function gfx_wrap_string(_str, _cols) {
+    var _lines = [];
+    var _line = "";
+    var _word = "";
+    var _n = string_length(_str);
+
+    for (var _i = 1; _i <= _n + 1; _i++) {
+        var _c = "";
+        if (_i <= _n) {
+            _c = string_char_at(_str, _i);
+        }
+
+        if (_c == " " || _c == "" || _c == "\n") {
+            if (string_length(_line) == 0) {
+                _line = _word;
+            } else if (string_length(_line) + 1 + string_length(_word) <= _cols) {
+                _line += " " + _word;
+            } else {
+                array_push(_lines, _line);
+                _line = _word;
+            }
+            _word = "";
+
+            if (_c == "\n") {
+                array_push(_lines, _line);
+                _line = "";
+            }
+        } else {
+            _word += _c;
+            /* A single word longer than the line has to break somewhere. */
+            if (string_length(_word) >= _cols) {
+                if (string_length(_line) > 0) {
+                    array_push(_lines, _line);
+                    _line = "";
+                }
+                array_push(_lines, _word);
+                _word = "";
+            }
+        }
+    }
+
+    if (string_length(_line) > 0) {
+        array_push(_lines, _line);
+    }
+    return _lines;
 }
