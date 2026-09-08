@@ -318,8 +318,19 @@ function sfx_asset_for(_id) {
 /// that: a bird chirp meant to be a 33 ms tweet came out a 119 ms warble, and
 /// the whole game sounded like a tape running slow.
 ///
-/// 28604 / 8000 = 3.5755.
-#macro SFX_AMIGA_RATE   28604
+/// The register therefore says 28604 Hz, and 28604 / 8000 would be 3.5755.
+///
+/// SFX_AMIGA_RATE is set to HALF that - 14302 Hz, a pitch of 1.788 - because
+/// that is what sounds right, and it is exactly one octave down rather than
+/// some arbitrary taste correction. A factor of exactly two is suspicious
+/// enough that there is probably a second mechanism at work: the #$7c block
+/// may be an init for one purpose while the effects take their period from a
+/// table set elsewhere. A scan for other period writes turned up nothing but
+/// false positives, so that is a guess and is not claimed as a finding - the
+/// one thing actually read off the hardware is the 28604 above.
+///
+/// If the missing table ever turns up, this is the single number to change.
+#macro SFX_AMIGA_RATE   14302
 #macro SFX_WAV_RATE     8000
 #macro SFX_AMIGA_PITCH  (SFX_AMIGA_RATE / SFX_WAV_RATE)
 

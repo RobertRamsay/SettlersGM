@@ -23,6 +23,18 @@
 /* Wind has no volume rule in the original - only a 1 or 2 written to a byte
    whose meaning is not obvious - so this is the one number here that is a
    judgement rather than a reading. Low, because it plays constantly. */
+/* How often ambience fires. The Amiga's own values are in the right-hand
+   column; each of ours is HALF as often, which is one more bit in the mask.
+   The original runs at the Amiga's frame rate and through its own four-slot
+   queue, and at our rate its numbers came out busier than they should - so
+   these are a deliberate departure, kept in the original's idiom so the
+   difference is one bit and visible.
+
+   Setting all three back to the Amiga column restores its exact behaviour. */
+#macro AMBIENT_BIRD_MASK   0x7FF     /* Amiga 0x3FF:  trees out of 1024 */
+#macro AMBIENT_WATER_MASK  0x1F00    /* Amiga 0xF00:  one frame in 16   */
+#macro AMBIENT_WIND_MASK   0x7000    /* Amiga 0x3000: one frame in 4    */
+
 #macro AMBIENT_WIND_GAIN  0.25
 
 #macro PATH_WATER_ALPHA 0.7
@@ -3286,14 +3298,15 @@ function Viewport(_interface, _map) : GuiObject() constructor {
 
         var _rnd = irandom(65535);
 
-        /* Birds: chance is the tree count out of 1024, per frame. */
-        if (ambient_trees > 0 && (_rnd & 0x3FF) <= ambient_trees) {
+        /* Birds: chance is the tree count out of AMBIENT_BIRD_MASK + 1, per
+           frame. */
+        if (ambient_trees > 0 && (_rnd & AMBIENT_BIRD_MASK) <= ambient_trees) {
             play_sound_at_view(Sfx.bird_chirp0 + (_rnd & 0x0C), 1);
         }
 
         /* Water: one in sixteen, louder the more water is in view. The
            original's 2..32 is out of Paula's 64, so it is halved to a gain. */
-        if (ambient_water > 0 && (_rnd & 0xF00) == 0) {
+        if (ambient_water > 0 && (_rnd & AMBIENT_WATER_MASK) == 0) {
             var _vol = ambient_water >> 2;
             if (_vol > 30) {
                 _vol = 30;
@@ -3302,7 +3315,7 @@ function Viewport(_interface, _map) : GuiObject() constructor {
         }
 
         /* Wind: one in four, everywhere, quietly. */
-        if ((_rnd & 0x3000) == 0) {
+        if ((_rnd & AMBIENT_WIND_MASK) == 0) {
             play_sound_at_view(Sfx.wind, AMBIENT_WIND_GAIN);
         }
     };
