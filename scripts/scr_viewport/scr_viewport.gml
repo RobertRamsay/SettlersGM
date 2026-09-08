@@ -482,6 +482,52 @@ function viewport_init_tables() {
     ];
 }
 
+/// Report a serf being drawn with an animation phase past the end of that
+/// animation, once per distinct case rather than once per frame.
+///
+/// The old message named only the animation and the phase, which is not enough
+/// to find the serf responsible - and because it fired from the draw path it
+/// repeated every single frame for as long as that serf was on screen, which is
+/// most of what was filling the log. Both are fixed here: the serf is named,
+/// and each distinct animation/state pairing is reported once per run.
+///
+/// Note this is a DRAW-PATH function and must stay read-only with respect to
+/// the simulation. The seen-list it keeps is viewport bookkeeping only: nothing
+/// here touches a serf, a building or the map, so two machines that scroll to
+/// different places still simulate identically.
+function viewport_warn_animation(_animation, _phase, _count, _serf) {
+    if (!variable_global_exists("viewport_anim_warned")) {
+        global.viewport_anim_warned = ds_map_create();
+    }
+
+    var _who = "unknown serf";
+    var _key = "a" + string(_animation);
+
+    if (_serf != undefined) {
+        _who = "serf #" + string(_serf.get_index()) +
+               " type " + string(_serf.get_type()) +
+               " state " + string(_serf.get_state_name(_serf.get_state())) +
+               " counter " + string(_serf.get_counter()) +
+               " pos " + string(_serf.get_pos());
+        _key += "s" + string(_serf.get_state()) + "t" + string(_serf.get_type());
+    }
+
+    if (ds_map_exists(global.viewport_anim_warned, _key)) {
+        return;
+    }
+    ds_map_set(global.viewport_anim_warned, _key, true);
+
+    var _msg = "data: animation #" + string(_animation) + " phase #" +
+               string(_phase);
+    if (_count >= 0) {
+        _msg += " but it has only " + string(_count) + " phases";
+    } else {
+        _msg += " but there is no such animation";
+    }
+    show_debug_message(_msg + " - drawing " + _who +
+                       " (reported once per state)");
+}
+
 /// Viewport(Interface *interface, PMap map) : GuiObject, Map::Handler.
 /// `width`/`height`/`x`/`y`/`displayed`/... come from GuiObject (set_size()).
 /// The map cursor position and sprites live in the Interface
@@ -661,17 +707,46 @@ function Viewport(_interface, _map) : GuiObject() constructor {
     };
 
     // DataSource::get_animation(animation, phase): returns [sprite, x, y].
-    static get_animation = function(_animation, _phase) {
+    //
+    // _serf is optional and is only used to say WHO is being drawn when the
+    // phase is out of range. Freeserf indexes one flat array as
+    // animation * 200 + (phase >> 3) with no bounds check, so an overrun there
+    // silently reads the next animation's frames; here it is caught, which is
+    // better, but the message was untraceable without knowing the serf.
+    //
+    // An out-of-range phase always means the serf's counter has run far past
+    // the length of the animation he is showing - a counter of 6000, say, which
+    // is what the states for sitting inside a building use. A serf in one of
+    // those states should not be on the map to be drawn at all, so this is
+    // worth tracking down rather than papering over.
+    static get_animation = function(_animation, _phase, _serf = undefined) {
         _phase = _phase >> 3;
+
         if ((_animation < 0) || (_animation >= array_length(global.animations))) {
-            show_debug_message("data: Failed to get animation #" + string(_animation) + " phase #" + string(_phase));
+            viewport_warn_animation(_animation, _phase, -1, _serf);
             return [0, 0, 0];
         }
+
         var _phases = global.animations[_animation];
-        if ((_phase < 0) || (_phase >= array_length(_phases))) {
-            show_debug_message("data: Failed to get animation #" + string(_animation) + " phase #" + string(_phase) + " (got only " + string(array_length(_phases)) + " phases)");
+        var _count = array_length(_phases);
+
+        if (_count == 0) {
+            viewport_warn_animation(_animation, _phase, 0, _serf);
             return [0, 0, 0];
         }
+
+        if ((_phase < 0) || (_phase >= _count)) {
+            viewport_warn_animation(_animation, _phase, _count, _serf);
+            /* Clamp rather than return frame zero at the origin: the serf keeps
+               a sensible pose in a sensible place while the real cause is
+               chased, instead of snapping to a stray sprite. */
+            if (_phase < 0) {
+                _phase = 0;
+            } else {
+                _phase = _count - 1;
+            }
+        }
+
         return _phases[_phase];
     };
 
@@ -1664,7 +1739,7 @@ function Viewport(_interface, _map) : GuiObject() constructor {
         var _transporter_type = global.viewport_transporter_type;
         var _sailor_type = global.viewport_sailor_type;
 
-        var _animation = get_animation(_serf.get_animation(), _serf.get_counter());
+        var _animation = get_animation(_serf.get_animation(), _serf.get_counter(), _serf);
         var _t = _animation[0];
 
         switch (_serf.get_type()) {
@@ -2137,7 +2212,7 @@ function Viewport(_interface, _map) : GuiObject() constructor {
             return;
         }
 
-        var _animation = get_animation(_serf.get_animation(), _serf.get_counter());
+        var _animation = get_animation(_serf.get_animation(), _serf.get_counter(), _serf);
 
         var _lx = _x_base + _animation[1];
         var _ly = _y_base + _animation[2] - 4 * map.get_height(_pos);
@@ -2179,7 +2254,7 @@ function Viewport(_interface, _map) : GuiObject() constructor {
                 _def_serf = interface.get_game().get_serf(_index);
             }
             if (_def_serf != undefined) {
-                var _danimation = get_animation(_def_serf.get_animation(), _def_serf.get_counter());
+                var _danimation = get_animation(_def_serf.get_animation(), _def_serf.get_counter(), _def_serf);
 
                 var _dlx = _x_base + _danimation[1];
                 var _dly = _y_base + _danimation[2] - 4 * map.get_height(_pos);

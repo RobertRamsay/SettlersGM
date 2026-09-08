@@ -1249,7 +1249,13 @@ function serf_handle_serf_mining_state(_serf) {
     while (_serf.counter < 0) {
         var _building = _serf.game.get_building(_map.get_obj_index(_serf.pos));
 
-        show_debug_message("serf: mining substate: " + string(_serf.s.mining_substate) + ".");
+        /* Gated. Every miner in the game logs this on every mining tick, so at
+           speed it is a steady stream of lines that says nothing unless you are
+           actually debugging a mine. */
+        if (global.serf_verbose_log) {
+            show_debug_message("serf: mining substate: " +
+                               string(_serf.s.mining_substate) + ".");
+        }
         switch (_serf.s.mining_substate) {
             case 0: {
                 /* There is a small chance that the miner will
