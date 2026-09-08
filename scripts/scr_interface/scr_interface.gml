@@ -427,6 +427,16 @@ function Interface(_game = undefined) : GuiObject() constructor {
         }
         popup.hide();
         del_float(popup);
+
+        /* The PopupBox is dropped here, and it owns a MinimapGame holding two
+           GameMaker surfaces. Those are a resource, not memory - nothing
+           collects them - so every popup opened and closed leaked a pair, and
+           at map size 10 that is four megabytes of video memory each time.
+           The colours behind them are cached on the Map and survive this. */
+        if (popup.minimap != undefined) {
+            popup.minimap.free_surfaces();
+        }
+
         popup = undefined;
         update_map_cursor_pos(map_cursor_pos);
         if (panel != undefined) {

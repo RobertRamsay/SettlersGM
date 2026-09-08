@@ -218,29 +218,28 @@ function Minimap(_map) : GuiObject() constructor {
         minimap_surface_rows = 0;
     };
 
-    /* Initialize minimap data. */
+    /* Initialize minimap data.
+
+       The terrain colours belong to the MAP, not to this minimap: they are a
+       function of type_up and height and nothing else, so they are the same
+       for every minimap ever opened on it. They are cached there rather than
+       here because a MinimapGame is thrown away and rebuilt every time ANY
+       popup opens - Interface.close_popup drops the PopupBox, and PopupBox
+       constructs a MinimapGame whether the popup is the map or the inventory.
+       On a size 10 map that was half a million tiles of work to look at a
+       stock, which is the few seconds before a popup appeared.
+
+       Keying the cache on the Map object also makes it impossible to go stale
+       across a new game or a load: a different game is a different Map and so
+       a different cache. Map.invalidate_minimap_cache covers the one thing
+       that does change a colour after generation - levelling ground for a
+       building, via set_height. */
     static init_minimap = function() {
         if (map == undefined) {
             return;
         }
 
-        minimap = [];
-
-        var _tile_count = map.geom.tile_count;
-        for (var _pos = 0; _pos < _tile_count; _pos++) {
-            var _p = _pos;
-            var _type_off = global.minimap_color_offset[map.get_type_up(_p)];
-
-            _p = map.move_right(_p);
-            var _h1 = map.get_height(_p);
-
-            _p = map.move_left(map.move_down(_p));
-            var _h2 = map.get_height(_p);
-
-            var _h_off = _h2 - _h1 + 8;
-            array_push(minimap, global.minimap_colors[_type_off + _h_off]);
-        }
-
+        minimap = map.get_minimap_colors();
         build_surfaces();
     };
 
@@ -258,11 +257,10 @@ function Minimap(_map) : GuiObject() constructor {
             return;
         }
 
-        minimap_probe_pixel_order();
-        var _ri = global.minimap_pixel_order[0];
-        var _gi = global.minimap_pixel_order[1];
-        var _bi = global.minimap_pixel_order[2];
-        var _ai = global.minimap_pixel_order[3];
+        /* The packed pixel words, in this platform's byte order, cached on the
+           Map beside the colours - so this loop is one write per tile rather
+           than three colour_get_* calls and four byte pokes. */
+        var _packed = map.get_minimap_pixels();
 
         var _buf_even = buffer_create(_cols * _rows * 4, buffer_fixed, 1);
         var _buf_odd = buffer_create(_cols * _rows * 4, buffer_fixed, 1);
@@ -275,18 +273,16 @@ function Minimap(_map) : GuiObject() constructor {
             if ((_row mod 2) == 1) {
                 _buf = _buf_odd;
             }
+            var _shear = _row div 2;
+            var _rowbase = _row * _cols;
             for (var _col = 0; _col < _cols; _col++) {
-                var _color = minimap[_color_index];
-                _color_index += 1;
-                var _sx = (_col - (_row div 2)) mod _cols;
+                var _sx = (_col - _shear) mod _cols;
                 if (_sx < 0) {
                     _sx += _cols;
                 }
-                var _off = (_row * _cols + _sx) * 4;
-                buffer_poke(_buf, _off + _ri, buffer_u8, colour_get_red(_color));
-                buffer_poke(_buf, _off + _gi, buffer_u8, colour_get_green(_color));
-                buffer_poke(_buf, _off + _bi, buffer_u8, colour_get_blue(_color));
-                buffer_poke(_buf, _off + _ai, buffer_u8, 255);
+                buffer_poke(_buf, (_rowbase + _sx) * 4, buffer_u32,
+                            _packed[_color_index]);
+                _color_index += 1;
             }
         }
 

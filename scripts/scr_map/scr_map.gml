@@ -527,6 +527,11 @@ function Map(_geom) constructor {
     paths = array_create(geom.tile_count, 0);
     idle_serf = array_create(geom.tile_count, false);
 
+    /* Built on first use by build_minimap_cache, dropped by
+       invalidate_minimap_cache. Empty means "not built yet". */
+    minimap_colors_cache = [];
+    minimap_pixels_cache = [];
+
     update_state = new MapUpdateState();
     update_state.last_tick = 0;
     update_state.counter = 0;
@@ -794,6 +799,100 @@ function Map(_geom) constructor {
     };
 
     /* Copy tile data from map generator into map tile data. */
+    /* ------------------------------------------------------------------
+       Minimap colours, cached here rather than on the minimap.
+
+       They are a function of type_up and height and nothing else, so they are
+       the same for every minimap ever opened on this map. Caching them here
+       means a MinimapGame - which Interface.close_popup throws away and
+       PopupBox rebuilds every time ANY popup opens, map or not - costs nothing
+       after the first. On a size 10 map that was half a million tiles of work
+       before a stock inventory would appear.
+
+       Keying them to the Map also makes staleness impossible across a new game
+       or a load: a different game is a different Map and so a different cache.
+       ------------------------------------------------------------------ */
+    static get_minimap_colors = function() {
+        if (array_length(minimap_colors_cache) == geom.tile_count) {
+            return minimap_colors_cache;
+        }
+        build_minimap_cache();
+        return minimap_colors_cache;
+    };
+
+    /// The same colours packed into 32-bit pixels in this platform's byte
+    /// order, ready to poke straight into a surface buffer.
+    static get_minimap_pixels = function() {
+        if (array_length(minimap_pixels_cache) == geom.tile_count) {
+            return minimap_pixels_cache;
+        }
+        build_minimap_cache();
+        return minimap_pixels_cache;
+    };
+
+    /// Something changed a height, so the colours around it are wrong. Levelling
+    /// ground for a building is the only thing that does this after generation.
+    /// Dropping the whole cache is right: it is rebuilt once, the next time a
+    /// minimap is opened, not on every changed tile.
+    static invalidate_minimap_cache = function() {
+        minimap_colors_cache = [];
+        minimap_pixels_cache = [];
+    };
+
+    static build_minimap_cache = function() {
+        minimap_init_tables();
+        minimap_probe_pixel_order();
+
+        var _ri = global.minimap_pixel_order[0];
+        var _gi = global.minimap_pixel_order[1];
+        var _bi = global.minimap_pixel_order[2];
+        var _ai = global.minimap_pixel_order[3];
+
+        /* Byte index -> how far to shift that byte within the 32-bit word.
+           buffer_u32 is written little-endian, so byte 0 is the low 8 bits. */
+        var _rs = _ri * 8;
+        var _gs = _gi * 8;
+        var _bs = _bi * 8;
+        var _as = _ai * 8;
+
+        var _n = geom.tile_count;
+        var _colors = array_create(_n, 0);
+        var _pixels = array_create(_n, 0);
+
+        /* Neighbours inlined - this runs over every tile and the two steps were
+           three nested calls each. See MapGeometry for the arithmetic. */
+        var _cm     = geom.col_mask;
+        var _notcm  = geom.col_notmask;
+        var _step   = geom.row_step;
+        var _tm     = geom.tile_mask;
+
+        var _offsets = global.minimap_color_offset;
+        var _palette = global.minimap_colors;
+
+        for (var _pos = 0; _pos < _n; _pos++) {
+            var _type_off = _offsets[type_up[_pos]];
+
+            /* right, then down-left of that - i.e. the two tiles the original
+               compares to get a shading offset. */
+            var _r = (_pos & _notcm) | ((_pos + 1) & _cm);
+            var _h1 = height[_r];
+
+            var _rd = (_r + _step) & _tm;
+            var _rdl = (_rd & _notcm) | ((_rd - 1) & _cm);
+            var _h2 = height[_rdl];
+
+            var _color = _palette[_type_off + (_h2 - _h1 + 8)];
+            _colors[_pos] = _color;
+            _pixels[_pos] = (colour_get_red(_color) << _rs)
+                          | (colour_get_green(_color) << _gs)
+                          | (colour_get_blue(_color) << _bs)
+                          | (255 << _as);
+        }
+
+        minimap_colors_cache = _colors;
+        minimap_pixels_cache = _pixels;
+    };
+
     static init_tiles = function(_generator) {
         /* SPEED, not behaviour. The six accessors are one-line array reads
            wrapped in struct methods, and calling them per tile is close to
@@ -822,6 +921,12 @@ function Map(_geom) constructor {
     /* Change the height of a map position. */
     static set_height = function(_pos, _height) {
         height[_pos] = _height;
+
+        /* The minimap shades a tile by comparing heights, so this invalidates
+           its colours. Levelling ground for a building is the only thing that
+           reaches here after generation, and the cache is rebuilt once on the
+           next minimap open rather than per changed tile. */
+        invalidate_minimap_cache();
 
         /* Mark landscape dirty */
         for (var _d = Direction.right; _d <= Direction.up; _d++) {
