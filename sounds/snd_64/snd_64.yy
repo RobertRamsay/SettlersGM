@@ -10,7 +10,7 @@
   "compression":0,
   "compressionQuality":4,
   "conversionMode":0,
-  "duration":0.4235,
+  "duration":0.42351475,
   "exportDir":"",
   "name":"snd_64",
   "parent":{

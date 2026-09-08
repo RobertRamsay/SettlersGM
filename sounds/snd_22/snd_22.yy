@@ -10,7 +10,7 @@
   "compression":0,
   "compressionQuality":4,
   "conversionMode":0,
-  "duration":0.17825,
+  "duration":0.17825396,
   "exportDir":"",
   "name":"snd_22",
   "parent":{

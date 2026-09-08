@@ -10,7 +10,7 @@
   "compression":0,
   "compressionQuality":4,
   "conversionMode":0,
-  "duration":0.14625,
+  "duration":0.1462585,
   "exportDir":"",
   "name":"snd_60",
   "parent":{
