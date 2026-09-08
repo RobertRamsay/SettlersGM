@@ -45,6 +45,11 @@ function popup_c_init_tables() {
     Action.game_end_menu,     112, 126, 16, 16,
     -1
   ];
+  /* Supreme victory: no tick, nothing to play on with. */
+  global.popup_c_clk_game_end_final = [
+    Action.game_end_menu,     112, 126, 16, 16,
+    -1
+  ];
 
   global.popup_c_clk_mine_building = [
     Action.build_stonemine, 16, 8, 33, 65,
@@ -1403,7 +1408,16 @@ function popup_handle_box_options_clk(_popup, _cx, _cy) {
 
 function popup_handle_game_end_clk(_popup, _cx, _cy) {
   popup_c_init_tables();
-  popup_handle_clickmap(_popup, _cx, _cy, global.popup_c_clk_game_end);
+  var _result = 0;
+  var _game = _popup.interface.get_game();
+  if (_game != undefined) {
+    _result = _game.game_over;
+  }
+  if (popup_game_end_can_continue(_result)) {
+    popup_handle_clickmap(_popup, _cx, _cy, global.popup_c_clk_game_end);
+  } else {
+    popup_handle_clickmap(_popup, _cx, _cy, global.popup_c_clk_game_end_final);
+  }
 }
 
 function popup_handle_mine_building_clk(_popup, _cx, _cy) {

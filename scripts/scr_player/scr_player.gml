@@ -29,7 +29,10 @@ enum MessageType {
        format stores these as plain integers, so new kinds are added above that
        range rather than inserted into it. */
     game_won = 20,
-    game_lost = 21
+    game_lost = 21,
+    /* Every enemy building and knight gone, after the castles: the second,
+       final tier of victory. See Game.check_game_over. */
+    game_supreme = 22
 }
 
 /// Port of Message: {type, pos, data}

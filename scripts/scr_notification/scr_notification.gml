@@ -115,11 +115,15 @@ function notification_init_tables() {
         { type: MessageType.game_won,
           decoration: NOTIFICATION_SHOW_OPPONENT,
           icon: 0,
-          text: "Your enemies\nare defeated.\nThe land is yours" },
+          text: "The enemy castle\nhas fallen.\nThe land is yours" },
         { type: MessageType.game_lost,
           decoration: NOTIFICATION_SHOW_OPPONENT,
           icon: 0,
-          text: "Your settlement\nis destroyed.\nYou have lost" },
+          text: "Your castle\nhas fallen.\nYou have lost" },
+        { type: MessageType.game_supreme,
+          decoration: NOTIFICATION_SHOW_OPPONENT,
+          icon: 0,
+          text: "Nothing of the\nenemy remains.\nSupreme victory" },
         { type: MessageType.none, decoration: 0, icon: 0, text: undefined }
     ];
 

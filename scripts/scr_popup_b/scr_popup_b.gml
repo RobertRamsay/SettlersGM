@@ -1292,81 +1292,95 @@ function popup_draw_save_box(_popup) {
 }
 
 /// Not in Freeserf, which declared TypeGameEnd and never drew it. The result of
-/// the game, the faces of everyone who was in it, and the two things worth
-/// doing next.
+/// the game over one of the original's story pictures, and what to do next.
 ///
-/// Everything is sized around the popup's 128x144 content area. A player face
-/// is a 48x72 colour block with a ~32x64 portrait inset 8px into it, so two sit
-/// side by side comfortably and three do not - at three the colour blocks are
-/// drawn 40 wide instead of 48, which tiles them edge to edge across the full
-/// 120px while the portraits, being narrower, still stand clear of each other.
-function popup_draw_game_end_box(_popup) {
-    _popup.draw_box_background(BackgroundPattern.striped_green);
+/// The pictures are the Amiga game's own art_box set, 128x144 - exactly the
+/// popup's content area, which is no coincidence: that is what they were
+/// drawn for. The title and the choice sit on two dark bands over the top and
+/// bottom of the picture so the lettering reads whatever is behind it.
+///
+/// Tiers (Game.game_over): 1 = every enemy castle has fallen, 3 = nothing of
+/// the enemy is left, 2 = our castle has fallen. In a numbered mission the
+/// titles are MISSION COMPLETE and MISSION COMPLETE+ (the plus meaning all of
+/// them, not just the castle), in a custom game VICTORY and SUPREME VICTORY.
+/// Tiers 1 and 2 offer to play on or leave; tier 3 only to leave, because
+/// there is nothing left on the map to play against.
+#macro GAME_END_ART_VICTORY 0
+#macro GAME_END_ART_DEFEAT 1
+#macro GAME_END_ART_SUPREME 10
 
+/// Does this result offer a "play on" choice. Shared by the draw and the
+/// click handler so the tick cannot be drawn where it does nothing.
+function popup_game_end_can_continue(_result) {
+    return (_result == 1) || (_result == 2);
+}
+
+function popup_draw_game_end_box(_popup) {
     var _game = _popup.interface.get_game();
     var _result = 0;
-    var _opponents = [];
+    var _mission = false;
     if (_game != undefined) {
         _result = _game.game_over;
-        _opponents = _game.game_over_opponents;
+        _mission = (progress_index_for_game(_game) >= 0);
     }
 
-    /* Titles are centred by eye on the 16 column content grid: 8 characters
-       starting at column 4 lands in the middle. Drawn at row 0 so the bottom of
-       the lettering clears the top of the portrait block at 21. */
+    var _art = GAME_END_ART_VICTORY;
+    if (_result == 2) {
+        _art = GAME_END_ART_DEFEAT;
+    } else if (_result == 3) {
+        _art = GAME_END_ART_SUPREME;
+    }
+
+    /* The picture fills the content area: origin (8, 9), as draw_popup_icon
+       places column 0 row 0. */
+    gfx_draw_sprite(8, 9, Asset.art_box, _art);
+
+    /* Bands. gfx_fill_rect takes raw popup coordinates - see
+       popup_draw_game_end_face, which draws its colour block the same way. */
+    var _band = make_colour_rgb(0x10, 0x10, 0x10);
+    gfx_fill_rect(8, 9, 128, 26, _band);       /* rows 2 and 12: y 11..29 */
+    gfx_fill_rect(8, 9 + 108, 128, 36, _band); /* text at 114, icons at 128 */
+
+    /* Titles. The content grid is 16 columns of 8px, so "MISSION COMPLETE" is
+       exactly one row and the plus needs the second; the two-line form is
+       used for both mission titles so they sit the same. Everything is
+       centred by column count. */
     if (_result == 1) {
-        _popup.draw_green_string(4, 0, "VICTORY");
+        if (_mission) {
+            _popup.draw_green_string(4, 2, "MISSION");
+            _popup.draw_green_string(4, 12, "COMPLETE");
+        } else {
+            _popup.draw_green_string(4, 7, "VICTORY");
+        }
+    } else if (_result == 3) {
+        if (_mission) {
+            _popup.draw_green_string(4, 2, "MISSION");
+            _popup.draw_green_string(3, 12, "COMPLETE+");
+        } else {
+            _popup.draw_green_string(4, 2, "SUPREME");
+            _popup.draw_green_string(4, 12, "VICTORY");
+        }
     } else if (_result == 2) {
-        _popup.draw_green_string(4, 0, "DEFEATED");
+        if (_mission) {
+            _popup.draw_green_string(4, 2, "MISSION");
+            _popup.draw_green_string(5, 12, "FAILED");
+        } else {
+            _popup.draw_green_string(4, 7, "DEFEATED");
+        }
     } else {
-        _popup.draw_green_string(3, 0, "IN PROGRESS");
+        _popup.draw_green_string(3, 7, "IN PROGRESS");
     }
 
-    var _count = array_length(_opponents);
-    if (_count > 3) {
-        _count = 3;    /* three is the most a mission can field against you */
+    /* The choice. Tick = play on, exit = back to the start screen, as those
+       two icons mean everywhere else in the game. A supreme victory has
+       nothing left to play on with, so it gets only the exit. */
+    if (popup_game_end_can_continue(_result)) {
+        _popup.draw_green_string(4, 114, "Play on?");
+        _popup.draw_popup_icon(0, 128, 288);  /* Checkbox: carry on playing */
+    } else {
+        _popup.draw_green_string(3, 114, "The end");
     }
-
-    /* Column of the first face and the pitch between them, per count.
-       The colour block is drawn at 8 * column while everything else in a popup
-       is drawn at 8 * column + 8, so a portrait on what looks like the middle
-       column actually sits 8px left of centre. Each of these is therefore one
-       column further right than the arithmetic alone suggests, which is the
-       8px shift, not a fudge. One face: block 48..96, centred on 72. Two:
-       16..64 and 80..128, the pair centred on 72. Three: 40-wide blocks tiled
-       from 8 to 128, centred on 68 - the closest an 8px grid gets. */
-    var _first = 6;
-    var _pitch = 0;
-    var _block = 48;
-    if (_count == 2) {
-        _first = 2;
-        _pitch = 8;
-    } else if (_count >= 3) {
-        _first = 1;
-        _pitch = 5;
-        _block = 40;
-    }
-
-    for (var _i = 0; _i < _count; _i++) {
-        popup_draw_game_end_face(_popup, _first + _i * _pitch, 16,
-                                 _opponents[_i], _block);
-    }
-
-    if (_result == 1) {
-        _popup.draw_green_string(1, 96, "Land is yours");
-    } else if (_result == 2) {
-        _popup.draw_green_string(1, 96, "You are beaten");
-    }
-
-    /* One question, not two labels. "Play on" over the tick and "Menu" over the
-       exit read as a single phrase - "PLAY ON MENU" - because they sit on the
-       same line. The two icons below already say which is which: the tick is
-       yes and the exit is the way out, exactly as they are everywhere else in
-       the game. */
-    _popup.draw_green_string(4, 114, "Play on?");
-
-    _popup.draw_popup_icon(0, 128, 288);  /* Checkbox: carry on playing */
-    _popup.draw_popup_icon(14, 128, 60);  /* Exit: back to the start screen */
+    _popup.draw_popup_icon(14, 128, 60);      /* Exit: back to the start screen */
 }
 
 /// One opponent portrait. Same idea as PopupBox.draw_player_face, but the width

@@ -152,24 +152,25 @@ function Game() constructor {
     tutorial_level = 0;
     mission_level = 0;
 
-    /* Win / loss. 0 = still playing, 1 = won, 2 = lost. The result is announced
-       once through the notification system and play carries on, so this is only
-       here to stop it being announced again every second. game_over_seen
-       records which players have ever had anything, because at the start of a
-       mission nobody has placed a castle yet and every player would otherwise
-       read as already finished. */
-    game_over = 0;
-    game_over_counter = 0;
-    game_over_seen = array_create(GAME_MAX_PLAYER_COUNT, false);
+    /* Win / loss. 0 = still playing, 1 = won (every enemy castle has fallen),
+       2 = lost (our own castle has fallen), 3 = supreme victory (after 1,
+       nothing of the enemy is left at all - no building, no knight). Each is
+       announced once through the notification system and shown once in the
+       end box; play carries on after 1, and there is nothing left to play
+       after 3. game_over_seen records which players have ever had a castle,
+       because at the start of a mission nobody has placed one yet and every
+       player would otherwise read as already beaten. */
     /* Which mission this is, so a win can tick it off in the start screen's
        list. -1 for a custom game or a tutorial, which have nothing to tick.
        GameInitBox sets it when it starts a mission. It serialises with the rest
        of the Game, so finishing a mission resumed from a save still counts, and
        a save written before this field existed simply comes back as -1. */
     mission_index = -1;
-    /* Set once the result has been put on screen, so the end box opens exactly
-       once however long play carries on afterwards. */
-    game_over_shown = false;
+    /* The value of game_over that has been put on screen, so each tier of
+       result opens the end box exactly once however long play carries on
+       afterwards. Was a bool: a save from then reads true as 1, which is the
+       tier it had shown. */
+    game_over_shown = 0;
     /* Who the end box has to show: every opponent that was in the game, in
        player order. Captured when the game ends because players can be gone
        from the collection by the time anyone looks. */
@@ -991,26 +992,32 @@ function Game() constructor {
 
     /// Has anyone won or lost?
     ///
-    /// A player is finished when they have neither a building that is still
-    /// standing nor a knight left alive. Buildings under construction count, and
-    /// so do knights sitting inside a hut; a building that is burning down does
-    /// not, because it is already gone.
+    /// Two tiers of victory and one of defeat, all decided on castles first:
     ///
-    /// The result is announced through the normal notification system and the
-    /// game carries on - nothing is paused or closed - so this can never
-    /// interrupt a session.
+    ///   1 VICTORY / MISSION COMPLETE   every enemy castle has fallen. The
+    ///     original ended a mission here. The mission is ticked off and the
+    ///     end box offers to play on or leave.
+    ///   3 SUPREME VICTORY / COMPLETE+  after 1, nothing of the enemy is left:
+    ///     no building standing (under construction counts, burning does not)
+    ///     and no knight alive (knights inside huts count). The end box only
+    ///     offers to leave, because there is nothing left to play.
+    ///   2 DEFEATED                     our own castle has fallen.
+    ///
+    /// Announced through the normal notification system; the game carries on -
+    /// nothing is paused or closed - so this can never interrupt a session.
     ///
     /// game_over_seen is what stops it firing at t=0: at the start of a mission
-    /// nobody has placed a castle, so every player would read as finished. A
-    /// player only becomes eligible once they have actually had something, and
-    /// an opponent who has not started yet holds the victory check off rather
-    /// than counting as beaten.
+    /// nobody has placed a castle, so every player would read as beaten. A
+    /// player only becomes eligible once they have actually had a castle, and
+    /// an opponent who has not placed one yet holds the check off rather than
+    /// counting as beaten.
     static check_game_over = function() {
-        if (game_over != 0) {
-            return;
+        if (game_over == 2 || game_over == 3) {
+            return;         /* nothing further can happen */
         }
 
         var _bld = array_create(GAME_MAX_PLAYER_COUNT, 0);
+        var _castles = array_create(GAME_MAX_PLAYER_COUNT, 0);
         var _knights = array_create(GAME_MAX_PLAYER_COUNT, 0);
         var _castle_pos = array_create(GAME_MAX_PLAYER_COUNT, 0);
 
@@ -1026,6 +1033,7 @@ function Game() constructor {
             }
             _bld[_o] += 1;
             if (_b.get_type() == BuildingType.castle) {
+                _castles[_o] += 1;
                 _castle_pos[_o] = _b.get_position();
             }
         }
@@ -1045,7 +1053,7 @@ function Game() constructor {
         }
 
         for (var _p = 0; _p < GAME_MAX_PLAYER_COUNT; _p++) {
-            if (_bld[_p] > 0 || _knights[_p] > 0) {
+            if (_castles[_p] > 0) {
                 game_over_seen[_p] = true;
             }
         }
@@ -1058,7 +1066,10 @@ function Game() constructor {
             return;
         }
 
-        if (game_over_seen[_me] && _bld[_me] == 0 && _knights[_me] == 0) {
+        /* Defeat: our castle has fallen. Mirrors the win rule and the
+           original, which ended the mission on the castle. Only from play -
+           a player who has already won is not then told he has lost. */
+        if (game_over == 0 && game_over_seen[_me] && _castles[_me] == 0) {
             var _victor = _me;
             for (var _v = 0; _v < GAME_MAX_PLAYER_COUNT; _v++) {
                 if (_v != _me && (_bld[_v] > 0 || _knights[_v] > 0)) {
@@ -1069,21 +1080,23 @@ function Game() constructor {
             game_over = 2;
             game_over_opponents = collect_opponents(_me);
             _human.add_notification(MessageType.game_lost, _castle_pos[_me], _victor);
-            show_debug_message("game: player 0 has nothing left - defeat");
+            show_debug_message("game: player 0 has lost his castle - defeat");
             return;
         }
 
+        /* Victory tiers. First every enemy castle, then everything else. */
         var _beaten = -1;
+        var _castles_left = 0;
+        var _anything_left = 0;
         for (var _q = 0; _q < GAME_MAX_PLAYER_COUNT; _q++) {
             if (_q == _me || !players.exists(_q)) {
                 continue;
             }
             if (!game_over_seen[_q]) {
-                return;      /* this one has not started yet */
+                return;      /* this one has not placed a castle yet */
             }
-            if (_bld[_q] > 0 || _knights[_q] > 0) {
-                return;      /* still standing */
-            }
+            _castles_left += _castles[_q];
+            _anything_left += _bld[_q] + _knights[_q];
             _beaten = _q;
         }
 
@@ -1091,29 +1104,46 @@ function Game() constructor {
             return;          /* no opponents at all, nothing to win */
         }
 
-        game_over = 1;
-        game_over_opponents = collect_opponents(_me);
-        _human.add_notification(MessageType.game_won, _castle_pos[_me], _beaten);
+        if (game_over == 0) {
+            if (_castles_left > 0) {
+                return;      /* an enemy castle still stands */
+            }
 
-        /* Tick the mission off in the start screen's list. Only a win counts,
-           and only a real mission has an index to tick.
+            game_over = 1;
+            game_over_opponents = collect_opponents(_me);
+            _human.add_notification(MessageType.game_won, _castle_pos[_me], _beaten);
 
-           A game can legitimately have no index: a custom game or a tutorial,
-           or a save written before mission_index existed, which comes back as
-           the constructor's -1. That last one is worth saying out loud, because
-           from the player's seat it looks like winning simply failed to
-           register. */
-        var _tick = progress_index_for_game(self);
-        if (_tick >= 0) {
-            progress_mark_mission_done(_tick);
-        } else {
-            show_debug_message("game: won, but nothing identifies this as a " +
-                               "numbered mission (custom game, tutorial, or a " +
-                               "save from before the mission list was tracked) " +
-                               "- nothing to mark complete");
+            /* Tick the mission off in the start screen's list. Only a win
+               counts, and only a real mission has an index to tick.
+
+               A game can legitimately have no index: a custom game or a
+               tutorial, or a save written before mission_index existed, which
+               comes back as the constructor's -1. That last one is worth
+               saying out loud, because from the player's seat it looks like
+               winning simply failed to register. */
+            var _tick = progress_index_for_game(self);
+            if (_tick >= 0) {
+                progress_mark_mission_done(_tick);
+            } else {
+                show_debug_message("game: won, but nothing identifies this as a " +
+                                   "numbered mission (custom game, tutorial, or a " +
+                                   "save from before the mission list was tracked) " +
+                                   "- nothing to mark complete");
+            }
+
+            show_debug_message("game: every enemy castle has fallen - victory");
+            /* Fall through to the supreme check: burning the last castle can
+               be the last thing there was. */
         }
 
-        show_debug_message("game: every opponent is finished - victory");
+        if (_anything_left > 0) {
+            return;          /* something of the enemy still stands */
+        }
+
+        game_over = 3;
+        game_over_opponents = collect_opponents(_me);
+        _human.add_notification(MessageType.game_supreme, _castle_pos[_me], _beaten);
+        show_debug_message("game: nothing of the enemy remains - supreme victory");
     };
 
     /// Every player except `_me`, in player order. Read once when the game ends

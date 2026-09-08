@@ -74,14 +74,15 @@ function interface_init_tables() {
     ];
     // const int msg_category[] (Interface::update)
     // Indexed by MessageType, so it MUST carry an entry for every enumerator.
-    // Freeserf's own table stops at call_to_stock (19); game_won (20) and
-    // game_lost (21) are ours. They go in category 0, which the default config
-    // (0x39) has switched on and which no message-count setting turns off -
-    // losing the result of the game to a verbosity option would be absurd.
+    // Freeserf's own table stops at call_to_stock (19); game_won (20),
+    // game_lost (21) and game_supreme (22) are ours. They go in category 0,
+    // which the default config (0x39) has switched on and which no
+    // message-count setting turns off - losing the result of the game to a
+    // verbosity option would be absurd.
     global.interface_msg_category = [
         -1, 5, 5, 5, 4, 0, 4, 3, 4, 5,
         5, 5, 4, 4, 4, 4, 0, 0, 0, 0,
-        0, 0
+        0, 0, 0
     ];
 }
 
@@ -1272,11 +1273,13 @@ function Interface(_game = undefined) : GuiObject() constructor {
         /* Not in Freeserf: put the result on screen the moment the game ends.
            game_over_shown lives on the Game rather than here so it survives
            save and load, and so a game whose result has already been seen never
-           reopens the box when it is loaded back. The box itself does not stop
-           play - closing it leaves the finished world running, which is what
-           the "notification and carry on" choice was about. */
-        if (game.game_over != 0 && !game.game_over_shown) {
-            game.game_over_shown = true;
+           reopens the box when it is loaded back. It holds the TIER shown, so
+           the box opens again when a castle-tier victory becomes a supreme one.
+           The box itself does not stop play - closing it leaves the finished
+           world running, which is what the "notification and carry on" choice
+           was about. */
+        if (game.game_over != 0 && game.game_over_shown != game.game_over) {
+            game.game_over_shown = game.game_over;
 
             /* Tick the mission off here as well as in check_game_over. Not
                belt and braces for its own sake: check_game_over returns
