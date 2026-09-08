@@ -20,9 +20,30 @@
 // tinted blue and drawn faded so the boat route sits under the surface instead
 // of reading as a white mountain road. Both are safe to tweak by hand; the
 // tint is plain r,g,b (GML swaps the order internally). See draw_path_segment.
-/* Wind has no volume rule in the original - only a 1 or 2 written to a byte
-   whose meaning is not obvious - so this is the one number here that is a
-   judgement rather than a reading. Low, because it plays constantly. */
+/* The 1 or 2 the original writes for the wind turned out to be a volume after
+   all: it goes into the base-volume byte of the sound's row in the table at
+   0x2e33e, the same field the water's 2..32 goes into. So the original puts
+   the wind at 1 or 2 out of Paula's 64 while a typical effect sits at 25 -
+   about a twelfth of it. 0.08 is that ratio on our scale, where a typical
+   effect is 1, and AMBIENT_WIND_LULL is the coin toss between the 1 and the 2.
+
+   It is meant to be almost subliminal. If it is so far under that it cannot be
+   heard on your speakers at all, this is the one number to raise. */
+#macro AMBIENT_WIND_GAIN  0.08
+#macro AMBIENT_WIND_LULL  0.5
+
+/* Wind and water are seconds long at the original's rates, so each is faded up
+   at the start and back down at the end instead of being switched on. This is
+   ours; Paula is handed a level and holds it. */
+#macro AMBIENT_WIND_FADE_MS   700
+#macro AMBIENT_WATER_FADE_MS  900
+
+/* How long from the START of one gust until the wind may blow again - the
+   sample itself is about two and a half seconds of that, so this leaves two to
+   seven seconds of quiet between gusts. Also ours: the original's wind runs
+   nose to tail. */
+#macro AMBIENT_WIND_GAP_MS       4500
+#macro AMBIENT_WIND_GAP_RAND_MS  5000
 /* How often ambience fires. The Amiga's own values are in the right-hand
    column; each of ours is a QUARTER as often, which is two more bits in the
    mask. The original runs at the Amiga's frame rate and through its own
@@ -39,8 +60,6 @@
 #macro AMBIENT_BIRD_MASK   0xFFF     /* Amiga 0x3FF:  trees out of 1024 */
 #macro AMBIENT_WATER_MASK  0x3F00    /* Amiga 0xF00:  one frame in 16   */
 #macro AMBIENT_WIND_MASK   0xF000    /* Amiga 0x3000: one frame in 4    */
-
-#macro AMBIENT_WIND_GAIN  0.25
 
 #macro PATH_WATER_ALPHA 0.7
 #macro PATH_WATER_TINT make_colour_rgb(200, 240, 255)
@@ -659,6 +678,10 @@ function Viewport(_interface, _map) : GuiObject() constructor {
        once a frame by ambient_step. */
     ambient_trees = 0;
     ambient_water = 0;
+
+    /* Earliest current_time the wind may blow again, so that gusts have gaps
+       between them instead of running end to end. Set when a gust starts. */
+    ambient_wind_wait = 0;
 
     /* Which buildings this viewport currently has a looping sound going for,
        indexed by building index.
@@ -3309,27 +3332,64 @@ function Viewport(_interface, _map) : GuiObject() constructor {
             return;
         }
 
+        sfx_fade_step();
+
         var _rnd = irandom(65535);
 
         /* Birds: chance is the tree count out of AMBIENT_BIRD_MASK + 1, per
-           frame. */
+           frame. Which of the four chirps is the original's (rnd & $C), and so
+           now are the pitch and the level, both re-rolled on every single play
+           - period 205 +/-31 and volume 5 +/-15, from the table in scr_audio.
+           That randomised period is why no two tweets are the same note, and
+           it is a note DOWN from the top one, never above it.
+
+           No envelope: the chirps are 55 to 420 ms long and a fade on a tweet
+           is a tweet with a bite out of it. */
         if (ambient_trees > 0 && (_rnd & AMBIENT_BIRD_MASK) <= ambient_trees) {
-            play_sound_at_view(Sfx.bird_chirp0 + (_rnd & 0x0C), 1);
+            var _chirp = Sfx.bird_chirp0 + (_rnd & 0x0C);
+            play_sound_at_view(_chirp, sfx_amiga_level_for(_chirp));
         }
 
-        /* Water: one in sixteen, louder the more water is in view. The
-           original's 2..32 is out of Paula's 64, so it is halved to a gain. */
+        /* Water: one in sixteen, louder the more water is in view - which is
+           the original's own rule, and is what makes it swell as you scroll
+           onto a lake. At the table's rate it is three and a half seconds
+           long, so it is given an envelope rather than being switched on and
+           off at full level. */
         if (ambient_water > 0 && (_rnd & AMBIENT_WATER_MASK) == 0) {
             var _vol = ambient_water >> 2;
             if (_vol > 30) {
                 _vol = 30;
             }
-            play_sound_at_view(Sfx.water, (_vol + 2) / 64);
+            play_sound_at_view_fading(Sfx.water, (_vol + 2) / 64,
+                                      AMBIENT_WATER_FADE_MS);
         }
 
-        /* Wind: one in four, everywhere, quietly. */
-        if ((_rnd & AMBIENT_WIND_MASK) == 0) {
-            play_sound_at_view(Sfx.wind, AMBIENT_WIND_GAIN);
+        /* Wind: everywhere, and barely there. The original writes a volume of
+           1 or 2 out of 64 at 0x94f8 - a coin toss between two whispers, which
+           is the only gust it has - so the coin toss is kept and scaled onto
+           AMBIENT_WIND_GAIN. Its own irandom rather than a bit of _rnd, whose
+           low bits are already deciding whether a bird sings: a gust that only
+           happens when a bird does is not a gust.
+
+           There is no mountain rule to find. The wind branch at 0x94f0 has no
+           condition on it at all - no terrain, no height, nothing. Wind is the
+           bed the other two sit on, and the only things that vary are that 1
+           or 2 and the period. The rise and fall is ours. */
+        if (current_time >= ambient_wind_wait
+                && (_rnd & AMBIENT_WIND_MASK) == 0) {
+            var _gust = AMBIENT_WIND_GAIN;
+            if (irandom(1) == 0) {
+                _gust = AMBIENT_WIND_GAIN * AMBIENT_WIND_LULL;
+            }
+            if (play_sound_at_view_fading(Sfx.wind, _gust,
+                                          AMBIENT_WIND_FADE_MS)) {
+                /* A gust is nearly three seconds long and asked for several
+                   times a second, so without a gap afterwards the wind simply
+                   never stops - it just re-fades. The gap is what makes it
+                   come and go. */
+                ambient_wind_wait = current_time + AMBIENT_WIND_GAP_MS
+                                  + irandom(AMBIENT_WIND_GAP_RAND_MS);
+            }
         }
     };
 
@@ -3347,6 +3407,20 @@ function Viewport(_interface, _map) : GuiObject() constructor {
             return;
         }
         sfx_start_once(_asset, _gain, 0);
+    };
+
+    /// The same, with an envelope: up over _fade_ms, and back down over the
+    /// same at the end of the sample. For wind and water, which are seconds
+    /// long and are weather rather than events.
+    ///
+    /// Returns true if it actually started, which is how the wind knows a gust
+    /// began and that it owes the map a gap afterwards.
+    static play_sound_at_view_fading = function(_sound, _gain, _fade_ms) {
+        var _asset = sfx_asset_for(_sound);
+        if (_asset < 0) {
+            return false;
+        }
+        return sfx_start_fading(_asset, _gain, 0, _fade_ms);
     };
 
     // ------------------------------------------------------------ coordinates

@@ -311,21 +311,97 @@ function sfx_start(_asset, _gain, _pan, _force) {
         audio_sound_gain(_handle, _gain * SFX_BASE_GAIN, 0);
     }
 
-    /* The Amiga sounds are played back at the rate the Amiga played them.
-       See SFX_AMIGA_PITCH: they were extracted at 8000 Hz and the hardware
-       ran them at 28604, so without this every sound in the game is more than
-       three semitone-octaves low and three times too long. Only the sounds
-       that came out of the Amiga data are corrected - the cheat's own samples
-       were generated at 44100 and are already right. */
-    if (_handle >= 0 && sfx_is_amiga_asset(_asset)) {
-        audio_sound_pitch(_handle, SFX_AMIGA_PITCH);
+    /* The Amiga sounds are played back at the rate and with the per-play
+       randomisation the original gives them - see the table at 0x2e33e in the
+       notes on sfx_amiga_pitch_for. Only the sounds that came out of the Amiga
+       data are touched; the cheat's own samples were generated at 44100 and
+       are already right. */
+    if (_handle >= 0) {
+        var _id = sfx_amiga_id_for_asset(_asset);
+        if (_id >= 0) {
+            audio_sound_pitch(_handle, sfx_amiga_pitch_for(_id));
+        }
     }
 
     global.sfx_voice_handle[_slot] = _handle;
     global.sfx_voice_gain[_slot] = _gain;
     global.sfx_voice_asset[_slot] = _asset;
+    global.sfx_voice_fade_at[_slot] = 0;
+    global.sfx_last_slot = _slot;
     sfx_note_played(_asset);
     return true;
+}
+
+/// sfx_start_once, with an envelope: up over _fade_ms at the start, and back
+/// down over the same at the end.
+///
+/// The original has no fade - Paula is handed a volume and that is the volume
+/// until the sample ends. This is ours, and it is here because the ambience is
+/// the only thing in the game long enough to need it: a second and a half of
+/// wind that begins and ends at full level announces itself twice, which is
+/// exactly what makes it sound like a sound effect rather than weather.
+///
+/// The fade-out cannot be set up front (there is no scheduled gain in GML), so
+/// the moment to start it is worked out here from the sample's length and this
+/// play's pitch, and sfx_fade_step does it when that moment arrives.
+///
+/// Returns true if it was played.
+function sfx_start_fading(_asset, _gain, _pan, _fade_ms) {
+    if (!sfx_start_once(_asset, _gain, _pan)) {
+        return false;
+    }
+
+    var _slot = global.sfx_last_slot;
+    var _handle = global.sfx_voice_handle[_slot];
+    if (_handle < 0) {
+        return false;
+    }
+
+    /* Voice gain is the emitter's; this is the sound instance's own, and the
+       two multiply. Nothing else in the mixer touches it, so the envelope
+       cannot fight the level the caller asked for. */
+    audio_sound_gain(_handle, 0, 0);
+    audio_sound_gain(_handle, 1, _fade_ms);
+
+    var _length_ms = audio_sound_length(_asset) * 1000;
+    var _pitch = audio_sound_get_pitch(_handle);
+    if (_pitch > 0) {
+        _length_ms = _length_ms / _pitch;
+    }
+
+    var _start_at = _length_ms - _fade_ms;
+    if (_start_at < 0) {
+        _start_at = 0;
+    }
+
+    global.sfx_voice_fade_at[_slot] = current_time + _start_at;
+    global.sfx_voice_fade_ms[_slot] = _fade_ms;
+    return true;
+}
+
+/// Take down any voice that has reached the end of its envelope. Called once a
+/// frame from Viewport.ambient_step, which is the only thing that asks for a
+/// fade; a voice with no envelope has fade_at 0 and is skipped.
+function sfx_fade_step() {
+    audio_get_instance();
+    var _now = current_time;
+    for (var _i = 0; _i < SFX_VOICES; _i++) {
+        if (global.sfx_voice_fade_at[_i] <= 0) {
+            continue;
+        }
+        if (_now < global.sfx_voice_fade_at[_i]) {
+            continue;
+        }
+        global.sfx_voice_fade_at[_i] = 0;
+        var _handle = global.sfx_voice_handle[_i];
+        if (_handle < 0) {
+            continue;
+        }
+        if (!audio_is_playing(_handle)) {
+            continue;
+        }
+        audio_sound_gain(_handle, 0, global.sfx_voice_fade_ms[_i]);
+    }
 }
 
 /// Sound asset for a Freeserf sound index, or -1 if the Amiga data has no such
@@ -340,47 +416,182 @@ function sfx_asset_for(_id) {
     return -1;
 }
 
-/// Playback rate correction for the Amiga sound effects.
+/// Playback rate and level for the Amiga sound effects.
 ///
-/// Read off the original, not guessed. data/TheSettlers sets every one of
-/// Paula's four channel period registers to the same hardcoded value:
+/// The missing table turned up. The previous note here said the game plays
+/// every effect at 28604 Hz, because data/TheSettlers writes
 ///
 ///     move.w #$7c, $dff0a6      (and $dff0b6, $dff0c6, $dff0d6)
 ///
-/// $7c is 124, and on PAL the sample rate is 3546895 / period, so the game
-/// plays all of its effects at 28604 Hz. Ours were extracted from the same
-/// data as 8000 Hz WAVs - the sample COUNTS match the raw Amiga bytes exactly,
-/// so nothing was resampled, only mislabelled. Everything has therefore been
-/// playing at 8000/28604 of the intended pitch, and lasting the reciprocal of
-/// that: a bird chirp meant to be a 33 ms tweet came out a 119 ms warble, and
-/// the whole game sounded like a tape running slow.
+/// and 3546895 / 124 is 28604. It also said, in the last line, that the #$7c
+/// block might be an init while the effects take their period from a table set
+/// elsewhere, and that if that table ever turned up it would be the thing to
+/// believe. It turned up.
 ///
-/// The register therefore says 28604 Hz, and 28604 / 8000 would be 3.5755.
+/// $188(a5) holds a pointer to a table at 0x2e33e: sixteen bytes per sound
+/// index, and the ambient routine at 0x9494 writes into it (the water volume
+/// at $56c, the wind volume at $58c) before asking for the sound. The fields
+/// are laid out by the code at 0x2236, which is run every time a sound is
+/// taken off the queue:
 ///
-/// SFX_AMIGA_RATE is set to HALF that - 14302 Hz, a pitch of 1.788 - because
-/// that is what sounds right, and it is exactly one octave down rather than
-/// some arbitrary taste correction. A factor of exactly two is suspicious
-/// enough that there is probably a second mechanism at work: the #$7c block
-/// may be an init for one purpose while the effects take their period from a
-/// table set elsewhere. A scan for other period writes turned up nothing but
-/// false positives, so that is a guess and is not claimed as a finding - the
-/// one thing actually read off the hardware is the 28604 above.
+///     +0  long   sample pointer
+///     +4  word   length in words
+///     +6  word   period      <- WRITTEN each play: (rnd & +$A) + word at +8
+///     +8  word   base period
+///     +A  byte   period random mask
+///     +B  byte   volume      <- WRITTEN each play: (rnd & +$D) + byte at +C
+///     +C  byte   base volume
+///     +D  byte   volume random mask
 ///
-/// If the missing table ever turns up, this is the single number to change.
-#macro SFX_AMIGA_RATE   14302
-#macro SFX_WAV_RATE     8000
+/// and 0x22a0 hands +6 to AUDxPER and +B to AUDxVOL. So every sound has its
+/// own rate AND its own level, and both are re-randomised on every single
+/// play. That is why the birds never sound like the same bird twice.
+///
+/// The table is not a guess: for all thirty-nine sounds we ship, its length
+/// field matches our WAV's sample count exactly, to the byte.
+///
+/// What it says, against the 8000 Hz our WAVs are labelled at:
+///
+///     most of the game   period 412 +/-31   8007..8609 Hz   pitch ~1.05
+///     bird chirps        period 205 +/-31  15029..17302 Hz  pitch 1.88..2.16
+///     bird chirp 78      period 251 +/-31  12578..14131 Hz
+///     water              period 831 +/-127  3702..4268 Hz   pitch ~0.50
+///     wind               period 533 +/-127  5374..6655 Hz   pitch ~0.75
+///
+/// So the 8000 Hz label was right all along for most of the game, the birds
+/// really are up near two octaves of a tweet, and both 3.58 and the 1.788 that
+/// replaced it were wrong for everything except, by luck, the birds. The #$7c
+/// writes belong to something else - most likely the music or the disk-load
+/// beep - and are not the effects' rate.
+///
+/// Volumes are Paula's 0..64. Most of the game sits at 25 +/-15; the birds at
+/// 5 +/-15, which is why they sit under everything; the wind at the 1 or 2 the
+/// ambient routine writes, which is a whisper.
+///
+/// Setting SFX_AMIGA_TABLE_PITCH to false puts every Amiga sound back on the
+/// old single number, for an A/B.
+#macro SFX_AMIGA_CLOCK  3546895      /* PAL Paula clock: rate = clock / period */
+#macro SFX_WAV_RATE     8000         /* what our extracted WAVs are labelled */
+#macro SFX_AMIGA_VOL_MAX 64          /* Paula's volume range */
+#macro SFX_AMIGA_RATE   14302        /* the old by-ear number, for the A/B */
 #macro SFX_AMIGA_PITCH  (SFX_AMIGA_RATE / SFX_WAV_RATE)
+#macro SFX_AMIGA_TABLE_PITCH true
 
-/// Is this one of the sounds that came out of the Amiga data? The cheat's own
-/// samples were generated at 44100 and must not be touched.
-function sfx_is_amiga_asset(_asset) {
+/// The table itself, one row per sound we ship:
+///
+///     [Freeserf sound index, base period, period mask, base volume, vol mask]
+///
+/// Read straight out of 0x2e33e. Sounds 86 and 88 carry volume 0 because the
+/// ambient routine writes their level in at play time - see ambient_step.
+function sfx_amiga_table_init() {
+    var _rows = [
+        [ 1, 427,   0, 64,  0], [ 2, 427,   0, 48,  0], [ 4, 427,   0, 64,  0],
+        [ 6, 427,   0, 20,  0], [ 8, 220,   0, 25,  0], [10, 412,  31, 25, 15],
+        [14, 412,  31, 25, 15], [18, 412,  31, 25, 15], [22, 412,  31, 25, 15],
+        [26, 412,  31, 29,  7], [28, 396,  63, 23, 15], [30, 420,  15,  9,  7],
+        [32, 396,  63, 25, 15], [34, 1774, 31, 25, 15], [36, 412,  31,  9,  7],
+        [38, 412,  31, 17,  7], [40, 396,  63, 25, 15], [42, 879,  31,  9,  3],
+        [43, 729,  31,  9,  3], [44, 412,  31,  7,  3], [46, 205,  31, 25, 15],
+        [48, 412,  31, 25, 15], [50, 945,  31, 25, 15], [52, 492,  31, 17,  7],
+        [54, 248,   0, 32,  0], [58, 412,  31, 25, 15], [60, 362, 255, 12,  7],
+        [62, 1156, 63,  7,  3], [64, 825,  63,  9,  7], [66, 887,  15,  7,  3],
+        [69, 465,  63, 13,  7], [70, 205,  31,  5, 15], [74, 205,  31,  5, 15],
+        [76, 396,  63, 17,  7], [78, 251,  31,  5, 15], [82, 205,  31,  5, 15],
+        [84, 412,  31,  9,  7], [86, 831, 127,  0,  0], [88, 533, 127,  0,  0]
+    ];
+
+    /* Spread into arrays indexed by the sound number itself, so a lookup is an
+       array read rather than a search, and so nothing depends on the order of
+       global.sound_index_map (which is generated). Period 0 means "not one of
+       ours" and every lookup falls back to leaving the sound alone. */
+    var _size = 0;
+    var _n = array_length(_rows);
+    for (var _i = 0; _i < _n; _i++) {
+        if (_rows[_i][0] >= _size) {
+            _size = _rows[_i][0] + 1;
+        }
+    }
+
+    global.sfx_amiga_period = array_create(_size, 0);
+    global.sfx_amiga_period_rand = array_create(_size, 0);
+    global.sfx_amiga_volume = array_create(_size, 0);
+    global.sfx_amiga_volume_rand = array_create(_size, 0);
+
+    for (var _i = 0; _i < _n; _i++) {
+        var _row = _rows[_i];
+        global.sfx_amiga_period[_row[0]] = _row[1];
+        global.sfx_amiga_period_rand[_row[0]] = _row[2];
+        global.sfx_amiga_volume[_row[0]] = _row[3];
+        global.sfx_amiga_volume_rand[_row[0]] = _row[4];
+    }
+}
+
+/// Freeserf sound index for an asset, or -1 if it did not come out of the
+/// Amiga data. The cheat's own samples were generated at 44100 and must not be
+/// pitched or levelled by any of this.
+function sfx_amiga_id_for_asset(_asset) {
     var _n = array_length(global.sound_assets);
     for (var _i = 0; _i < _n; _i++) {
         if (global.sound_assets[_i] == _asset) {
-            return true;
+            return global.sound_index_map[_i];
         }
     }
-    return false;
+    return -1;
+}
+
+/// Is this one of the sounds that came out of the Amiga data?
+function sfx_is_amiga_asset(_asset) {
+    return (sfx_amiga_id_for_asset(_asset) >= 0);
+}
+
+/// Has the table got a row for this sound number?
+function sfx_amiga_has_row(_id) {
+    if (_id < 0) {
+        return false;
+    }
+    if (_id >= array_length(global.sfx_amiga_period)) {
+        return false;
+    }
+    return (global.sfx_amiga_period[_id] > 0);
+}
+
+/// This play's pitch for sound number _id, period and randomisation as the
+/// original does them.
+///
+/// COSMETIC RANDOMNESS ONLY - irandom(), never game.random_int(). The game's
+/// generator is simulation state, shared tick for tick over the network and
+/// replayed from saves; a bird's pitch must not come out of it.
+function sfx_amiga_pitch_for(_id) {
+    if (!SFX_AMIGA_TABLE_PITCH) {
+        return SFX_AMIGA_PITCH;
+    }
+    if (!sfx_amiga_has_row(_id)) {
+        return SFX_AMIGA_PITCH;
+    }
+    var _period = global.sfx_amiga_period[_id]
+                + (irandom(255) & global.sfx_amiga_period_rand[_id]);
+    return (SFX_AMIGA_CLOCK / _period) / SFX_WAV_RATE;
+}
+
+/// This play's level for sound number _id, as a fraction of the loudest the
+/// table lets that sound be.
+///
+/// Deliberately relative rather than absolute: the original's volumes are out
+/// of Paula's 64 and would rescale the whole mix if taken literally, which is
+/// not what was asked for here. What this gives is the VARIATION - a bird at
+/// 5..20 comes back as 0.25..1 of a bird - so no two are the same, and the
+/// balance between sounds stays where it was set by ear.
+function sfx_amiga_level_for(_id) {
+    if (!sfx_amiga_has_row(_id)) {
+        return 1;
+    }
+    var _mask = global.sfx_amiga_volume_rand[_id];
+    var _top = global.sfx_amiga_volume[_id] + _mask;
+    if (_top <= 0) {
+        return 1;
+    }
+    var _vol = global.sfx_amiga_volume[_id] + (irandom(255) & _mask);
+    return _vol / _top;
 }
 
 /// Plays the sound effect with Freeserf sound index _id (if the Amiga data has
@@ -439,6 +650,17 @@ function audio_init() {
        asking the engine about handles that belong to other samples. -1 is "no
        sample", and no asset index is ever -1. */
     global.sfx_voice_asset = array_create(SFX_VOICES, -1);
+
+    /* Envelope bookkeeping for the ambience: when to start each voice's
+       fade-out (0 for a voice with no envelope) and how long it takes. The
+       slot sfx_start last used, which is how sfx_start_fading finds the voice
+       it just got. */
+    global.sfx_voice_fade_at = array_create(SFX_VOICES, 0);
+    global.sfx_voice_fade_ms = array_create(SFX_VOICES, 0);
+    global.sfx_last_slot = 0;
+
+    /* The original's own per-sound rate and level, read off its table. */
+    sfx_amiga_table_init();
     global.sfx_recent_asset = array_create(SFX_RECENT, -1);
     global.sfx_recent_time = array_create(SFX_RECENT, -100000);
     global.sfx_recent_next = 0;
@@ -567,6 +789,7 @@ function audio_stop_sfx() {
         global.sfx_voice_handle[_k] = -1;
         global.sfx_voice_gain[_k] = 0;
         global.sfx_voice_asset[_k] = -1;
+        global.sfx_voice_fade_at[_k] = 0;
     }
 }
 
