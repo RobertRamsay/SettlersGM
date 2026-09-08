@@ -128,6 +128,49 @@ enum SerfState {
     knight_attacking_defeat_free
 }
 
+/// How long a given animation runs for.
+///
+/// Always use this rather than indexing global.serf_counter_from_animation
+/// directly. That table is the one the whole serf update indexes with a number
+/// computed from live game state - a direction, a height difference, a state
+/// variable - so a fault anywhere upstream arrives here as an out-of-range read,
+/// and an out-of-range read in GML is not a wrong sprite, it is the end of the
+/// session.
+///
+/// That is exactly how it was first seen, in a report from somebody playing:
+/// a transporter woken off an idle path carried a walking_dir of 259 (see
+/// serf_handle_serf_idle_on_path_state, now fixed), 110 + 259 came here, and the
+/// game died mid-step with a save two hours old.
+///
+/// An animation outside the table is still a bug and is still reported - once
+/// per distinct value, because this is called several times a frame per serf -
+/// but one serf with a wrong walking speed is a far better outcome for the
+/// person playing than losing the game.
+function serf_anim_counter(_animation) {
+    var _table = global.serf_counter_from_animation;
+
+    if (_animation >= 0 && _animation < array_length(_table)) {
+        return _table[_animation];
+    }
+
+    if (!variable_global_exists("serf_anim_warned")) {
+        global.serf_anim_warned = ds_map_create();
+    }
+    var _key = string(_animation);
+    if (!ds_map_exists(global.serf_anim_warned, _key)) {
+        ds_map_set(global.serf_anim_warned, _key, true);
+        show_debug_message("serf: animation " + string(_animation) +
+                           " is outside the counter table (0.." +
+                           string(array_length(_table) - 1) +
+                           ") - something upstream computed a bad animation." +
+                           " Using a default so the game keeps running.");
+    }
+
+    /* A middling walking counter. Enough to keep whoever it is moving rather
+       than stuck on a zero-length frame forever. */
+    return 255;
+}
+
 /// Static tables for the Serf class (serf.cc file-level statics and
 /// function-local const tables). Created once, stored under global.serf_*.
 function serf_init_tables() {
@@ -1439,7 +1482,7 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
                     get_walking_animation(_map.get_height(_other_serf.pos) -
                                           _map.get_height(_new_pos),
                                           reverse_direction(_dir), 1);
-                _other_serf.counter = global.serf_counter_from_animation[_other_serf.animation];
+                _other_serf.counter = serf_anim_counter(_other_serf.animation);
 
                 animation = get_walking_animation(_map.get_height(_new_pos) -
                                                   _map.get_height(pos),
@@ -1448,7 +1491,7 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
             } else {
                 /* Wait for other serf */
                 animation = 81 + _dir;
-                counter = global.serf_counter_from_animation[animation];
+                counter = serf_anim_counter(animation);
                 s.walking_dir = _dir - 6;
                 return;
             }
@@ -1459,7 +1502,7 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
         }
         pos = _new_pos;
         _map.claim_serf_index(pos, self);
-        counter += global.serf_counter_from_animation[animation];
+        counter += serf_anim_counter(animation);
         if (_alt_end && counter < 0) {
             if (_map.has_flag(_new_pos)) {
                 counter = 0;
@@ -1523,7 +1566,7 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
         var _new_pos = _map.move(pos, _dir);
         animation = get_walking_animation(_map.get_height(_new_pos) -
                                           _map.get_height(pos), _dir, 0);
-        counter += (_slope * global.serf_counter_from_animation[animation]) >> 5;
+        counter += (_slope * serf_anim_counter(animation)) >> 5;
 
         if (_change_pos) {
             _map.clear_serf_index(pos, self);
@@ -1807,7 +1850,7 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
                     var _new_pos = _map.move_up_left(pos);
                     animation = 3 + _map.get_height(_new_pos) - _map.get_height(pos) +
                                 (Direction.up_left + 6) * 9;
-                    counter = global.serf_counter_from_animation[animation];
+                    counter = serf_anim_counter(animation);
                     /* TODO next call is actually into the middle of
                        handle_serf_delivering_state().
                        Why is a nice and clean state switch not enough???
@@ -1853,7 +1896,7 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
                 }
 
                 animation = 110 + s.walking_dir;
-                counter = global.serf_counter_from_animation[animation];
+                counter = serf_anim_counter(animation);
                 s.walking_dir -= 6;
 
                 if (_flag2.free_transporter_count(_rev_dir) > 1) {
@@ -2414,7 +2457,7 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
                             get_walking_animation(_map.get_height(_other_serf.pos) -
                                                   _map.get_height(_new_pos),
                                                   reverse_direction(_dir), 1);
-                        _other_serf.counter = global.serf_counter_from_animation[_other_serf.animation];
+                        _other_serf.counter = serf_anim_counter(_other_serf.animation);
 
                         if (_d != 0) {
                             animation =
@@ -2442,7 +2485,7 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
                 _map.claim_serf_index(_new_pos, self);
                 pos = _new_pos;
                 s.digging_substate = 3;
-                counter += global.serf_counter_from_animation[animation];
+                counter += serf_anim_counter(animation);
             } else if (s.digging_substate == 1) {
                 /* 34CD6: Change height, head back to center */
                 var _h = _map.get_height(pos);
@@ -2501,7 +2544,7 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
                                 /* Occupied by other serf, wait */
                                 s.digging_substate = 0;
                                 animation = 87 - s.digging_dig_pos;
-                                counter = global.serf_counter_from_animation[animation];
+                                counter = serf_anim_counter(animation);
                                 return;
                             }
 
@@ -2633,7 +2676,7 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
                 _rnd += 4;
             }
             animation = _rnd;
-            counter += global.serf_counter_from_animation[animation];
+            counter += serf_anim_counter(animation);
         }
     };
 
@@ -2754,7 +2797,7 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
 
             animation = 4 + 9 - (animation - (3 + 10 * 9));
             s.walking_wait_counter = -s.walking_wait_counter - 1;
-            counter += global.serf_counter_from_animation[animation] >> 1;
+            counter += serf_anim_counter(animation) >> 1;
         }
     };
 

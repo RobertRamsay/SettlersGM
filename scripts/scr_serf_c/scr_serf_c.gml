@@ -104,7 +104,7 @@ function serf_handle_serf_knight_engaging_building_state(_serf) {
     /* No one to defend this building. Occupy it. */
     _serf.state = SerfState.knight_occupy_enemy_building;
     _serf.animation = 179;
-    _serf.counter = global.serf_counter_from_animation[_serf.animation];
+    _serf.counter = serf_anim_counter(_serf.animation);
     _serf.tick = _serf.game.get_tick() & 0xFFFF;
   }
 }
@@ -1435,9 +1435,22 @@ function serf_handle_serf_idle_on_path_state(_serf) {
   }
   var rev_dir = _serf.s.idle_on_path_rev_dir;
 
-  /* Set walking dir in field_E. */
+  /* Set walking dir in field_E.
+     The direction was parked in the low byte of tick by
+     handle_serf_transporting_state - "TODO Don't use anim as state var" - and
+     what was parked there is s.walking_dir AFTER it went negative, so -6..-1.
+     A byte holds that as 250..255, and reading it back as a plain byte gives
+     256..261 rather than the 0..5 this wants. The serf then walked away with a
+     walking_dir of, say, 259, and the next transporting step computed
+     animation = 110 + 259 = 369 and indexed a 181-entry table with it, which
+     killed the game mid-step. Sign-extend the byte first and the six values
+     come back as the six directions. */
   if (flag.is_scheduled(rev_dir)) {
-    _serf.s.idle_on_path_field_E = (_serf.tick & 0xff) + 6;
+    var _packed = _serf.tick & 0xff;
+    if (_packed >= 128) {
+      _packed -= 256;
+    }
+    _serf.s.idle_on_path_field_E = _packed + 6;
   } else {
     var other_flag = flag.get_other_end_flag(rev_dir);
     var other_dir = flag.get_other_end_dir(rev_dir);

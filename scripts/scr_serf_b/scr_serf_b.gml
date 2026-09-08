@@ -143,7 +143,7 @@ function serf_handle_serf_free_walking_state_dest_reached(_serf) {
                         _serf.s.free_walking_neg_dist1 = -1;
                     }
                     _serf.animation = 116;
-                    _serf.counter = global.serf_counter_from_animation[_serf.animation];
+                    _serf.counter = serf_anim_counter(_serf.animation);
                 } else {
                     /* The expected tree is gone */
                     _serf.s.free_walking_neg_dist1 = -128;
@@ -198,7 +198,7 @@ function serf_handle_serf_free_walking_state_dest_reached(_serf) {
                     _serf.set_state(SerfState.planting);
                     _serf.s.free_walking_neg_dist2 = 0;
                     _serf.animation = 121;
-                    _serf.counter = global.serf_counter_from_animation[_serf.animation];
+                    _serf.counter = serf_anim_counter(_serf.animation);
                 } else {
                     /* The expected free space is no longer empty */
                     _serf.s.free_walking_neg_dist1 = -128;
@@ -245,7 +245,7 @@ function serf_handle_serf_free_walking_state_dest_reached(_serf) {
                     _serf.s.free_walking_neg_dist2 = 0;
                     _serf.s.free_walking_flags = 0;
                     _serf.animation = _a;
-                    _serf.counter = global.serf_counter_from_animation[_a];
+                    _serf.counter = serf_anim_counter(_a);
                 }
             }
             break;
@@ -268,13 +268,13 @@ function serf_handle_serf_free_walking_state_dest_reached(_serf) {
                     /* Existing field. */
                     _serf.animation = 136;
                     _serf.s.free_walking_neg_dist1 = 1;
-                    _serf.counter = global.serf_counter_from_animation[_serf.animation];
+                    _serf.counter = serf_anim_counter(_serf.animation);
                 } else if (_map.get_obj(_serf.pos) == MapObject.none &&
                            _map.get_paths(_serf.pos) == 0) {
                     /* Empty space. */
                     _serf.animation = 135;
                     _serf.s.free_walking_neg_dist1 = 0;
-                    _serf.counter = global.serf_counter_from_animation[_serf.animation];
+                    _serf.counter = serf_anim_counter(_serf.animation);
                 } else {
                     /* Space not available after all. */
                     _serf.s.free_walking_neg_dist1 = -128;
@@ -306,7 +306,7 @@ function serf_handle_serf_free_walking_state_dest_reached(_serf) {
                     _serf.set_state(SerfState.sampling_geo_spot);
                     _serf.s.free_walking_neg_dist1 = 0;
                     _serf.animation = 141;
-                    _serf.counter = global.serf_counter_from_animation[_serf.animation];
+                    _serf.counter = serf_anim_counter(_serf.animation);
                 } else {
                     /* Destination is not a free space after all. */
                     _serf.s.free_walking_neg_dist1 = -128;
@@ -450,14 +450,14 @@ function serf_handle_serf_free_walking_switch_with_other(_serf) {
                                                       _map.get_height(_serf.pos),
                                                       _dir, 1);
 
-        _other_serf.counter = global.serf_counter_from_animation[_other_serf.animation];
-        _serf.counter = global.serf_counter_from_animation[_serf.animation];
+        _other_serf.counter = serf_anim_counter(_other_serf.animation);
+        _serf.counter = serf_anim_counter(_serf.animation);
 
         _other_serf.pos = _serf.pos;
         _serf.pos = _new_pos;
     } else {
         _serf.animation = 82;
-        _serf.counter = global.serf_counter_from_animation[_serf.animation];
+        _serf.counter = serf_anim_counter(_serf.animation);
     }
 }
 
@@ -511,7 +511,7 @@ function serf_handle_free_walking_follow_edge(_serf) {
                 _serf.s.free_walking_neg_dist2 = 0;
                 _serf.s.free_walking_flags = 0;
                 _serf.animation = 82;
-                _serf.counter = global.serf_counter_from_animation[_serf.animation];
+                _serf.counter = serf_anim_counter(_serf.animation);
             } else {
                 _serf.set_state(SerfState.lost);
                 _serf.s.lost_field_B = 0;
@@ -526,7 +526,7 @@ function serf_handle_free_walking_follow_edge(_serf) {
             /* Wait for other serfs */
             _serf.s.free_walking_flags = 0;
             _serf.animation = 82;
-            _serf.counter = global.serf_counter_from_animation[_serf.animation];
+            _serf.counter = serf_anim_counter(_serf.animation);
             return 0;
         }
     }
@@ -718,11 +718,11 @@ function serf_handle_free_walking_common(_serf) {
                     _serf.get_walking_animation(_map.get_height(_other_serf.pos) -
                                                 _map.get_height(_new_pos2),
                                                 reverse_direction(_d), 1);
-                _other_serf.counter = global.serf_counter_from_animation[_other_serf.animation];
+                _other_serf.counter = serf_anim_counter(_other_serf.animation);
 
                 _serf.animation = _serf.get_walking_animation(_map.get_height(_new_pos2) -
                                                               _map.get_height(_serf.pos), _d, 1);
-                _serf.counter = global.serf_counter_from_animation[_serf.animation];
+                _serf.counter = serf_anim_counter(_serf.animation);
 
                 _serf.pos = _new_pos2;
                 _map.claim_serf_index(_serf.pos, _serf);
@@ -764,7 +764,7 @@ function serf_handle_free_walking_common(_serf) {
             }
 
             _serf.animation = 82;
-            _serf.counter = global.serf_counter_from_animation[_serf.animation];
+            _serf.counter = serf_anim_counter(_serf.animation);
             return;
         }
     }
@@ -830,7 +830,7 @@ function serf_handle_serf_logging_state(_serf) {
 
         if (_serf.s.free_walking_neg_dist2 < 5) {
             _serf.animation = 116 + _serf.s.free_walking_neg_dist2;
-            _serf.counter += global.serf_counter_from_animation[_serf.animation];
+            _serf.counter += serf_anim_counter(_serf.animation);
         } else {
             _serf.set_state(SerfState.free_walking);
             _serf.counter = 0;
@@ -1042,7 +1042,7 @@ function serf_handle_serf_sawing_state(_serf) {
         if (_building.use_resource_in_stock(1)) {
             _serf.s.sawing_mode = 1;
             _serf.animation = 124;
-            _serf.counter = global.serf_counter_from_animation[_serf.animation];
+            _serf.counter = serf_anim_counter(_serf.animation);
             _serf.tick = _serf.game.get_tick();
             _serf.game.get_map().claim_serf_index(_serf.pos, _serf);
         }
@@ -1291,7 +1291,7 @@ function serf_handle_serf_mining_state(_serf) {
                     _serf.s.mining_substate = 3;
                     _map.claim_serf_index(_serf.pos, _serf);
                     _serf.animation = 125;
-                    _serf.counter = global.serf_counter_from_animation[_serf.animation];
+                    _serf.counter = serf_anim_counter(_serf.animation);
                 } else {
                     _map.claim_serf_index(_serf.pos, _serf);
                     _serf.animation = 98;
@@ -1305,13 +1305,13 @@ function serf_handle_serf_mining_state(_serf) {
                 _serf.s.mining_substate = 3;
                 _map.claim_serf_index(_serf.pos, _serf);
                 _serf.animation = 125;
-                _serf.counter = global.serf_counter_from_animation[_serf.animation];
+                _serf.counter = serf_anim_counter(_serf.animation);
                 break;
             case 3:
                 _serf.s.mining_substate = 4;
                 _building.stop_activity();
                 _serf.animation = 126;
-                _serf.counter = global.serf_counter_from_animation[_serf.animation];
+                _serf.counter = serf_anim_counter(_serf.animation);
                 break;
             case 4: {
                 _building.start_playing_sfx();
@@ -1347,13 +1347,13 @@ function serf_handle_serf_mining_state(_serf) {
                 _serf.s.mining_substate = 9;
                 _building.stop_playing_sfx();
                 _serf.animation = 127;
-                _serf.counter = global.serf_counter_from_animation[_serf.animation];
+                _serf.counter = serf_anim_counter(_serf.animation);
                 break;
             case 9:
                 _serf.s.mining_substate = 10;
                 _building.increase_mining(_serf.s.mining_res);
                 _serf.animation = 128;
-                _serf.counter = global.serf_counter_from_animation[_serf.animation];
+                _serf.counter = serf_anim_counter(_serf.animation);
                 break;
             case 10:
                 _map.clear_serf_index(_serf.pos, _serf);
@@ -1397,7 +1397,7 @@ function serf_handle_serf_smelting_state(_serf) {
                 _serf.animation = 129;
             }
             _serf.s.smelting_counter = 20;
-            _serf.counter = global.serf_counter_from_animation[_serf.animation];
+            _serf.counter = serf_anim_counter(_serf.animation);
             _serf.tick = _serf.game.get_tick();
 
             _serf.game.get_map().claim_serf_index(_serf.pos, _serf);
@@ -1631,7 +1631,7 @@ function serf_handle_serf_milling_state(_serf) {
 
             _serf.s.milling_mode = 1;
             _serf.animation = 137;
-            _serf.counter = global.serf_counter_from_animation[_serf.animation];
+            _serf.counter = serf_anim_counter(_serf.animation);
             _serf.tick = _serf.game.get_tick();
 
             _serf.game.get_map().claim_serf_index(_serf.pos, _serf);
@@ -1657,7 +1657,7 @@ function serf_handle_serf_milling_state(_serf) {
             } else if (_serf.s.milling_mode == 3) {
                 _serf.game.get_map().claim_serf_index(_serf.pos, _serf);
                 _serf.animation = 137;
-                _serf.counter = global.serf_counter_from_animation[_serf.animation];
+                _serf.counter = serf_anim_counter(_serf.animation);
             } else {
                 _serf.game.get_map().clear_serf_index(_serf.pos, _serf);
                 _serf.counter += 1500;
@@ -1674,7 +1674,7 @@ function serf_handle_serf_baking_state(_serf) {
         if (_building.use_resource_in_stock(0)) {
             _serf.s.baking_mode = 1;
             _serf.animation = 138;
-            _serf.counter = global.serf_counter_from_animation[_serf.animation];
+            _serf.counter = serf_anim_counter(_serf.animation);
             _serf.tick = _serf.game.get_tick();
 
             _serf.game.get_map().claim_serf_index(_serf.pos, _serf);
@@ -1720,7 +1720,7 @@ function serf_handle_serf_pigfarming_state(_serf) {
         if (_building.use_resource_in_stock(0)) {
             _serf.s.pigfarming_mode = 1;
             _serf.animation = 139;
-            _serf.counter = global.serf_counter_from_animation[_serf.animation];
+            _serf.counter = serf_anim_counter(_serf.animation);
             _serf.tick = _serf.game.get_tick();
 
             _serf.game.get_map().claim_serf_index(_serf.pos, _serf);
@@ -1736,7 +1736,7 @@ function serf_handle_serf_pigfarming_state(_serf) {
                 if (_serf.s.pigfarming_mode != 7) {
                     _serf.game.get_map().claim_serf_index(_serf.pos, _serf);
                     _serf.animation = 139;
-                    _serf.counter = global.serf_counter_from_animation[_serf.animation];
+                    _serf.counter = serf_anim_counter(_serf.animation);
                 } else if (_building.pigs_count() == 8 ||
                            (_building.pigs_count() > 3 &&
                             ((20 * _serf.game.random_int()) >> 16) < _building.pigs_count())) {
@@ -1754,7 +1754,7 @@ function serf_handle_serf_pigfarming_state(_serf) {
                 } else if ((_serf.game.random_int() & 0xf) != 0) {
                     _serf.s.pigfarming_mode = 1;
                     _serf.animation = 139;
-                    _serf.counter = global.serf_counter_from_animation[_serf.animation];
+                    _serf.counter = serf_anim_counter(_serf.animation);
                     _serf.tick = _serf.game.get_tick();
                     _serf.game.get_map().claim_serf_index(_serf.pos, _serf);
                 } else {
@@ -1781,7 +1781,7 @@ function serf_handle_serf_butchering_state(_serf) {
         if (_building.use_resource_in_stock(0)) {
             _serf.s.butchering_mode = 1;
             _serf.animation = 140;
-            _serf.counter = global.serf_counter_from_animation[_serf.animation];
+            _serf.counter = serf_anim_counter(_serf.animation);
             _serf.tick = _serf.game.get_tick();
 
             _serf.game.get_map().claim_serf_index(_serf.pos, _serf);
@@ -1826,7 +1826,7 @@ function serf_handle_serf_making_weapon_state(_serf) {
 
         _serf.s.making_weapon_mode = 1;
         _serf.animation = 143;
-        _serf.counter = global.serf_counter_from_animation[_serf.animation];
+        _serf.counter = serf_anim_counter(_serf.animation);
         _serf.tick = _serf.game.get_tick();
 
         _serf.game.get_map().claim_serf_index(_serf.pos, _serf);
@@ -1876,7 +1876,7 @@ function serf_handle_serf_making_tool_state(_serf) {
         if (_building.use_resources_in_stocks()) {
             _serf.s.making_tool_mode = 1;
             _serf.animation = 144;
-            _serf.counter = global.serf_counter_from_animation[_serf.animation];
+            _serf.counter = serf_anim_counter(_serf.animation);
             _serf.tick = _serf.game.get_tick();
 
             _serf.game.get_map().claim_serf_index(_serf.pos, _serf);
@@ -1943,7 +1943,7 @@ function serf_handle_serf_building_boat_state(_serf) {
 
         _serf.s.building_boat_mode = 1;
         _serf.animation = 146;
-        _serf.counter = global.serf_counter_from_animation[_serf.animation];
+        _serf.counter = serf_anim_counter(_serf.animation);
         _serf.tick = _serf.game.get_tick();
 
         _map.claim_serf_index(_serf.pos, _serf);
