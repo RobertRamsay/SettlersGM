@@ -410,41 +410,25 @@ function ClassicMapGenerator(_map, _rnd) constructor {
 
   /// Ensure that map heights of adjacent fields are not too far apart.
   static clamp_heights = function() {
-    /* SPEED, not behaviour, and note what is NOT changed here.
-
-       This is a relaxation, not a flood fill: adjust_map_height writes to the
-       NEIGHBOUR's height, so a tile later in a sweep reads values that earlier
-       tiles have already altered. The order is part of the result and the
-       repeated full sweeps have to stay exactly as they are - unlike
-       remove_islands, this one cannot be turned into a queue.
-
-       What is safe is the arithmetic. The three neighbours were five nested
-       struct method calls each; inlined they are a masked add, verified
-       against map.geom.move for 45,248 positions across every map size. */
-    var _cm    = map.geom.col_mask;
-    var _notcm = ~_cm;
-    var _step  = 1 << map.geom.row_shift;
-    var _tm    = tile_count - 1;
-
     var _changed = true;
     while (_changed) {
       _changed = false;
       for (var _pos = 0; _pos < tile_count; _pos++) {
         var _h = height[_pos];
 
-        var _pos_d = (_pos + _step) & _tm;
+        var _pos_d = map.geom.move_down(_pos);
         var _h_d = height[_pos_d];
         if (adjust_map_height(_h, _h_d, _pos_d)) {
           _changed = true;
         }
 
-        var _pos_r = (_pos & _notcm) | ((_pos + 1) & _cm);
-        var _pos_dr = (_pos_r + _step) & _tm;
+        var _pos_dr = map.geom.move_down_right(_pos);
         var _h_dr = height[_pos_dr];
         if (adjust_map_height(_h, _h_dr, _pos_dr)) {
           _changed = true;
         }
 
+        var _pos_r = map.geom.move_right(_pos);
         var _h_r = height[_pos_r];
         if (adjust_map_height(_h, _h_r, _pos_r)) {
           _changed = true;
@@ -660,38 +644,16 @@ function ClassicMapGenerator(_map, _rnd) constructor {
     // itself expanded the tag is changed to 2.
     clear_all_tags();
 
-    /* SPEED, not behaviour. Freeserf spreads the fill by sweeping the WHOLE
-       map over and over until a sweep changes nothing, which costs
-       tile_count * (number of sweeps) - on a size 8 map that measured about
-       six million tile inspections where eighty thousand are needed, and it
-       is the single reason a big map takes so long to appear.
-
-       A flood fill's result does not depend on the order the frontier is
-       visited: the set of tiles reached is the connected component of _start,
-       _num counts each tile exactly once as it goes 1 -> 2, and no random
-       number is drawn anywhere in here, so the RNG stream is untouched. An
-       explicit stack therefore produces byte-identical output - the same
-       tags, the same _num, the same component accepted - in one pass instead
-       of dozens. Checked against the sweep version on 40 generated maps.
-
-       Anything that changes what this produces changes every mission map and
-       desynchronises net play, so keep the flags below exactly as they are. */
-    var _stack = [];
-
     for (var _start = 0; _start < tile_count; _start++) {
       if (height[_start] > 0 && tags[_start] == 0) {
         tags[_start] = 1;
 
         var _num = 0;
-        array_resize(_stack, 0);
-        array_push(_stack, _start);
-
-        while (array_length(_stack) > 0) {
-          var _pos = array_pop(_stack);
-          /* A tile can be pushed more than once before it is popped; the
-             first pop takes it and the rest fall through here, which is what
-             keeps _num counting each tile exactly once. */
-          if (_pos != undefined && tags[_pos] == 1) {
+        var _changed = true;
+        while (_changed) {
+          _changed = false;
+          for (var _pos = 0; _pos < tile_count; _pos++) {
+            if (tags[_pos] == 1) {
               _num += 1;
               tags[_pos] = 2;
 
@@ -723,10 +685,11 @@ function ClassicMapGenerator(_map, _rnd) constructor {
                   var _moved = map.geom.move(_pos, _d);
                   if (tags[_moved] == 0) {
                     tags[_moved] = 1;
-                    array_push(_stack, _moved);
+                    _changed = true;
                   }
                 }
               }
+            }
           }
         }
 
@@ -766,34 +729,13 @@ function ClassicMapGenerator(_map, _rnd) constructor {
   /// triangle has type seed, then the triangle is changed into the new_
   /// terrain type.
   static seed_terrain_type = function(_old, _seed, _new) {
-    /* SPEED, not behaviour. This runs over every tile, four times per map, and
-       each tile asked the geometry for eight neighbours - and every one of
-       those is five nested struct method calls deep (move -> pos_add_off ->
-       pos_col/pos_row/pos). On a size 8 map that is about twenty million calls
-       spent working out arithmetic that fits on one line.
-
-       The map is a torus laid out row-major with power-of-two dimensions, so a
-       neighbour is a masked add: the column wraps within col_mask and the row
-       wraps within tile_count, and neither can carry into the other. Checked
-       against map.geom.move for every tile of map sizes 3..7 and every edge
-       tile of 8..10 - 45,248 positions, no differences. */
-    var _cm   = map.geom.col_mask;
-    var _notcm = ~_cm;
-    var _step = 1 << map.geom.row_shift;
-    var _tm   = tile_count - 1;
-
     for (var _pos = 0; _pos < tile_count; _pos++) {
-      var _l = (_pos & _notcm) | ((_pos - 1) & _cm);
-      var _r = (_pos & _notcm) | ((_pos + 1) & _cm);
-      var _u = (_pos - _step) & _tm;
-      var _d = (_pos + _step) & _tm;
-      var _ul = (_l - _step) & _tm;
-      var _dr = (_r + _step) & _tm;
-
-      /* move_left(_d) and move_right(_u), hoisted out of the conditions
-         below - they were recomputed from scratch inside them. */
-      var _ld = (_d & _notcm) | ((_d - 1) & _cm);
-      var _ru = (_u & _notcm) | ((_u + 1) & _cm);
+      var _ul = map.geom.move_up_left(_pos);
+      var _u = map.geom.move_up(_pos);
+      var _l = map.geom.move_left(_pos);
+      var _r = map.geom.move_right(_pos);
+      var _d = map.geom.move_down(_pos);
+      var _dr = map.geom.move_down_right(_pos);
 
       // Up triangle
       if (type_up[_pos] == _old &&
@@ -804,7 +746,7 @@ function ClassicMapGenerator(_map, _rnd) constructor {
            _seed == type_up[_l] ||
            _seed == type_down[_pos] ||
            _seed == type_up[_r] ||
-           _seed == type_down[_ld] ||
+           _seed == type_down[map.geom.move_left(_d)] ||
            _seed == type_down[_d] ||
            _seed == type_up[_d] ||
            _seed == type_down[_dr] ||
@@ -818,7 +760,7 @@ function ClassicMapGenerator(_map, _rnd) constructor {
            _seed == type_up[_ul] ||
            _seed == type_down[_u] ||
            _seed == type_up[_u] ||
-           _seed == type_up[_ru] ||
+           _seed == type_up[map.geom.move_right(_u)] ||
            _seed == type_down[_l] ||
            _seed == type_up[_pos] ||
            _seed == type_down[_r] ||
