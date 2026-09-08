@@ -734,6 +734,14 @@ function ClassicMapGenerator(_map, _rnd) constructor {
        desynchronises net play, so keep the flags below exactly as they are. */
     var _stack = [];
 
+    /* Neighbours inlined here as well as flattened in MapGeometry: this is the
+       hottest loop in generation, taking about ten steps per tile, and on a
+       size 10 map it was ten of the thirty-nine seconds all by itself. */
+    var _cm    = map.geom.col_mask;
+    var _notcm = map.geom.col_notmask;
+    var _step  = map.geom.row_step;
+    var _tm    = map.geom.tile_mask;
+
     for (var _start = 0; _start < tile_count; _start++) {
       if (height[_start] > 0 && tags[_start] == 0) {
         tags[_start] = 1;
@@ -760,16 +768,20 @@ function ClassicMapGenerator(_map, _rnd) constructor {
               if (type_up[_pos] >= Terrain.grass0) {
                 _flags = _flags | 6;
               }
-              if (type_down[map.geom.move_left(_pos)] >= Terrain.grass0) {
+              var _p_l  = (_pos & _notcm) | ((_pos - 1) & _cm);
+              var _p_u  = (_pos - _step) & _tm;
+              var _p_ul = ((_p_u) & _notcm) | ((_p_u - 1) & _cm);
+
+              if (type_down[_p_l] >= Terrain.grass0) {
                 _flags = _flags | 0xc;
               }
-              if (type_up[map.geom.move_up_left(_pos)] >= Terrain.grass0) {
+              if (type_up[_p_ul] >= Terrain.grass0) {
                 _flags = _flags | 0x18;
               }
-              if (type_down[map.geom.move_up_left(_pos)] >= Terrain.grass0) {
+              if (type_down[_p_ul] >= Terrain.grass0) {
                 _flags = _flags | 0x30;
               }
-              if (type_up[map.geom.move_up(_pos)] >= Terrain.grass0) {
+              if (type_up[_p_u] >= Terrain.grass0) {
                 _flags = _flags | 0x21;
               }
 

@@ -946,7 +946,12 @@ function GameInitBox(_interface) : GuiObject() constructor {
         }
 
         /* Display program name and version in caption */
-        draw_box_string(0, 212, GAME_INIT_VERSION + " " + game_version());
+        /* The bar and its message occupy this row, so the version line stands
+           down while a map is being generated rather than being drawn through.
+           It comes back the moment the map is done. */
+        if (!gen_active) {
+            draw_box_string(0, 212, GAME_INIT_VERSION + " " + game_version());
+        }
 
         /* And, when the repository says there is a newer build than this one,
            a word about it on the same line. Right-aligned rather than placed at
@@ -1521,7 +1526,24 @@ function GameInitBox(_interface) : GuiObject() constructor {
     /// in the same order from the same random stream whether it is stepped or
     /// run in one go - see ClassicMapGenerator.generate_step.
     static generate_map_preview = function() {
-        gen_map = new Map(new MapGeometry(mission.get_map_size()));
+        /* Nothing that feeds the map has changed, so the map cannot change
+           either - don't spend half a minute arriving back where we started.
+           This is what stops the size arrow regenerating when it is already at
+           10 (or 3) and the click changes nothing, and it makes a stray
+           re-trigger from anywhere else harmless too. */
+        var _size = mission.get_map_size();
+        var _seed = random_state_to_string(mission.get_random_base());
+        if (map != undefined && !gen_active &&
+            _size == gen_done_size && _seed == gen_done_seed &&
+            game_type == gen_done_type) {
+            return;
+        }
+
+        gen_want_size = _size;
+        gen_want_seed = _seed;
+        gen_want_type = game_type;
+
+        gen_map = new Map(new MapGeometry(_size));
 
         if (game_type == GameType.mission) {
             gen_generator = new ClassicMissionMapGenerator(gen_map,
@@ -1570,6 +1592,10 @@ function GameInitBox(_interface) : GuiObject() constructor {
         var _t1 = get_timer();
         gen_map.init_tiles(gen_generator);
         var _tiles_ms = (get_timer() - _t1) / 1000;
+
+        gen_done_size = gen_want_size;
+        gen_done_seed = gen_want_seed;
+        gen_done_type = gen_want_type;
 
         var _total = _tiles_ms;
         var _line = "";
@@ -1637,6 +1663,16 @@ function GameInitBox(_interface) : GuiObject() constructor {
     gen_generator = undefined;
     gen_map = undefined;
     gen_times = [];
+
+    /* What the map on screen was built from, and what the run in progress is
+       building. -1 / "" means "nothing yet", so the first call always
+       generates. See generate_map_preview. */
+    gen_done_size = -1;
+    gen_done_seed = "";
+    gen_done_type = -1;
+    gen_want_size = -1;
+    gen_want_seed = "";
+    gen_want_type = -1;
 
     custom_mission = new GameInfo(game_init_random_default());
     custom_mission.remove_all_players();
