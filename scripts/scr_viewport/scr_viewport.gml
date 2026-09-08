@@ -20,11 +20,10 @@
 // tinted blue and drawn faded so the boat route sits under the surface instead
 // of reading as a white mountain road. Both are safe to tweak by hand; the
 // tint is plain r,g,b (GML swaps the order internally). See draw_path_segment.
-/* Ambience: how long between attempts, in frames at 60fps. One try every one
-   and a half to four seconds, and most land on plain grass and stay silent, so
-   a wood is alive, a lake laps, a snowfield blows and farmland is quiet. */
-#macro AMBIENT_MIN_GAP    90
-#macro AMBIENT_EXTRA_GAP  150
+/* Wind has no volume rule in the original - only a 1 or 2 written to a byte
+   whose meaning is not obvious - so this is the one number here that is a
+   judgement rather than a reading. Low, because it plays constantly. */
+#macro AMBIENT_WIND_GAIN  0.25
 
 #macro PATH_WATER_ALPHA 0.7
 #macro PATH_WATER_TINT make_colour_rgb(200, 240, 255)
@@ -639,8 +638,10 @@ function Viewport(_interface, _map) : GuiObject() constructor {
     offset_y = 0;
     last_tick = 0;
 
-    /* Frames until the next attempt at birdsong. See ambient_step. */
-    ambient_wait = 0;
+    /* Trees and water visible, counted as the map objects are drawn and read
+       once a frame by ambient_step. */
+    ambient_trees = 0;
+    ambient_water = 0;
 
     /* Which buildings this viewport currently has a looping sound going for,
        indexed by building index.
@@ -1779,6 +1780,25 @@ function Viewport(_interface, _map) : GuiObject() constructor {
     static draw_map_objects_row = function(_pos, _y_base, _cols, _x_base) {
         for (var _i = 0; _i < _cols; _i++) {
             var _obj = map.get_obj(_pos);
+
+            /* Ambience counts what is on screen, exactly as the Amiga does -
+               see ambient_step. Object types 8..31 are the trees, which is
+               every tree, pine, palm and water tree; the original's own test
+               is `subq.b #8; cmpi.w #$18; bcc skip`, the same 24 types.
+
+               Counting here rather than sampling is deliberate: this loop
+               already visits every visible tile, so it costs one comparison,
+               and the counts are then exact rather than estimated. These are
+               VIEWPORT fields, not simulation state - two machines looking at
+               different parts of the same map count different things and that
+               is fine, because nothing downstream of them touches the game. */
+            if (_obj >= MapObject.tree0 && _obj <= MapObject.water_tree3) {
+                ambient_trees += 1;
+            }
+            if (map.get_type_up(_pos) <= Terrain.water3) {
+                ambient_water += 1;
+            }
+
             if (_obj != MapObject.none) {
                 var _ly = _y_base - 4 * map.get_height(_pos);
                 if (_obj < MapObject.tree0) {
@@ -2506,6 +2526,14 @@ function Viewport(_interface, _map) : GuiObject() constructor {
         if (!_draw_landscape && !_draw_objects && !_draw_serfs) {
             return;
         }
+        /* One pass, one count. Reset here rather than after reading them, so a
+           frame the viewport does not redraw leaves the previous frame's
+           counts standing rather than reporting an empty screen. */
+        if (_draw_objects) {
+            ambient_trees = 0;
+            ambient_water = 0;
+        }
+
         var _cols = (2 * (width div MAP_TILE_WIDTH) + 1);
         var _short_row_len = ((_cols + 1) >> 1) + 1;
         var _long_row_len = ((_cols + 2) >> 1) + 1;
@@ -3216,95 +3244,80 @@ function Viewport(_interface, _map) : GuiObject() constructor {
         ambient_step();
     };
 
-    /// The landscape's own noises: birds in the trees, water, wind on the high
-    /// ground.
+    /// The landscape's own noises, as the Amiga does them.
     ///
-    /// NOT ported from Freeserf, because Freeserf has no ambience at all. Its
-    /// viewport plays sound only for things that happen - a mill grinding, a
-    /// fight, a building burning - and the six samples used here are either
-    /// declared and never played (TypeSfxBirdChirp0..3) or not even identified
-    /// (TypeSfxUnknown28 and 29). Bob picked those last two out by ear from the
-    /// Amiga data: 86 is water, 88 is wind. So this is the original's behaviour
-    /// put back, not a port of code that exists.
+    /// This is no longer guesswork: it is read off the original. The routine
+    /// lives at address 0x9494 in data/TheSettlers and is called once a frame
+    /// from the main loop, once per view (the original supports two). It is:
     ///
-    /// One random point on screen is tried every so often and whatever is
-    /// THERE decides what is heard. Asking the map rather than keeping lists is
-    /// what makes it behave: a wood chirps, a lake laps, a snowfield has wind
-    /// blowing over it, the sound comes from where the thing is rather than
-    /// from the middle of the screen, and it all follows the view as it
-    /// scrolls. Most probes land on plain grass and are silent, which is what
-    /// keeps it from becoming a racket.
+    ///     rnd = random16()
+    ///     if (trees != 0 && (rnd & 0x3FF) <= trees)
+    ///         play(70 + (rnd & 0x0C))          // one of the four chirps
+    ///     if (water != 0 && (rnd & 0xF00) == 0)
+    ///         volume = min(water >> 2, 30) + 2 // out of 64
+    ///         play(86)
+    ///     if ((rnd & 0x3000) == 0)
+    ///         play(88)
     ///
-    /// COSMETIC RANDOMNESS ONLY. irandom(), never game.random_int(): the game's
-    /// generator is simulation state, shared tick for tick with the other
-    /// machine in a network game and replayed exactly from a save. Drawing from
-    /// it to decide when a bird sings would desynchronise a game and make a
-    /// reloaded save play out differently, for birdsong.
+    /// So birds are not a fixed timer at all: the chance is the number of
+    /// TREES ON SCREEN out of 1024, every frame. A thick wood chirps
+    /// constantly, one tree on the horizon is occasional, open ground is
+    /// silent, and it needs no timer because the map is the timer. Water is a
+    /// flat 1 in 16 whose VOLUME rises with how much water is in view - which
+    /// is why a lake gets louder as you scroll onto it. Wind is a flat 1 in 4
+    /// with no condition at all; it is the bed the other two sit on.
+    ///
+    /// What stops that being a racket is the original's four-slot sound queue
+    /// at 0x1ae90, which REJECTS a sound already queued. Requesting wind six
+    /// times a second does nothing until the last one has finished. Our mixer
+    /// already does the same thing with four voices and SFX_REPEAT_MS, which
+    /// is why this can be a faithful port of the rates rather than a tamed
+    /// version of them.
+    ///
+    /// COSMETIC RANDOMNESS ONLY. irandom(), never game.random_int(): the
+    /// game's generator is simulation state, shared tick for tick with the
+    /// other machine in a network game and replayed exactly from a save.
+    /// Drawing from it to decide when a bird sings would desynchronise a game
+    /// and make a reloaded save play out differently, for birdsong.
     static ambient_step = function() {
-        if (ambient_wait > 0) {
-            ambient_wait -= 1;
-            return;
-        }
-        ambient_wait = AMBIENT_MIN_GAP + irandom(AMBIENT_EXTRA_GAP);
-
-        if (map == undefined || width <= 0 || height <= 0) {
+        if (map == undefined) {
             return;
         }
 
-        var _lx = irandom(width - 1);
-        var _ly = irandom(height - 1);
-        var _pos = map_pos_from_screen_pix(_lx, _ly);
-        var _sfx = ambient_sound_for(_pos);
+        var _rnd = irandom(65535);
 
-        if (_sfx < 0) {
-            return;
+        /* Birds: chance is the tree count out of 1024, per frame. */
+        if (ambient_trees > 0 && (_rnd & 0x3FF) <= ambient_trees) {
+            play_sound_at_view(Sfx.bird_chirp0 + (_rnd & 0x0C), 1);
         }
 
-        /* Through the ordinary positional path, so it is quieter towards the
-           edge of the view, panned to the side it is on, and silent off screen
-           - and so it competes for the four voices like everything else rather
-           than talking over a fight. */
-        play_sound_at(_sfx, _lx, _ly);
+        /* Water: one in sixteen, louder the more water is in view. The
+           original's 2..32 is out of Paula's 64, so it is halved to a gain. */
+        if (ambient_water > 0 && (_rnd & 0xF00) == 0) {
+            var _vol = ambient_water >> 2;
+            if (_vol > 30) {
+                _vol = 30;
+            }
+            play_sound_at_view(Sfx.water, (_vol + 2) / 64);
+        }
+
+        /* Wind: one in four, everywhere, quietly. */
+        if ((_rnd & 0x3000) == 0) {
+            play_sound_at_view(Sfx.wind, AMBIENT_WIND_GAIN);
+        }
     };
 
-    /// What this tile sounds like, or -1 for silence.
-    ///
-    /// Trees first, because a tree standing on grass should be heard as a tree.
-    /// Then the terrain underneath it.
-    static ambient_sound_for = function(_pos) {
-        var _obj = map.get_obj(_pos);
-
-        /* Trees and pines. Palms are desert - the wind below suits them better
-           than birdsong - and the water trees stand in water. */
-        if ((_obj >= MapObject.tree0 && _obj <= MapObject.tree7) ||
-            (_obj >= MapObject.pine0 && _obj <= MapObject.pine7)) {
-            switch (irandom(3)) {
-                case 0:  return Sfx.bird_chirp0;
-                case 1:  return Sfx.bird_chirp1;
-                case 2:  return Sfx.bird_chirp2;
-                default: return Sfx.bird_chirp3;
-            }
+    /// Ambience belongs to the whole view rather than to a spot on it, so it
+    /// is played centred and unpanned - the original has no position for these
+    /// either, only a volume. It still goes through the mixer, so it competes
+    /// for the four voices like everything else instead of talking over a
+    /// fight.
+    static play_sound_at_view = function(_sound, _gain) {
+        var _asset = sfx_asset_for(_sound);
+        if (_asset < 0) {
+            return;
         }
-
-        /* The two triangles meeting at this point. Both have to be the same
-           sort of ground for it to count, so a sound comes from the middle of
-           a lake or a snowfield rather than from every shoreline tile. */
-        var _up = map.get_type_up(_pos);
-        var _down = map.get_type_down(_pos);
-
-        if (_up <= Terrain.water3 && _down <= Terrain.water3) {
-            return Sfx.water;
-        }
-
-        /* Wind on the high, bare ground: tundra and snow. Desert is included
-           because a desert with wind over it reads right and there is nothing
-           else up there to hear. Grass is left silent - it is most of the map,
-           and a permanent noise over most of the map is not ambience. */
-        if (_up >= Terrain.desert0 && _down >= Terrain.desert0) {
-            return Sfx.wind;
-        }
-
-        return -1;
+        sfx_start(_asset, _gain, 0, false);
     };
 
     // ------------------------------------------------------------ coordinates

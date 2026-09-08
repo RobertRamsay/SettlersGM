@@ -275,6 +275,16 @@ function sfx_start(_asset, _gain, _pan, _force) {
         audio_sound_gain(_handle, _gain * SFX_BASE_GAIN, 0);
     }
 
+    /* The Amiga sounds are played back at the rate the Amiga played them.
+       See SFX_AMIGA_PITCH: they were extracted at 8000 Hz and the hardware
+       ran them at 28604, so without this every sound in the game is more than
+       three semitone-octaves low and three times too long. Only the sounds
+       that came out of the Amiga data are corrected - the cheat's own samples
+       were generated at 44100 and are already right. */
+    if (_handle >= 0 && sfx_is_amiga_asset(_asset)) {
+        audio_sound_pitch(_handle, SFX_AMIGA_PITCH);
+    }
+
     global.sfx_voice_handle[_slot] = _handle;
     global.sfx_voice_gain[_slot] = _gain;
     sfx_note_played(_asset);
@@ -291,6 +301,38 @@ function sfx_asset_for(_id) {
         }
     }
     return -1;
+}
+
+/// Playback rate correction for the Amiga sound effects.
+///
+/// Read off the original, not guessed. data/TheSettlers sets every one of
+/// Paula's four channel period registers to the same hardcoded value:
+///
+///     move.w #$7c, $dff0a6      (and $dff0b6, $dff0c6, $dff0d6)
+///
+/// $7c is 124, and on PAL the sample rate is 3546895 / period, so the game
+/// plays all of its effects at 28604 Hz. Ours were extracted from the same
+/// data as 8000 Hz WAVs - the sample COUNTS match the raw Amiga bytes exactly,
+/// so nothing was resampled, only mislabelled. Everything has therefore been
+/// playing at 8000/28604 of the intended pitch, and lasting the reciprocal of
+/// that: a bird chirp meant to be a 33 ms tweet came out a 119 ms warble, and
+/// the whole game sounded like a tape running slow.
+///
+/// 28604 / 8000 = 3.5755.
+#macro SFX_AMIGA_RATE   28604
+#macro SFX_WAV_RATE     8000
+#macro SFX_AMIGA_PITCH  (SFX_AMIGA_RATE / SFX_WAV_RATE)
+
+/// Is this one of the sounds that came out of the Amiga data? The cheat's own
+/// samples were generated at 44100 and must not be touched.
+function sfx_is_amiga_asset(_asset) {
+    var _n = array_length(global.sound_assets);
+    for (var _i = 0; _i < _n; _i++) {
+        if (global.sound_assets[_i] == _asset) {
+            return true;
+        }
+    }
+    return false;
 }
 
 /// Plays the sound effect with Freeserf sound index _id (if the Amiga data has
