@@ -389,6 +389,14 @@ function game_init_init_tables() {
 #macro GAME_INIT_EXIT_X   336
 #macro GAME_INIT_EXIT_Y   230
 
+/* The map generation bar, along the bottom of the panel (which is 360x254).
+   Kept clear of the EXIT icon at GAME_INIT_EXIT_X/Y. */
+#macro GEN_BAR_X          20
+#macro GEN_BAR_LABEL_Y    228
+#macro GEN_BAR_Y          240
+#macro GEN_BAR_W          264
+#macro GEN_BAR_H          8
+
 /// Port of Random::Random() (random.cc lines 27-33): seed from the clock
 /// and consume one value.
 function game_init_random_default() {
@@ -969,6 +977,10 @@ function GameInitBox(_interface) : GuiObject() constructor {
             draw_box_icon(34, 200, 316); /* load */
         }
         gfx_draw_sprite(GAME_INIT_EXIT_X, GAME_INIT_EXIT_Y, Asset.icon, 60);
+
+        /* Last, so it sits over the panel rather than under it. Draws nothing
+           unless a map is actually being generated. */
+        draw_map_progress();
     };
 
     static draw_player_box = function(_player, _bx, _by) {
@@ -1496,23 +1508,117 @@ function GameInitBox(_interface) : GuiObject() constructor {
         return true;
     };
 
+    /// Start generating the preview. The work itself happens a phase at a time
+    /// in step_map_preview, called once per frame from obj_game's Step.
+    ///
+    /// GameMaker is single threaded, so the old version - which generated the
+    /// whole map here and then set the minimap - could not show progress even
+    /// in principle: nothing draws until the event returns, so the game just
+    /// stopped for as long as it took. Above map size 5 that is long enough to
+    /// look like a hang.
+    ///
+    /// Nothing about the map changes. The generator walks the same phase list
+    /// in the same order from the same random stream whether it is stepped or
+    /// run in one go - see ClassicMapGenerator.generate_step.
     static generate_map_preview = function() {
-        map = new Map(new MapGeometry(mission.get_map_size()));
+        gen_map = new Map(new MapGeometry(mission.get_map_size()));
+
         if (game_type == GameType.mission) {
-            var _generator = new ClassicMissionMapGenerator(map, mission.get_random_base());
-            _generator.init();
-            _generator.generate();
-            map.init_tiles(_generator);
+            gen_generator = new ClassicMissionMapGenerator(gen_map,
+                                                           mission.get_random_base());
+            gen_generator.init();
         } else {
-            var _generator = new ClassicMapGenerator(map, mission.get_random_base());
-            _generator.init(HeightGenerator.midpoints, true);
-            _generator.generate();
-            map.init_tiles(_generator);
+            gen_generator = new ClassicMapGenerator(gen_map,
+                                                    mission.get_random_base());
+            gen_generator.init(HeightGenerator.midpoints, true);
         }
 
-        minimap.set_map(map);
+        gen_generator.generate_begin();
+        gen_times = array_create(gen_generator.gen_phase_count(), 0);
+        gen_active = true;
 
         set_redraw();
+    };
+
+    /// One phase per frame. Returns true while there is still work to do.
+    ///
+    /// Starting a new preview while one is running simply throws the old one
+    /// away - generate_map_preview replaces gen_generator outright - so
+    /// holding the map size arrow down cannot leave a half-built map behind or
+    /// stack up work.
+    static step_map_preview = function() {
+        if (!gen_active) {
+            return false;
+        }
+
+        /* Time each phase. Now that generation is stepped, the cost of every
+           phase can be measured on the machine that is actually slow rather
+           than guessed at from reading the code - which is the only way to
+           know what is worth optimising next. One line per generation, at the
+           end, so it costs nothing to leave on. */
+        var _t0 = get_timer();
+        var _phase = gen_generator.gen_phase;
+        var _done = gen_generator.generate_step();
+        gen_times[_phase] = (get_timer() - _t0) / 1000;   /* ms */
+
+        set_redraw();
+
+        if (!_done) {
+            return true;
+        }
+
+        var _t1 = get_timer();
+        gen_map.init_tiles(gen_generator);
+        var _tiles_ms = (get_timer() - _t1) / 1000;
+
+        var _total = _tiles_ms;
+        var _line = "";
+        for (var _i = 0; _i < array_length(gen_times); _i++) {
+            _total += gen_times[_i];
+            _line += " " + string(_i) + ":" + string(round(gen_times[_i]));
+        }
+        show_debug_message("mapgen: size " + string(mission.get_map_size()) +
+                           " took " + string(round(_total)) + "ms" +
+                           " (per phase, ms:" + _line +
+                           ", init_tiles:" + string(round(_tiles_ms)) + ")");
+
+        map = gen_map;
+        minimap.set_map(map);
+
+        gen_active = false;
+        gen_generator = undefined;
+        gen_map = undefined;
+        return false;
+    };
+
+    /// "GENERATING MAP" and a bar, along the bottom of the panel. Drawn only
+    /// while a preview is being built.
+    static draw_map_progress = function() {
+        if (!gen_active) {
+            return;
+        }
+
+        var _total = gen_generator.gen_phase_count();
+        var _done = gen_generator.gen_phase;
+        if (_done > _total) {
+            _done = _total;
+        }
+
+        gfx_draw_string(GEN_BAR_X, GEN_BAR_LABEL_Y,
+                        "GENERATING MAP - " + gen_generator.gen_phase_name(),
+                        make_colour_rgb(0xff, 0xff, 0xff), -1);
+
+        /* Frame, then the filled part. Drawn with rectangles rather than a row
+           of dashes because the game font has no character that fills its cell,
+           so a text bar would be a dotted line. */
+        gfx_draw_rect(GEN_BAR_X, GEN_BAR_Y, GEN_BAR_W, GEN_BAR_H,
+                      make_colour_rgb(0x00, 0x00, 0x00));
+
+        var _fill = ((GEN_BAR_W - 2) * _done) div _total;
+        if (_fill > 0) {
+            gfx_fill_rect(GEN_BAR_X + 1, GEN_BAR_Y + 1, _fill, GEN_BAR_H - 2,
+                          make_colour_rgb(0x00, 0xe3, 0xe3));
+        }
     };
 
     /// Regenerates the preview for the current mission settings.
@@ -1524,6 +1630,13 @@ function GameInitBox(_interface) : GuiObject() constructor {
     set_size(360, 254);
 
     load_status = "";
+
+    /* Map generation in progress, stepped a phase at a time from obj_game's
+       Step so the panel can draw a bar. See generate_map_preview. */
+    gen_active = false;
+    gen_generator = undefined;
+    gen_map = undefined;
+    gen_times = [];
 
     custom_mission = new GameInfo(game_init_random_default());
     custom_mission.remove_all_players();

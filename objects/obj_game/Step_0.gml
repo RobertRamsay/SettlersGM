@@ -81,6 +81,15 @@ if (global.net_pending_start != undefined) {
 // ---- a queued game switch runs here, never inside event dispatch
 interface.apply_pending_game();
 
+// ---- the start screen builds its map preview one phase per frame, so the
+//      panel can draw a progress bar. GameMaker is single threaded: generating
+//      the whole map inside one event blocks every draw, and above map size 5
+//      that is long enough to look like the game has hung.
+var _init_box = interface.get_game_init_box();
+if (_init_box != undefined) {
+    _init_box.step_map_preview();
+}
+
 // ---- F12 dumps the save slot state to the output log
 if (keyboard_check_pressed(vk_f12)) {
     progress_dump(interface.get_game());
