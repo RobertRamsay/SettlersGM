@@ -57,7 +57,8 @@ enum NetPhase {
 enum NetMsg {
     start = 1,       // host -> client: which mission, and the RNG seed
     turn = 2,        // both ways: the commands for one turn
-    check = 3        // both ways: a world hash at a turn boundary
+    check = 3,       // both ways: a world hash at a turn boundary
+    chat = 4         // both ways: a line of text, outside the simulation
 }
 
 /// The commands that can cross the wire. Only build_flag is wired up in this
@@ -526,6 +527,108 @@ function net_send_start(_mission_index, _rnd) {
     network_send_packet(net_peer_socket(), _b, buffer_tell(_b));
 }
 
+/// ---------------------------------------------------------------------------
+/// Chat
+/// ---------------------------------------------------------------------------
+/// Chat is its OWN packet, not a NetCmd, and that distinction is the whole
+/// design. NetCmds are the lockstep command stream: they are collected per
+/// turn, applied on both machines at the same tick, and folded into the world
+/// hash. A line of text changes nothing about the world, so putting it in that
+/// stream would make the simulation depend on what somebody typed and when -
+/// the exact thing lockstep exists to avoid. As NetMsg.chat it arrives when it
+/// arrives, is drawn, and never touches the hash.
+///
+/// It follows that chat cannot desynchronise a game no matter what is typed.
+
+#macro NET_CHAT_MAX_LEN    120   /* per line, on the wire */
+#macro NET_CHAT_HISTORY    6     /* lines kept on screen */
+#macro NET_CHAT_HOLD       600   /* frames a line stays up: about ten seconds */
+
+function net_chat_init() {
+    global.net_chat_open = false;
+    global.net_chat_text = "";
+    global.net_chat_lines = [];    /* newest last: { text, age, mine } */
+}
+
+/// Add a line to what is on screen. _mine marks our own, so the two are
+/// distinguishable without needing names we do not have.
+function net_chat_add(_text, _mine) {
+    array_push(global.net_chat_lines, { text: _text, age: 0, mine: _mine });
+    while (array_length(global.net_chat_lines) > NET_CHAT_HISTORY) {
+        array_delete(global.net_chat_lines, 0, 1);
+    }
+}
+
+/// Called once a frame. Ages lines out so the corner does not stay cluttered.
+function net_chat_step() {
+    var _i = 0;
+    while (_i < array_length(global.net_chat_lines)) {
+        global.net_chat_lines[_i].age += 1;
+        if (global.net_chat_lines[_i].age > NET_CHAT_HOLD && !global.net_chat_open) {
+            array_delete(global.net_chat_lines, _i, 1);
+        } else {
+            _i += 1;
+        }
+    }
+}
+
+/// Open the box. keyboard_string is GameMaker's own typed-text buffer and
+/// handles backspace itself, which is the whole of the text editing - the same
+/// approach the host-address prompt already uses.
+function net_chat_begin() {
+    if (!net_is_active()) {
+        return false;
+    }
+    global.net_chat_open = true;
+    keyboard_string = "";
+    global.net_chat_text = "";
+    return true;
+}
+
+function net_chat_close() {
+    global.net_chat_open = false;
+    global.net_chat_text = "";
+    keyboard_string = "";
+}
+
+/// Send what has been typed, if anything. An empty line just closes the box.
+function net_chat_submit() {
+    var _text = string_trim(global.net_chat_text);
+    net_chat_close();
+
+    if (_text == "") {
+        return;
+    }
+    if (string_length(_text) > NET_CHAT_MAX_LEN) {
+        _text = string_copy(_text, 1, NET_CHAT_MAX_LEN);
+    }
+
+    net_chat_add(_text, true);
+
+    if (net_peer_socket() < 0) {
+        return;
+    }
+    var _b = global.net_send;
+    buffer_seek(_b, buffer_seek_start, 0);
+    buffer_write(_b, buffer_u8,     NetMsg.chat);
+    buffer_write(_b, buffer_string, _text);
+    network_send_packet(net_peer_socket(), _b, buffer_tell(_b));
+}
+
+function net_receive_chat(_b) {
+    var _text = buffer_read(_b, buffer_string);
+
+    /* Whatever arrives is drawn as text and never interpreted, but it came off
+       the wire, so it is trimmed to the length we agreed to carry rather than
+       trusted to be that long already. */
+    if (string_length(_text) > NET_CHAT_MAX_LEN) {
+        _text = string_copy(_text, 1, NET_CHAT_MAX_LEN);
+    }
+
+    net_chat_add(_text, false);
+    play_sfx(Sfx.message);
+}
+
 /// Send this machine's commands for `_turn`. Sent EVERY turn even when empty:
 /// the empty packet is what tells the other side it may proceed, so silence has
 /// to mean "not yet", never "nothing to do".
@@ -604,6 +707,9 @@ function net_handle_async(_async) {
             global.net_socket < 0) {
             global.net_socket = _their_socket;
             global.net_peer_ip = string(_their_ip);
+            /* Somebody has arrived and the host may well be looking at
+               something else - say so out loud, not only on the panel. */
+            play_sfx(Sfx.accepted);
             net_set_status(net_addr_label(string(_their_ip)) + " joined as player 2 - pick a"
                            + " mission and CLICK START");
             show_debug_message("net: " + global.net_status);
@@ -706,6 +812,9 @@ function net_handle_async(_async) {
         break;
     case NetMsg.check:
         net_receive_check(_b);
+        break;
+    case NetMsg.chat:
+        net_receive_chat(_b);
         break;
     default:
         show_debug_message("net: unknown message " + string(_msg));

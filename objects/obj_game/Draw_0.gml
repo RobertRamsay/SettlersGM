@@ -42,6 +42,44 @@ if (_init_box != undefined && _init_box.game_type == GameType.netplay) {
     _netplay_panel = true;
 }
 
+/* Net play chat, along the bottom left. Drawn whether or not the box is open,
+   because a line that arrives while you are looking at the map is the whole
+   point of having chat at all. Lines age out after about ten seconds unless
+   the box is open, in which case they stay up while you are reading them. */
+if (net_is_active() || global.net_chat_open ||
+    array_length(global.net_chat_lines) > 0) {
+    var _chat_n = array_length(global.net_chat_lines);
+    var _chat_y = SCREEN_H - 16 - (_chat_n * NET_TEXT_LINE);
+    if (global.net_chat_open) {
+        _chat_y -= NET_TEXT_LINE;
+    }
+
+    for (var _i = 0; _i < _chat_n; _i++) {
+        var _line = global.net_chat_lines[_i];
+        var _who = "THEM: ";
+        var _col = c_aqua;
+        if (_line.mine) {
+            _who = "YOU: ";
+            _col = c_white;
+        }
+        draw_set_colour(c_black);
+        draw_text(5, _chat_y + 1, _who + _line.text);
+        draw_set_colour(_col);
+        draw_text(4, _chat_y, _who + _line.text);
+        _chat_y += NET_TEXT_LINE;
+    }
+
+    if (global.net_chat_open) {
+        /* A caret, so an empty box still looks like somewhere to type. */
+        var _typed = "SAY: " + global.net_chat_text + "_";
+        draw_set_colour(c_black);
+        draw_text(5, _chat_y + 1, _typed);
+        draw_set_colour(c_yellow);
+        draw_text(4, _chat_y, _typed);
+    }
+    draw_set_colour(c_white);
+}
+
 /* The crash notice sits above all of it: it is asking a question, and the run
    it is about is already over, so nothing else on this line matters more. */
 if (global.crash_notice != "") {

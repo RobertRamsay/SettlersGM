@@ -24,6 +24,7 @@ gui_init_globals();
 audio_init();
 cf_init();      // "borntodie" cheat state + its effects list
 net_init();     // two-player lockstep networking (idle until NET PLAY)
+net_chat_init();
 net_lobby_init();   // discovery and the peer list, idle until the panel opens
 
 // Set by the async networking event when the host says which game to build, and

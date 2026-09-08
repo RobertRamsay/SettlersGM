@@ -41,7 +41,7 @@ for (var _t = 0; _t < _ticks; _t++) {
 
 // The crash question, when the last run left a report and there is somewhere to
 // send it. Answered once and remembered, so a no is a no for good.
-if (global.crash_asking) {
+if (global.crash_asking && !global.net_chat_open) {
     if (keyboard_check_pressed(ord("Y"))) {
         crash_answer(true);
     } else if (keyboard_check_pressed(ord("N")) ||
@@ -205,7 +205,7 @@ if (keyboard_check_pressed(vk_f5)) {
     savegame_save_slot(global.save_slot, interface.get_game());
 }
 
-if (keyboard_check_pressed(vk_f9) && !net_is_active()) {
+if (keyboard_check_pressed(vk_f9) && !net_is_active() && !global.net_chat_open) {
     /* Loading swaps the whole Game object out from under lockstep: this machine
        would carry on from a saved world while the peer carries on from the live
        one, with the turn numbers still lining up. There is no version of that
@@ -341,16 +341,16 @@ var _scroll_sign = -1;
 if (global.map_drag_invert) {
     _scroll_sign = 1;
 }
-if (keyboard_check_pressed(vk_up)) {
+if (keyboard_check_pressed(vk_up) && !global.net_chat_open) {
     interface.handle_event(gui_make_event(EventType.drag, 0, 0, 0, -32 * _scroll_sign, EventButton.left));
 }
-if (keyboard_check_pressed(vk_down)) {
+if (keyboard_check_pressed(vk_down) && !global.net_chat_open) {
     interface.handle_event(gui_make_event(EventType.drag, 0, 0, 0, 32 * _scroll_sign, EventButton.left));
 }
-if (keyboard_check_pressed(vk_left)) {
+if (keyboard_check_pressed(vk_left) && !global.net_chat_open) {
     interface.handle_event(gui_make_event(EventType.drag, 0, 0, -32 * _scroll_sign, 0, EventButton.left));
 }
-if (keyboard_check_pressed(vk_right)) {
+if (keyboard_check_pressed(vk_right) && !global.net_chat_open) {
     interface.handle_event(gui_make_event(EventType.drag, 0, 0, 32 * _scroll_sign, 0, EventButton.left));
 }
 
@@ -364,7 +364,8 @@ if (keyboard_check(vk_shift)) {
 if (keyboard_check(vk_alt)) {
     _modifier |= 4;
 }
-if (keyboard_check_pressed(vk_anykey) && !global.net_ip_prompt) {
+if (keyboard_check_pressed(vk_anykey) && !global.net_ip_prompt &&
+    !global.net_chat_open) {
     var _key = keyboard_key;
     var _chr = -1;
     if (_key >= ord("A") && _key <= ord("Z")) {
@@ -394,6 +395,34 @@ if (keyboard_check_pressed(vk_anykey) && !global.net_ip_prompt) {
         interface.handle_event(gui_make_event(EventType.key_pressed, 0, 0, _chr, _modifier, 0));
     }
 }
+
+/* ---- net play chat -------------------------------------------------------
+   ENTER opens it, type, ENTER sends, ESCAPE cancels.
+
+   Enter is the convention in this kind of game - Age of Empires, StarCraft,
+   Command & Conquer all open chat with it - and it is the same physical key on
+   a Mac keyboard with no modifier, no Fn row and nothing the OS wants first.
+   Tab was the other candidate and is a worse fit: in games it almost always
+   means the score or player list, and on macOS it drives full keyboard access,
+   so it would surprise people on both counts.
+
+   keyboard_string is GameMaker's own typed-text buffer and handles backspace
+   itself, which is the whole of the text editing - the same approach the
+   host-address prompt above already uses. */
+if (net_is_active() && !global.net_chat_open && !global.net_ip_prompt &&
+    keyboard_check_pressed(vk_enter)) {
+    net_chat_begin();
+} else if (global.net_chat_open) {
+    global.net_chat_text = keyboard_string;
+
+    if (keyboard_check_pressed(vk_enter)) {
+        net_chat_submit();
+    } else if (keyboard_check_pressed(vk_escape)) {
+        net_chat_close();
+    }
+}
+
+net_chat_step();
 
 if (keyboard_check_pressed(vk_f3)) {
     show_debug = !show_debug;
