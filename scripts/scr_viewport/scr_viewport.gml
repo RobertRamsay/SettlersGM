@@ -20,6 +20,12 @@
 // tinted blue and drawn faded so the boat route sits under the surface instead
 // of reading as a white mountain road. Both are safe to tweak by hand; the
 // tint is plain r,g,b (GML swaps the order internally). See draw_path_segment.
+/* Ambience: how long between attempts, in frames at 60fps. One try every one
+   and a half to four seconds, and most land on plain grass and stay silent, so
+   a wood is alive, a lake laps, a snowfield blows and farmland is quiet. */
+#macro AMBIENT_MIN_GAP    90
+#macro AMBIENT_EXTRA_GAP  150
+
 #macro PATH_WATER_ALPHA 0.7
 #macro PATH_WATER_TINT make_colour_rgb(200, 240, 255)
 
@@ -632,6 +638,9 @@ function Viewport(_interface, _map) : GuiObject() constructor {
     offset_x = 0;
     offset_y = 0;
     last_tick = 0;
+
+    /* Frames until the next attempt at birdsong. See ambient_step. */
+    ambient_wait = 0;
 
     /* Which buildings this viewport currently has a looping sound going for,
        indexed by building index.
@@ -3203,6 +3212,99 @@ function Viewport(_interface, _map) : GuiObject() constructor {
         if (_tick_xor >= (1 << 3)) {
             set_redraw();
         }
+
+        ambient_step();
+    };
+
+    /// The landscape's own noises: birds in the trees, water, wind on the high
+    /// ground.
+    ///
+    /// NOT ported from Freeserf, because Freeserf has no ambience at all. Its
+    /// viewport plays sound only for things that happen - a mill grinding, a
+    /// fight, a building burning - and the six samples used here are either
+    /// declared and never played (TypeSfxBirdChirp0..3) or not even identified
+    /// (TypeSfxUnknown28 and 29). Bob picked those last two out by ear from the
+    /// Amiga data: 86 is water, 88 is wind. So this is the original's behaviour
+    /// put back, not a port of code that exists.
+    ///
+    /// One random point on screen is tried every so often and whatever is
+    /// THERE decides what is heard. Asking the map rather than keeping lists is
+    /// what makes it behave: a wood chirps, a lake laps, a snowfield has wind
+    /// blowing over it, the sound comes from where the thing is rather than
+    /// from the middle of the screen, and it all follows the view as it
+    /// scrolls. Most probes land on plain grass and are silent, which is what
+    /// keeps it from becoming a racket.
+    ///
+    /// COSMETIC RANDOMNESS ONLY. irandom(), never game.random_int(): the game's
+    /// generator is simulation state, shared tick for tick with the other
+    /// machine in a network game and replayed exactly from a save. Drawing from
+    /// it to decide when a bird sings would desynchronise a game and make a
+    /// reloaded save play out differently, for birdsong.
+    static ambient_step = function() {
+        if (ambient_wait > 0) {
+            ambient_wait -= 1;
+            return;
+        }
+        ambient_wait = AMBIENT_MIN_GAP + irandom(AMBIENT_EXTRA_GAP);
+
+        if (map == undefined || width <= 0 || height <= 0) {
+            return;
+        }
+
+        var _lx = irandom(width - 1);
+        var _ly = irandom(height - 1);
+        var _pos = map_pos_from_screen_pix(_lx, _ly);
+        var _sfx = ambient_sound_for(_pos);
+
+        if (_sfx < 0) {
+            return;
+        }
+
+        /* Through the ordinary positional path, so it is quieter towards the
+           edge of the view, panned to the side it is on, and silent off screen
+           - and so it competes for the four voices like everything else rather
+           than talking over a fight. */
+        play_sound_at(_sfx, _lx, _ly);
+    };
+
+    /// What this tile sounds like, or -1 for silence.
+    ///
+    /// Trees first, because a tree standing on grass should be heard as a tree.
+    /// Then the terrain underneath it.
+    static ambient_sound_for = function(_pos) {
+        var _obj = map.get_obj(_pos);
+
+        /* Trees and pines. Palms are desert - the wind below suits them better
+           than birdsong - and the water trees stand in water. */
+        if ((_obj >= MapObject.tree0 && _obj <= MapObject.tree7) ||
+            (_obj >= MapObject.pine0 && _obj <= MapObject.pine7)) {
+            switch (irandom(3)) {
+                case 0:  return Sfx.bird_chirp0;
+                case 1:  return Sfx.bird_chirp1;
+                case 2:  return Sfx.bird_chirp2;
+                default: return Sfx.bird_chirp3;
+            }
+        }
+
+        /* The two triangles meeting at this point. Both have to be the same
+           sort of ground for it to count, so a sound comes from the middle of
+           a lake or a snowfield rather than from every shoreline tile. */
+        var _up = map.get_type_up(_pos);
+        var _down = map.get_type_down(_pos);
+
+        if (_up <= Terrain.water3 && _down <= Terrain.water3) {
+            return Sfx.water;
+        }
+
+        /* Wind on the high, bare ground: tundra and snow. Desert is included
+           because a desert with wind over it reads right and there is nothing
+           else up there to hear. Grass is left silent - it is most of the map,
+           and a permanent noise over most of the map is not ambience. */
+        if (_up >= Terrain.desert0 && _down >= Terrain.desert0) {
+            return Sfx.wind;
+        }
+
+        return -1;
     };
 
     // ------------------------------------------------------------ coordinates

@@ -40,8 +40,13 @@ enum Sfx {
     bird_chirp2 = 78,
     bird_chirp3 = 82,
     burning = 84,
-    unknown28 = 86,
-    unknown29 = 88
+    /* Freeserf calls these TypeSfxUnknown28 and TypeSfxUnknown29 and has never
+       identified them, and it never plays either. Bob identified them by ear
+       from the Amiga samples: 86 is water, 88 is wind. Both are ambience, and
+       ambience is the one thing Freeserf's viewport has no code for at all -
+       see Viewport.ambient_step, which is where they are used. */
+    water = 86,
+    wind = 88
 }
 
 // ---------------------------------------------------------------------------
