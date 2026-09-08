@@ -394,7 +394,7 @@ function net_join(_ip) {
            for anyone who wants them. The one cause that matters is the other
            machine not having its NET PLAY panel open - that is what closes its
            door - so that is what the line asks. */
-        net_set_status(string(_ip) + " did not answer - is NET PLAY open on"
+        net_set_status(net_addr_label(string(_ip)) + " did not answer - is NET PLAY open on"
                        + " that pc? [port " + string(NET_PORT) + ": " + _tried
                        + "]");
         show_debug_message("net: " + global.net_status);
@@ -415,7 +415,7 @@ function net_join(_ip) {
     ds_map_clear(global.net_turns);
     ds_map_clear(global.net_checks);
     global.net_outbox = [];
-    net_set_status("JOINED " + string(_ip) + " - you are player 2. The host"
+    net_set_status("JOINED " + net_addr_label(string(_ip)) + " - you are player 2. The host"
                    + " CLICKS START");
     show_debug_message("net: " + global.net_status);
     net_log(global.net_status);
@@ -495,7 +495,7 @@ function net_become_client(_socket, _their_ip) {
     ds_map_clear(global.net_turns);
     ds_map_clear(global.net_checks);
     global.net_outbox = [];
-    net_set_status(string(_their_ip) + " connected to you - you are player 2."
+    net_set_status(net_addr_label(string(_their_ip)) + " connected to you - you are player 2."
                    + " They CLICK START");
     net_log(global.net_status);
 }
@@ -604,7 +604,7 @@ function net_handle_async(_async) {
             global.net_socket < 0) {
             global.net_socket = _their_socket;
             global.net_peer_ip = string(_their_ip);
-            net_set_status(string(_their_ip) + " joined as player 2 - pick a"
+            net_set_status(net_addr_label(string(_their_ip)) + " joined as player 2 - pick a"
                            + " mission and CLICK START");
             show_debug_message("net: " + global.net_status);
             net_log(global.net_status);
@@ -2319,6 +2319,125 @@ function net_lobby_close() {
 /// be added later without changing the wire format.
 function net_local_name() {
     return "";
+}
+
+// ------------------------------------------------- what the lobby may show
+
+/// Is this address one of the private ranges - reachable only from inside
+/// somebody's own network, and meaningless to anybody outside it?
+///
+///   10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16   RFC 1918 private
+///   127.0.0.0/8                                 loopback, this machine
+///   169.254.0.0/16                              link-local, no DHCP
+///
+/// Anything else is routable on the internet and belongs to a real household.
+function net_addr_is_private(_ip) {
+    var _parts = net_split_dots(_ip);
+    if (array_length(_parts) != 4) {
+        /* Not an IPv4 literal - a hostname, or something typed wrong. Treat it
+           as public: guessing "private" here would put it on screen. */
+        return false;
+    }
+
+    var _a = _parts[0];
+    var _b = _parts[1];
+
+    if (_a == 10)  { return true; }
+    if (_a == 127) { return true; }
+    if (_a == 192 && _b == 168) { return true; }
+    if (_a == 172 && _b >= 16 && _b <= 31) { return true; }
+    if (_a == 169 && _b == 254) { return true; }
+
+    return false;
+}
+
+/// Split "192.168.1.24" into [192, 168, 1, 24]. Returns [] unless all four
+/// parts are present and are numbers in 0..255.
+function net_split_dots(_ip) {
+    var _out = [];
+    var _current = "";
+    var _n = string_length(_ip);
+
+    for (var _i = 1; _i <= _n + 1; _i++) {
+        var _c = "";
+        if (_i <= _n) {
+            _c = string_char_at(_ip, _i);
+        }
+
+        if (_c == "." || _i > _n) {
+            if (string_length(_current) == 0 || string_length(_current) > 3) {
+                return [];
+            }
+            var _v = real(_current);
+            if (_v < 0 || _v > 255) {
+                return [];
+            }
+            array_push(_out, _v);
+            _current = "";
+        } else if (_c >= "0" && _c <= "9") {
+            _current += _c;
+        } else {
+            return [];
+        }
+    }
+
+    if (array_length(_out) != 4) {
+        return [];
+    }
+    return _out;
+}
+
+/// A short, stable, meaningless label for an address we must not print.
+///
+/// Same address always gives the same tag, on every machine and across
+/// restarts, so a regular opponent stays recognisable from one game to the
+/// next. It is NOT a secret - the tag is derived from the address and an
+/// attacker who already had the address could confirm a match - it exists so
+/// that a routable address never reaches the screen, which is the way these
+/// get spread: a screenshot, a bug report, a video.
+///
+/// h * 31 + c, masked to 31 bits. The mask matters: GML numbers are doubles,
+/// so a wider hash would silently lose precision past 2^53 and stop being the
+/// same on both machines.
+function net_addr_tag(_ip) {
+    var _h = 2166136261;
+    var _n = string_length(_ip);
+
+    for (var _i = 1; _i <= _n; _i++) {
+        _h = (((_h << 5) - _h) + ord(string_char_at(_ip, _i))) & 0x7FFFFFFF;
+    }
+
+    var _hex = "0123456789ABCDEF";
+    var _out = "";
+    for (var _d = 7; _d >= 0; _d--) {
+        var _nibble = (_h >> (_d * 4)) & 0xF;
+        _out += string_char_at(_hex, _nibble + 1);
+    }
+
+    return _out;
+}
+
+/// What the lobby is allowed to print for this peer.
+///
+/// A private address is shown as it is: it identifies nothing outside the
+/// house, everybody's looks the same, and it is the only way to tell two
+/// machines on one network apart - which is the whole job of the list.
+///
+/// A public address is replaced by its tag. Somebody demonstrating net play to
+/// an audience cannot be expected to notice, mid-take, that the row now holds
+/// a friend's home address, and the friend never agreed to it being on screen.
+function net_peer_label(_peer) {
+    if (_peer == undefined) {
+        return "?";
+    }
+    return net_addr_label(_peer.ip);
+}
+
+function net_addr_label(_ip) {
+    if (net_addr_is_private(_ip)) {
+        return _ip;
+    }
+    return "Player " + net_addr_tag(_ip);
 }
 
 // ------------------------------------------------------------- the beacon

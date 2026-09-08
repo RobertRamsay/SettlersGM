@@ -535,3 +535,210 @@ function crash_handle_async(_async) {
 
     return true;
 }
+
+// ===========================================================================
+// Play reports
+// ===========================================================================
+/// A one-line note to the same webhook when a game starts, so there is some
+/// idea of whether anybody is playing this and on what.
+///
+/// This runs on OTHER PEOPLE'S MACHINES, so what it sends matters:
+///
+///   - Nothing that identifies a person. No user name, no machine name, no
+///     file paths, no addresses. What goes out is the version, the platform,
+///     which kind of game it is, and an install tag.
+///
+///   - The install tag is a random number made once and kept in the save
+///     directory. It tells one installation apart from another - three games
+///     from one person rather than three people - without saying who anybody
+///     is. Deleting it or copying the game elsewhere just makes a new one.
+///
+/// TWO THINGS TO DO BEFORE THIS SHIPS TO ANYBODY ELSE:
+///
+///   1. Tell players it exists. A line in the readme and on the start screen
+///     is enough - "this sends an anonymous note when a game starts" - but it
+///     has to be somewhere they can see without reading the source.
+///
+///   2. Give them the switch. REPORT_ENABLED is a compile-time macro, which
+///     is your switch, not theirs. A checkbox in the options popup writing to
+///     a setting this function reads is the honest version.
+///
+/// Undisclosed reporting from installed software is the kind of thing that
+/// turns a well-liked project into a thread about spyware, and it is a very
+/// cheap thing to get right up front.
+
+/// Master switch. false and nothing is ever sent.
+#macro REPORT_ENABLED     true
+
+/// While true, the result of every send is put on screen and logged loudly -
+/// which is what makes this a test mode. Turn it off before other people play:
+/// they should never see a line about a report either succeeding or failing.
+#macro REPORT_TEST_MODE   true
+
+/// Discord's webhooks are rate limited (roughly 30 requests a minute) and a
+/// burst gets the webhook disabled rather than throttled. One start cannot be
+/// followed by another inside this many seconds.
+#macro REPORT_MIN_GAP     10
+
+#macro REPORT_TAG_FILE    "install_tag.txt"
+
+function report_init() {
+    global.report_request = -1;
+    global.report_last    = -1000000;
+    global.report_tag     = "";
+}
+
+/// A random id for this installation, made once and kept. Not tied to the
+/// machine, the user or the network - if the file goes, the next launch is a
+/// new installation as far as this is concerned, and that is fine.
+function report_install_tag() {
+    if (global.report_tag != "") {
+        return global.report_tag;
+    }
+
+    if (file_exists(REPORT_TAG_FILE)) {
+        var _f = file_text_open_read(REPORT_TAG_FILE);
+        if (_f != -1) {
+            global.report_tag = string_trim(file_text_read_string(_f));
+            file_text_close(_f);
+        }
+    }
+
+    if (global.report_tag == "") {
+        randomise();
+        var _hex = "0123456789ABCDEF";
+        for (var _i = 0; _i < 8; _i++) {
+            global.report_tag += string_char_at(_hex, irandom(15) + 1);
+        }
+
+        var _w = file_text_open_write(REPORT_TAG_FILE);
+        if (_w != -1) {
+            file_text_write_string(_w, global.report_tag);
+            file_text_close(_w);
+        }
+    }
+
+    return global.report_tag;
+}
+
+/// Post one line. Returns true if a request actually went out.
+function report_post(_text) {
+    if (!REPORT_ENABLED) {
+        return false;
+    }
+    if (CRASH_REPORT_URL == "") {
+        return false;
+    }
+
+    /* A crash report is the more important of the two and must not have its
+       reply stolen, so a play report waits rather than overlapping it. */
+    if (global.crash_request >= 0 || global.report_request >= 0) {
+        show_debug_message("report: a request is already in flight - skipped");
+        return false;
+    }
+
+    var _now = current_time / 1000;
+    if (_now - global.report_last < REPORT_MIN_GAP) {
+        show_debug_message("report: too soon after the last one - skipped");
+        return false;
+    }
+    global.report_last = _now;
+
+    var _body = { content: _text };
+
+    /* Same two traps as the crash post: text/plain is refused, and Discord
+       rejects a request with no User-Agent using a 400 that looks from here
+       exactly like the send quietly not working. */
+    var _headers = ds_map_create();
+    ds_map_add(_headers, "Content-Type", "application/json");
+    ds_map_add(_headers, "Accept", "application/json");
+    ds_map_add(_headers, "User-Agent",
+               "SettlersGM/" + string(game_version()) + " (play report)");
+
+    global.report_request = http_request(CRASH_REPORT_URL, "POST", _headers,
+                                         json_stringify(_body));
+    ds_map_destroy(_headers);
+
+    show_debug_message("report: posting - " + _text);
+    if (REPORT_TEST_MODE) {
+        crash_say("Sending play report...");
+    }
+    return true;
+}
+
+/// Called from Interface.set_game, which every game start funnels through -
+/// a mission, a skirmish, a loaded save and a network game alike.
+function report_game_started(_game) {
+    if (_game == undefined) {
+        return;
+    }
+
+    var _kind = "custom game";
+    if (_game.mission_index >= 0) {
+        _kind = "mission " + string(_game.mission_index + 1);
+    }
+    if (global.net_role != NetRole.off) {
+        _kind += " (net play)";
+    }
+
+    var _size = "?";
+    var _map = _game.get_map();
+    if (_map != undefined) {
+        _size = string(_map.geom.size);
+    }
+
+    report_post("**game started** - " + _kind
+                + " - v" + game_version()
+                + " - " + os_get_info_string()
+                + " - map size " + _size
+                + " - install " + report_install_tag());
+}
+
+/// Platform only. Deliberately not os_get_info(), which carries device and
+/// user detail that has no business leaving somebody's machine.
+function os_get_info_string() {
+    switch (os_type) {
+        case os_windows: return "windows";
+        case os_macosx:  return "macos";
+        case os_linux:   return "linux";
+        default:         return "other";
+    }
+}
+
+/// From obj_game's Async HTTP event, before the crash handler and the update
+/// check get a look. Returns true when the reply was this module's.
+function report_handle_async(_async) {
+    if (global.report_request < 0) {
+        return false;
+    }
+    if (_async[? "id"] != global.report_request) {
+        return false;
+    }
+
+    global.report_request = -1;
+
+    var _status = _async[? "status"];
+    var _http   = _async[? "http_status"];
+    show_debug_message("report: finished - status " + string(_status)
+                       + ", http " + string(_http)
+                       + ", reply " + string(_async[? "result"]));
+
+    if (!REPORT_TEST_MODE) {
+        return true;
+    }
+
+    /* status 0 means the request completed, which is not the same as the far
+       end having liked it. Discord answers 204 with an empty body on success;
+       anything outside 2xx is a refusal and the code says which. */
+    if (_status == 0 && _http >= 200 && _http < 300) {
+        crash_say("Play report sent OK (HTTP " + string(_http) + ")");
+    } else if (_status == 0) {
+        crash_say("Play report REFUSED - HTTP " + string(_http)
+                  + ". See the log.");
+    } else {
+        crash_say("Play report FAILED to send - status " + string(_status)
+                  + ". No network?");
+    }
+
+    return true;
+}

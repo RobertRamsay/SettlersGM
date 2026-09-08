@@ -714,7 +714,8 @@ function GameInitBox(_interface) : GuiObject() constructor {
             gfx_draw_string(NETPLAY_ROW_X, NETPLAY_HOST_Y,
                             "JOINED - you are player 2", _amber, -1);
             netplay_draw_wrapped(NETPLAY_ROW_X, NETPLAY_MISSION_Y,
-                                 "Host is " + global.net_peer_ip + ". It picks"
+                                 "Host is " + net_addr_label(global.net_peer_ip)
+                                 + ". It picks"
                                  + " the mission and CLICKS START. Nothing to"
                                  + " click on this pc - just wait, the game"
                                  + " opens by itself.", _grey);
@@ -780,7 +781,11 @@ function GameInitBox(_interface) : GuiObject() constructor {
                 _tail = "  hosting, full";
             }
 
-            gfx_draw_string(NETPLAY_ROW_X, _ry, _lead + _peer.ip + _tail, _colour, -1);
+            /* net_peer_label, never _peer.ip: a private address is printed
+               as it is, a routable one is replaced by its tag. See
+               net_addr_label in scr_net.gml for why. */
+            gfx_draw_string(NETPLAY_ROW_X, _ry,
+                            _lead + net_peer_label(_peer) + _tail, _colour, -1);
         }
 
         if (_count > 0) {
@@ -1379,9 +1384,11 @@ function GameInitBox(_interface) : GuiObject() constructor {
                        a message about ports. Say the useful thing instead. */
                     if (net_peer_is_live(_peer) && _peer.hosting != NET_HOSTING_OPEN) {
                         if (_peer.hosting == NET_HOSTING_FULL) {
-                            net_set_status(_peer.ip + " already has a player 2");
+                            net_set_status(net_peer_label(_peer) +
+                                           " already has a player 2");
                         } else {
-                            net_set_status(_peer.ip + " is not hosting - on that pc,"
+                            net_set_status(net_peer_label(_peer) +
+                                           " is not hosting - on that pc,"
                                            + " CLICK HOST first");
                         }
                         return true;

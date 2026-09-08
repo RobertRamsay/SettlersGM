@@ -783,6 +783,12 @@ function Interface(_game = undefined) : GuiObject() constructor {
            was, so that one stays untickable. */
         if (game != undefined) {
             progress_set_current_mission(game.mission_index);
+
+            /* Every way a game becomes current comes through here - a mission,
+               a custom game, a loaded save, a network game - so this is the one
+               place a "somebody started playing" note has to go. It sends
+               nothing that identifies anybody; see report_game_started. */
+            report_game_started(game);
         }
 
         // The old player struct belongs to the previous Game, so it must not be

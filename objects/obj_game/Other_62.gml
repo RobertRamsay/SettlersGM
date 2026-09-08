@@ -10,6 +10,13 @@
 /// report from a previous run. Each checks the id before touching anything, and
 /// the crash one answers whether it recognised the reply, so the update check
 /// is not handed somebody else's.
+/* Three requests can be in flight now: the start screen's update check, a
+   crash report, and a play report. Each checks the id before touching
+   anything, so none is handed somebody else's reply. */
+if (report_handle_async(async_load)) {
+    exit;
+}
+
 if (crash_handle_async(async_load)) {
     exit;
 }
