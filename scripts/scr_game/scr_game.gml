@@ -160,6 +160,9 @@ function Game() constructor {
        after 3. game_over_seen records which players have ever had a castle,
        because at the start of a mission nobody has placed one yet and every
        player would otherwise read as already beaten. */
+    game_over = 0;
+    game_over_counter = 0;
+    game_over_seen = array_create(GAME_MAX_PLAYER_COUNT, false);
     /* Which mission this is, so a win can tick it off in the start screen's
        list. -1 for a custom game or a tutorial, which have nothing to tick.
        GameInitBox sets it when it starts a mission. It serialises with the rest
