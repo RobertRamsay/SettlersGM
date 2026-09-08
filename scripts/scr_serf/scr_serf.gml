@@ -1006,7 +1006,11 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
 
         counter = 0;
 
-        if (game.get_map().get_serf_index(pos) == index) {
+        /* serf_is_at, not get_serf_index: a knight is on the knight layer, so
+           the old test never matched for one and every knight caught in a
+           burning castle took the escape_building path instead of walking
+           home. */
+        if (game.get_map().serf_is_at(pos, self)) {
             set_state(SerfState.lost);
             s.lost_field_B = 0;
         } else {
@@ -1387,8 +1391,13 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
                                               _map.get_height(pos), _dir, 0);
             s.walking_dir = reverse_direction(_dir);
         } else {
-            /* Direction is occupied. */
-            var _other_serf = game.get_serf_at_pos(_new_pos);
+            /* Direction is occupied. Ask the layer that actually blocked us -
+               see Game.get_blocker_at_pos. Asking get_serf_at_pos here is what
+               froze knights on roads: it answers from the ordinary layer, so a
+               knight blocked by a knight was handed the transporter standing
+               on the same tile, asked it to swap, was refused, and waited for
+               ever while the knight in his way was never asked. */
+            var _other_serf = game.get_blocker_at_pos(self, _new_pos);
             if (_other_serf == undefined) {
                 return;     /* tile pointed at a serf that is gone */
             }
@@ -1597,14 +1606,23 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
 
                 if (!_map.blocked_for(self, _pos)) {
                     break;
-                } else if (_map.get_serf_index(_pos) == index) {
+                } else if (_map.serf_is_at(_pos, self)) {
                     /* We have found a loop, try a different direction. */
                     change_direction(reverse_direction(_dir), 0);
                     return;
                 }
 
-                /* Get next serf and follow the chain */
-                var _other_serf = game.get_serf_at_pos(pos);
+                /* Get next serf and follow the chain.
+                   _pos, not pos: this walks along the chain of serfs waiting
+                   on each other, and it was looking at this serf's OWN tile
+                   every time round, so it followed nothing and the loop was
+                   never detected. In the C++ the loop variable shadows the
+                   member of the same name; renaming it here lost that.
+                   get_blocker_at_pos, not get_serf_at_pos, so a knight follows
+                   the chain of knights rather than whichever transporter
+                   happens to share a tile with them - this is the code that
+                   breaks deadlocks, so it has to look where the block is. */
+                var _other_serf = game.get_blocker_at_pos(self, _pos);
                 if (_other_serf == undefined) {
                     break;  /* tile pointed at a serf that is gone */
                 }
@@ -2341,7 +2359,7 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
                 var _new_pos = _map.move(pos, _dir);
 
                 if (_map.blocked_for(self, _new_pos)) {
-                    var _other_serf = game.get_serf_at_pos(_new_pos);
+                    var _other_serf = game.get_blocker_at_pos(self, _new_pos);
                     if (_other_serf == undefined) {
                         break;  /* tile pointed at a serf that is gone */
                     }

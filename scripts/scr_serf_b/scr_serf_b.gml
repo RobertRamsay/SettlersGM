@@ -385,7 +385,9 @@ function serf_handle_serf_free_walking_switch_with_other(_serf) {
     for (var _i = 0; _i < 6; _i++) {
         _new_pos = _map.move(_serf.pos, _i);
         if (_map.blocked_for(_serf, _new_pos)) {
-            _other_serf = _serf.game.get_serf_at_pos(_new_pos);
+            /* The layer that blocked us, not whoever happens to answer first -
+               see Game.get_blocker_at_pos. */
+            _other_serf = _serf.game.get_blocker_at_pos(_serf, _new_pos);
             if (_other_serf == undefined) {
                 continue;   /* tile pointed at a serf that is gone */
             }
@@ -689,7 +691,7 @@ function serf_handle_free_walking_common(_serf) {
            exactly what already happens when the tile is genuinely empty. */
         var _other_serf = undefined;
         if (_map.blocked_for(_serf, _new_pos2)) {
-            _other_serf = _serf.game.get_serf_at_pos(_new_pos2);
+            _other_serf = _serf.game.get_blocker_at_pos(_serf, _new_pos2);
         }
 
         if (_serf.state == SerfState.knight_free_walking &&

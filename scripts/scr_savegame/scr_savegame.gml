@@ -392,8 +392,18 @@ function savegame_fix_serf_layers(_game) {
             continue;
         }
 
-        var _a = _game.serfs.get(_si);
-        var _b = _game.serfs.get(_ki);
+        /* Index 0 is the NULL-serf, a real object - Game allocates it so
+           that 0 can mean "nobody" in the map arrays. serfs.get(0) therefore
+           returns a struct, not undefined, and asking for it here made every
+           occupied tile look like it held a second serf. */
+        var _a = undefined;
+        if (_si != 0) {
+            _a = _game.serfs.get(_si);
+        }
+        var _b = undefined;
+        if (_ki != 0) {
+            _b = _game.serfs.get(_ki);
+        }
 
         /* An index naming a serf who no longer exists is dropped here rather
            than carried forward to crash the first reader that trips over it. */

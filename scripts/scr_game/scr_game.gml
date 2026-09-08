@@ -333,6 +333,22 @@ function Game() constructor {
         return _knight;
     };
 
+    /* Whoever is standing at _pos ON THE LAYER THAT BLOCKS _serf.
+       This is the counterpart to Map.blocked_for, and every "the tile ahead is
+       occupied, so ask its occupant to swap with me" path has to use it. Asking
+       get_serf_at_pos instead looks right and deadlocks knights: it answers
+       from the ordinary layer first, and a road nearly always has a transporter
+       standing on it, so a knight blocked by another knight was handed the
+       transporter, asked IT to move aside, got refused - it has its own job and
+       is not waiting on him - and settled down to wait for ever, while the
+       knight actually in his way was never asked at all. */
+    static get_blocker_at_pos = function(_serf, _pos) {
+        if (map_serf_is_phantom(_serf)) {
+            return get_knight_at_pos(_pos);
+        }
+        return get_serf_at_pos(_pos);
+    };
+
     /* get_serf_at_pos restricted to the knight layer, healing as it goes. */
     static get_knight_at_pos = function(_pos) {
         var _index = map.get_knight_index(_pos);

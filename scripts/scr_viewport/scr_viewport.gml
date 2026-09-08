@@ -528,6 +528,98 @@ function viewport_warn_animation(_animation, _phase, _count, _serf) {
                        " (reported once per state)");
 }
 
+/// Report a knight who has stopped moving, once, with everything needed to say
+/// why. Called from the draw path for every knight on screen.
+///
+/// A knight that stands still is not obviously wrong from any one handler's
+/// point of view - each of them has a legitimate reason to wait - so the useful
+/// signal is the combination: what state he is in, what he is waiting for, and
+/// crucially who is standing on the tile he wants, on BOTH occupancy layers.
+/// A knight blocked by a tile that looks empty on the layer he can see is a
+/// different bug from one blocked by a knight that is itself blocked.
+///
+/// DRAW PATH: strictly read-only with respect to the simulation. The tracking
+/// map below is viewport bookkeeping - nothing here touches a serf, a building
+/// or a map tile - so two machines scrolled to different places still simulate
+/// identically. It only ever sees knights that are on screen, which is exactly
+/// where somebody is looking when they notice one is stuck.
+#macro VIEWPORT_STUCK_FRAMES 180
+
+function viewport_watch_stuck_knight(_serf, _map, _game) {
+    if (!variable_global_exists("viewport_stuck_seen")) {
+        global.viewport_stuck_seen = ds_map_create();
+        global.viewport_stuck_told = ds_map_create();
+    }
+
+    var _key = string(_serf.get_index());
+    var _now = string(_serf.get_pos()) + "/" + string(_serf.get_counter()) +
+               "/" + string(_serf.get_state());
+
+    var _frames = 0;
+    if (ds_map_exists(global.viewport_stuck_seen, _key)) {
+        var _prev = global.viewport_stuck_seen[? _key];
+        if (_prev.what == _now) {
+            _frames = _prev.frames + 1;
+        }
+    }
+    global.viewport_stuck_seen[? _key] = { what: _now, frames: _frames };
+
+    if (_frames != VIEWPORT_STUCK_FRAMES) {
+        return;     /* only on the frame it crosses the line */
+    }
+    if (ds_map_exists(global.viewport_stuck_told, _now)) {
+        return;     /* this exact standstill has been reported already */
+    }
+    global.viewport_stuck_told[? _now] = true;
+
+    var _pos = _serf.get_pos();
+    var _msg = "stuck: knight #" + string(_serf.get_index()) +
+               " type " + string(_serf.get_type()) +
+               " state " + string(_serf.get_state_name(_serf.get_state())) +
+               " counter " + string(_serf.get_counter()) +
+               " anim " + string(_serf.get_animation()) +
+               " pos " + string(_pos) +
+               " | tile: serf=" + string(_map.get_serf_index(_pos)) +
+               " knight=" + string(_map.get_knight_index(_pos)) +
+               " flag=" + string(_map.has_flag(_pos)) +
+               " paths=" + string(_map.get_paths(_pos));
+
+    /* Road walking: which way is he trying to go, and what is in the way. */
+    var _dir = _serf.s.walking_dir;
+    _msg += " | walking_dir " + string(_dir) +
+            " dest " + string(_serf.s.walking_dest) +
+            " wait " + string(_serf.s.walking_wait_counter);
+    if (_dir < 0) {
+        _dir += 6;
+    }
+    if (_dir >= Direction.right && _dir <= Direction.up) {
+        var _ahead = _map.move(_pos, _dir);
+        _msg += " | ahead(" + string(_dir) + ") serf=" +
+                string(_map.get_serf_index(_ahead)) +
+                " knight=" + string(_map.get_knight_index(_ahead));
+
+        var _blocker = _game.peek_knight_at_pos(_ahead);
+        if (_blocker == undefined) {
+            _blocker = _game.peek_serf_at_pos(_ahead);
+        }
+        if (_blocker == undefined) {
+            _msg += " (nobody there)";
+        } else {
+            _msg += " (#" + string(_blocker.get_index()) + " " +
+                    string(_blocker.get_state_name(_blocker.get_state())) +
+                    ", its walking_dir " + string(_blocker.s.walking_dir) + ")";
+        }
+    }
+
+    /* Free walking: where does he think he is going. */
+    _msg += " | free dist " + string(_serf.s.free_walking_dist_col) + "," +
+            string(_serf.s.free_walking_dist_row) +
+            " neg1 " + string(_serf.s.free_walking_neg_dist1) +
+            " flags " + string(_serf.s.free_walking_flags);
+
+    show_debug_message(_msg);
+}
+
 /// Viewport(Interface *interface, PMap map) : GuiObject, Map::Handler.
 /// `width`/`height`/`x`/`y`/`displayed`/... come from GuiObject (set_size()).
 /// The map cursor position and sprites live in the Interface
@@ -2342,6 +2434,8 @@ function Viewport(_interface, _map) : GuiObject() constructor {
                    the ordinary layer needs does not apply here. */
                 if (_knight != undefined) {
                     draw_active_serf(_knight, _pos, _x_base, _y_base);
+                    viewport_watch_stuck_knight(_knight, map,
+                                                interface.get_game());
                 }
             }
 

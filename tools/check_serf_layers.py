@@ -48,6 +48,12 @@ MOVEMENT_FILES = {
 DIRECT_WRITE = re.compile(r'(?<![\w.])(?:_?map|_map_st)\s*\.\s*(serf|knight)\s*\[[^\]]*\]\s*=')
 OLD_SETTER = re.compile(r'\bset_serf_index\b')
 BARE_HAS_SERF = re.compile(r'\.has_serf\s*\(')
+BARE_GET_INDEX = re.compile(r'\.get_serf_index\s*\(')
+# "the tile ahead is occupied, so ask its occupant to move" - the lookup has to
+# come from the same layer the test did, or a knight blocked by a knight is
+# handed the transporter sharing that tile and waits on it for ever.
+BLOCKED_THEN_LOOKUP = re.compile(
+    r'blocked_for\s*\([^)]*\)(?:[^\n]*\n){0,14}?[^\n]*?\bget_serf_at_pos\s*\(')
 
 
 def check(root):
@@ -77,7 +83,7 @@ def check(root):
             print(f'{rel}:{line_of(raw, match.start())}: mentions '
                   f'set_serf_index, which no longer exists')
 
-        # 3: movement code must not ask has_serf directly
+        # 3: movement code must not ask has_serf or get_serf_index directly
         if rel in MOVEMENT_FILES:
             for match in BARE_HAS_SERF.finditer(clean):
                 found += 1
@@ -85,6 +91,22 @@ def check(root):
                       f'movement code - it means "a non-knight is here", so it '
                       f'is wrong for knights; use blocked_for(serf, pos), '
                       f'has_any_serf(pos) or other_serf_at(serf, pos)')
+
+            for match in BARE_GET_INDEX.finditer(clean):
+                found += 1
+                print(f'{rel}:{line_of(clean, match.start())}: get_serf_index() '
+                      f'in movement code - it reads the ordinary layer only, so '
+                      f'it never names a knight; use serf_is_at(pos, serf) or '
+                      f'other_serf_at(serf, pos)')
+
+        # 4: a lookup that follows a blocked_for test must use the same layer
+        for match in BLOCKED_THEN_LOOKUP.finditer(clean):
+            found += 1
+            print(f'{rel}:{line_of(clean, match.start())}: get_serf_at_pos() '
+                  f'shortly after blocked_for() - the test and the lookup must '
+                  f'agree on the layer, or a blocked knight is handed whoever '
+                  f'is on the ordinary layer and waits on the wrong serf; use '
+                  f'get_blocker_at_pos(serf, pos)')
 
     if found == 0:
         print('serf occupancy layers look consistent')
