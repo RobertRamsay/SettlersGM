@@ -795,13 +795,27 @@ function Map(_geom) constructor {
 
     /* Copy tile data from map generator into map tile data. */
     static init_tiles = function(_generator) {
-        for (var _pos = 0; _pos < geom.tile_count; _pos++) {
-            height[_pos] = _generator.get_height(_pos);
-            type_up[_pos] = _generator.get_type_up(_pos);
-            type_down[_pos] = _generator.get_type_down(_pos);
-            mineral[_pos] = _generator.get_resource_type(_pos);
-            res_amount[_pos] = _generator.get_resource_amount(_pos);
-            obj[_pos] = _generator.get_obj(_pos);
+        /* SPEED, not behaviour. The six accessors are one-line array reads
+           wrapped in struct methods, and calling them per tile is close to
+           800,000 method calls on a size 8 map purely to copy six arrays.
+           Taking a reference to each array once turns the body into six plain
+           reads. The accessors stay - they mirror the C++ and other callers
+           use them - this is only the bulk path. */
+        var _g_height     = _generator.height;
+        var _g_type_up    = _generator.type_up;
+        var _g_type_down  = _generator.type_down;
+        var _g_mineral    = _generator.mineral;
+        var _g_res_amount = _generator.res_amount;
+        var _g_obj        = _generator.obj;
+
+        var _n = geom.tile_count;
+        for (var _pos = 0; _pos < _n; _pos++) {
+            height[_pos] = _g_height[_pos];
+            type_up[_pos] = _g_type_up[_pos];
+            type_down[_pos] = _g_type_down[_pos];
+            mineral[_pos] = _g_mineral[_pos];
+            res_amount[_pos] = _g_res_amount[_pos];
+            obj[_pos] = _g_obj[_pos];
         }
     };
 
