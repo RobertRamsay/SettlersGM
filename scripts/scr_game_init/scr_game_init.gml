@@ -207,7 +207,6 @@ enum GameInitAction {
     show_load,
     show_netplay,
     netplay_add,
-    netplay_forget,
     netplay_host
 }
 
@@ -397,6 +396,22 @@ function game_init_init_tables() {
 #macro GEN_BAR_W          264
 #macro GEN_BAR_H          8
 
+/* How far down the stone wall behind the panel is taken, 0 for the art as it
+   comes. A wash rather than a repaint, so the courses and the carving are all
+   still there - there is just less of a fight between them and the text. */
+#macro GAME_INIT_BG_DARKEN  0.3
+
+/* The three levels the NET PLAY panel writes in, in one place rather than
+   rebuilt from six hex numbers every time the panel is drawn:
+     TEXT  something to read or to click
+     DIM   an explanation, a machine that is not hosting, a diagnostic
+     NOTE  status, and anything the panel is waiting on
+   Nothing else on the box uses them - the rest is the original's green on
+   black through draw_box_string. */
+#macro NETPLAY_COL_TEXT   make_colour_rgb(0xff, 0xff, 0xff)
+#macro NETPLAY_COL_DIM    make_colour_rgb(0xa0, 0xa0, 0xb0)
+#macro NETPLAY_COL_NOTE   make_colour_rgb(0xff, 0xff, 0x99)
+
 /// Port of Random::Random() (random.cc lines 27-33): seed from the clock
 /// and consume one value.
 function game_init_random_default() {
@@ -578,8 +593,17 @@ function GameInitBox(_interface) : GuiObject() constructor {
                         global.game_init_color_green, global.game_init_color_black);
     };
 
+    /// The stone wall behind the panel: 40x8 strips of it, sprites 290 to 294,
+    /// stepped backwards a row at a time and wrapped round so the courses do
+    /// not line up into columns.
+    ///
+    /// Then a wash of black over the whole thing. The art is the original's and
+    /// is not being repainted; it is simply brighter than the text sitting on
+    /// it wants, and every line on this panel - white, grey, amber - reads
+    /// better against a darker wall. GAME_INIT_BG_DARKEN is the one number to
+    /// change. The frame, the icons and the text are all drawn afterwards, so
+    /// only the wall is taken down.
     static draw_bg = function() {   // C++ draw_background (legacy GM built-in name)
-        // Background
         var _icon = 290;
         for (var _by = 0; _by < height; _by += 8) {
             for (var _bx = 0; _bx < width; _bx += 40) {
@@ -589,6 +613,12 @@ function GameInitBox(_interface) : GuiObject() constructor {
             if (_icon < 290) {
                 _icon = 294;
             }
+        }
+
+        if (GAME_INIT_BG_DARKEN > 0) {
+            draw_set_alpha(GAME_INIT_BG_DARKEN);
+            gfx_fill_rect(0, 0, width, height, global.game_init_color_black);
+            draw_set_alpha(1);
         }
     };
 
@@ -654,9 +684,9 @@ function GameInitBox(_interface) : GuiObject() constructor {
     /// keys had before there was a panel, which worked - the roles are
     /// declared, not raced for.
     static draw_netplay = function() {
-        var _white = make_colour_rgb(0xff, 0xff, 0xff);
-        var _grey  = make_colour_rgb(0xA0, 0xA0, 0xB0);
-        var _amber = make_colour_rgb(0xff, 0xff, 0x99);
+        var _white = NETPLAY_COL_TEXT;
+        var _grey  = NETPLAY_COL_DIM;
+        var _amber = NETPLAY_COL_NOTE;
 
         draw_box_string(0, 2, "Net play");
 
@@ -1171,28 +1201,27 @@ function GameInitBox(_interface) : GuiObject() constructor {
                 if (game_type == GameType.load) {
                     load_selected_save();
                     return;
-                } else {
-                    // GameManager::start_game(mission)
-                    var _game = new Game();
-                    if (mission.instantiate(_game) == undefined) {
-                        return;
-                    }
-                    /* Remember which mission this is so winning it can tick it
-                       off in the list. A custom game keeps the constructor's
-                       -1, because there is no entry to tick. */
-                    if (game_type == GameType.mission) {
-                        _game.mission_index = game_mission;
-                        show_debug_message("game init: starting mission " +
-                                           string(game_mission + 1) +
-                                           " (index " + string(game_mission) + ")");
-                    }
-                    /* Nothing records the current mission here: Interface.set_game
-                       does it for every game that becomes current, this one
-                       included. A custom game keeps the constructor's -1 and so
-                       cannot tick a mission off. */
-                    interface.on_new_game(_game);
                 }
 
+                // GameManager::start_game(mission)
+                var _game = new Game();
+                if (mission.instantiate(_game) == undefined) {
+                    return;
+                }
+
+                /* Which mission this is, so that winning it can tick it off in
+                   the list. A custom game keeps the constructor's -1 and so
+                   cannot tick anything off. Recording it as CURRENT is
+                   Interface.set_game's job, for every game that becomes
+                   current, this one included. */
+                if (game_type == GameType.mission) {
+                    _game.mission_index = game_mission;
+                    show_debug_message("game init: starting mission " +
+                                       string(game_mission + 1) +
+                                       " (index " + string(game_mission) + ")");
+                }
+
+                interface.on_new_game(_game);
                 interface.close_game_init();
                 break;
             }
@@ -1243,9 +1272,6 @@ function GameInitBox(_interface) : GuiObject() constructor {
                 keyboard_string = "";
                 global.net_ip_text = "";
                 net_set_status("");
-                break;
-            }
-            case GameInitAction.netplay_forget: {
                 break;
             }
             case GameInitAction.netplay_host: {
