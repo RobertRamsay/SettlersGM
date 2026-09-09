@@ -655,10 +655,10 @@ function GameInitBox(_interface) : GuiObject() constructor {
     /// declared, not raced for.
     static draw_netplay = function() {
         var _white = make_colour_rgb(0xff, 0xff, 0xff);
-        var _grey  = make_colour_rgb(0x90, 0x90, 0x90);
+        var _grey  = make_colour_rgb(0xA0, 0xA0, 0xB0);
         var _amber = make_colour_rgb(0xff, 0xff, 0x99);
 
-        draw_box_string(10, 2, "Net play");
+        draw_box_string(0, 2, "Net play");
 
         if (net_is_running()) {
             /* In a game already - the panel is just a status board now. */
