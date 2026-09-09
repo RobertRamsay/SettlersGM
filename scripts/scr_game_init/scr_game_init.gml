@@ -1001,31 +1001,27 @@ function GameInitBox(_interface) : GuiObject() constructor {
         }
 
         /* Program name and version, and - when the repository says there is a
-           newer build than this one - a word about that on the same line,
-           right-aligned because its length depends on how many parts the new
-           version number has.
+           newer build than this one - a word about that on the line UNDER it
+           rather than squeezed in beside it. A whole line to itself is 29
+           columns instead of eleven, so the new version number always fits and
+           no longer has to be dropped to keep the word.
 
-           Both stand down while a map is being generated: the bar and its
-           label own this row then, and drawing all four things through each
-           other is how the row looked before. They come back the moment the
-           map is done.
-
-           The note's room is the gap between the name, which ends at x 164,
-           and the row's limit at x 252: columns 19 to 29, eleven characters.
-           There is no second line to fall back on - the map preview comes down
-           to y 215 and the load status already uses y 240 - so a version too
-           long to fit drops the number and keeps the word rather than running
-           under NET PLAY. "UPDATE" alone still says what it needs to; the
-           number is on the download page either way. */
+           That second line is shared, and this is the last thing with a claim
+           on it. The generation bar and its label own it while a map is being
+           built, and the version line above stands down with this one then; the
+           load status owns it whenever there is something to say about a save.
+           So the note is drawn only when neither of those is using the row. It
+           is the one thing here that can wait - the update is still there next
+           time the panel opens. */
         if (!gen_active) {
             draw_box_string(0, 212, GAME_INIT_VERSION + " " + game_version());
 
-            if (global.update_available) {
+            if (global.update_available && load_status == "") {
                 var _note = "UPDATE " + global.update_latest;
-                if (string_length(_note) > 11) {
-                    _note = "UPDATE";
+                if (string_length(_note) > GEN_LABEL_COLS) {
+                    _note = string_copy(_note, 1, GEN_LABEL_COLS);
                 }
-                draw_box_string(29 - string_length(_note), 212, _note);
+                draw_box_string(0, 224, _note);
             }
         }
 
