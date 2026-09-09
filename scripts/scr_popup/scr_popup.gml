@@ -1008,25 +1008,25 @@ function PopupBox(_interface) : GuiObject() constructor {
     /* Translate resource amount to text. */
     static prepare_res_amount_text = function(_amount) {
         if (_amount == 0) {
-            return "Not Present";
+            return L("Not Present");
         } else if (_amount < 100) {
-            return "Minimum";
+            return L("Minimum");
         } else if (_amount < 180) {
-            return "Very Few";
+            return L("Very Few");
         } else if (_amount < 240) {
-            return "Few";
+            return L("Few");
         } else if (_amount < 300) {
-            return "Below Average";
+            return L("Below Average");
         } else if (_amount < 400) {
-            return "Average";
+            return L("Average");
         } else if (_amount < 500) {
-            return "Above Average";
+            return L("Above Average");
         } else if (_amount < 600) {
-            return "Much";
+            return L("Much");
         } else if (_amount < 800) {
-            return "Very Much";
+            return L("Very Much");
         }
-        return "Perfect";
+        return L("Perfect");
     };
 
     static draw_map_box = function() {

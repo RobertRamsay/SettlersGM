@@ -1034,14 +1034,14 @@ function popup_handle_action(_popup, _action, _x, _y) {
        The sound comes after it, and through play_sfx rather than the popup:
        leaving stops the effects that are sounding (the fires), which would
        take this one with it, and the popup itself is gone by then. */
-    _interface.leave_game_to_menu("you left the game");
+    _interface.leave_game_to_menu(L("you left the game"));
     play_sfx(Sfx.ahhh);
     break;
   case Action.quit_cancel:
     _interface.close_popup();
     break;
   case Action.no_save_quit_confirm:
-    _interface.leave_game_to_menu("you left the game");
+    _interface.leave_game_to_menu(L("you left the game"));
     play_sfx(Sfx.ahhh);
     break;
   case Action.show_quit:
@@ -1279,7 +1279,7 @@ function popup_handle_action(_popup, _action, _x, _y) {
 
        Clicking the tick instead of MENU leaves the game running, which is the
        whole point of that choice. */
-    _popup.interface.leave_game_to_menu("you left the game");
+    _popup.interface.leave_game_to_menu(L("you left the game"));
     break;
   }
   case Action.options_volume_minus: {
@@ -1310,16 +1310,16 @@ function popup_handle_action(_popup, _action, _x, _y) {
          under a generated "Tick 1234 ..." label, which is not what anyone
          pressing SAVE meant. The popup's close button abandons the save. */
       if (!_popup.file_list.has_name()) {
-        _popup.save_status = "Enter filename";
+        _popup.save_status = L("Enter filename");
         _popup.set_redraw();
         break;
       }
       if (savegame_save_slot(_slot, _interface.get_game(),
                              _popup.file_list.get_edit_text())) {
         _popup.file_list.stop_editing();
-        _popup.save_status = "Saved to slot " + string(_slot + 1);
+        _popup.save_status = LF("Saved to slot {0}", _slot + 1);
       } else {
-        _popup.save_status = "Save failed";
+        _popup.save_status = L("Save failed");
       }
       _popup.set_redraw();
       break;
@@ -1329,7 +1329,7 @@ function popup_handle_action(_popup, _action, _x, _y) {
     /* Same rule as the slot branch above: with nothing typed this would write a
        file called ".save". Do nothing instead. */
     if (_file_name == "") {
-      _popup.save_status = "Enter filename";
+      _popup.save_status = L("Enter filename");
       _popup.set_redraw();
       break;
     }

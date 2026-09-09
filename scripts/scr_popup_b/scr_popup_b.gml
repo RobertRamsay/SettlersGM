@@ -419,7 +419,7 @@ function popup_draw_ground_analysis_box(_popup) {
     // Game::prepare_ground_analysis(pos, int estimates[5]) - out-param array;
     // the GML port fills the array passed in (arrays are references).
     _popup.interface.get_game().prepare_ground_analysis(_pos, _estimates);
-    _popup.draw_green_string(0, 30, "GROUND-ANALYSIS:");
+    _popup.draw_green_string(0, 30, L("GROUND-ANALYSIS:"));
 
     /* Gold */
     var _s = _popup.prepare_res_amount_text(2 * _estimates[Minerals.gold]);
@@ -523,9 +523,9 @@ function popup_draw_knight_level_box(_popup) {
     for (var _i = 0; _i < 4; _i++) {
         var _ly = 8 + (34 * _i);
         _popup.draw_green_string(8, _ly,
-                                 _level_str[(_player.get_knight_occupation(3 - _i) >> 4) & 0x7]);
+                                 L(_level_str[(_player.get_knight_occupation(3 - _i) >> 4) & 0x7]));
         _popup.draw_green_string(8, _ly + 11,
-                                 _level_str[_player.get_knight_occupation(3 - _i) & 0x7]);
+                                 L(_level_str[_player.get_knight_occupation(3 - _i) & 0x7]));
     }
 
     _popup.draw_custom_icon_box(_layout);
@@ -576,10 +576,10 @@ function popup_draw_sett_5_box(_popup) {
 function popup_draw_quit_confirm_box(_popup) {
     _popup.draw_box_background(BackgroundPattern.diagonal_green);
 
-    _popup.draw_green_string(0, 10, "   Do you want");
-    _popup.draw_green_string(0, 20, "     to quit");
-    _popup.draw_green_string(0, 30, "   this game?");
-    _popup.draw_green_string(0, 45, "  Yes       No");
+    _popup.draw_green_string(0, 10, L("   Do you want"));
+    _popup.draw_green_string(0, 20, L("     to quit"));
+    _popup.draw_green_string(0, 30, L("   this game?"));
+    _popup.draw_green_string(0, 45, L("  Yes       No"));
 }
 
 /// Confirm dispatching a geologist to the flag under the map cursor. Reached
@@ -590,34 +590,34 @@ function popup_draw_send_geologist_confirm_box(_popup) {
     /* draw_green_string(sx, sy) lands at (8 * sx + 8, sy + 9) and the font is
        8px per character, so a 14 character line centres in the 128px interior
        at sx = 1 and a 16px icon centres at sx = 7. */
-    _popup.draw_green_string(1, 16, "Send geologist");
-    _popup.draw_green_string(1, 26, "to this flag?");
+    _popup.draw_green_string(1, 16, L("Send geologist"));
+    _popup.draw_green_string(1, 26, L("to this flag?"));
 
     /* Same icon the transport info box uses for its geologist button. */
     _popup.draw_popup_icon(7, 52, 0x1c);
 
-    _popup.draw_green_string(3, 100, "Yes");
-    _popup.draw_green_string(11, 100, "No");
+    _popup.draw_green_string(3, 100, L("Yes"));
+    _popup.draw_green_string(11, 100, L("No"));
 
     _popup.draw_popup_icon(14, 128, 60); /* Exit */
 }
 
 function popup_draw_no_save_quit_confirm_box(_popup) {
-    _popup.draw_green_string(0, 70, "The game has not");
-    _popup.draw_green_string(0, 80, "   been saved");
-    _popup.draw_green_string(0, 90, "   recently.");
-    _popup.draw_green_string(0, 100, "    Are you");
-    _popup.draw_green_string(0, 110, "     sure?");
-    _popup.draw_green_string(0, 125, "  Yes       No");
+    _popup.draw_green_string(0, 70, L("The game has not"));
+    _popup.draw_green_string(0, 80, L("   been saved"));
+    _popup.draw_green_string(0, 90, L("   recently."));
+    _popup.draw_green_string(0, 100, L("    Are you"));
+    _popup.draw_green_string(0, 110, L("     sure?"));
+    _popup.draw_green_string(0, 125, L("  Yes       No"));
 }
 
 function popup_draw_options_box(_popup) {
     _popup.draw_box_background(BackgroundPattern.diagonal_green);
 
-    _popup.draw_green_string(1, 14, "Music");
-    _popup.draw_green_string(1, 30, "Sound");
-    _popup.draw_green_string(1, 39, "effects");
-    _popup.draw_green_string(1, 54, "Volume");
+    _popup.draw_green_string(1, 14, L("Music"));
+    _popup.draw_green_string(1, 30, L("Sound"));
+    _popup.draw_green_string(1, 39, L("effects"));
+    _popup.draw_green_string(1, 54, L("Volume"));
 
     // Audio::get_instance() -> audio_get_instance() (scr_audio.gml, Audio singleton struct)
     var _audio = audio_get_instance();
@@ -646,8 +646,8 @@ function popup_draw_options_box(_popup) {
     var _str = string(floor(_volume));
     _popup.draw_green_string(8, 54, _str);
 
-    _popup.draw_green_string(1, 70, "Fullscreen");
-    _popup.draw_green_string(1, 79, "video");
+    _popup.draw_green_string(1, 70, L("Fullscreen"));
+    _popup.draw_green_string(1, 79, L("video"));
 
     /* Fullscreen mode */
     var _fullscreen_sprite = 220;
@@ -656,17 +656,17 @@ function popup_draw_options_box(_popup) {
     }
     _popup.draw_popup_icon(13, 70, _fullscreen_sprite);
 
-    var _value = "All";
+    var _value = L("All");
     if (!_popup.interface.get_config(3)) {
-        _value = "Most";
+        _value = L("Most");
         if (!_popup.interface.get_config(4)) {
-            _value = "Few";
+            _value = L("Few");
             if (!_popup.interface.get_config(5)) {
-                _value = "None";
+                _value = L("None");
             }
         }
     }
-    _popup.draw_green_string(1, 94, "Messages");
+    _popup.draw_green_string(1, 94, L("Messages"));
     _popup.draw_green_string(11, 94, _value);
 
     // Not in the original. There are only two possible drag behaviours and they
@@ -675,11 +675,11 @@ function popup_draw_options_box(_popup) {
     // pushes the view and the map slides against the hand. Both are pixel exact
     // at any zoom - Viewport.handle_event divides the delta by the zoom, with a
     // carry, before this ever sees it.
-    var _invert_value = "No";
+    var _invert_value = L("No");
     if (global.map_drag_invert) {
-        _invert_value = "Yes";
+        _invert_value = L("Yes");
     }
-    _popup.draw_green_string(1, 110, "Invert");
+    _popup.draw_green_string(1, 110, L("Invert"));
     _popup.draw_green_string(11, 110, _invert_value);
 
     /* Not in the original: the Amiga had four channels and one mix, so there
@@ -804,8 +804,8 @@ function popup_draw_mine_output_box(_popup) {
     _popup.draw_green_string(_lx, 38, "%");
     _popup.draw_green_number(6, 38, _output);
 
-    _popup.draw_green_string(1, 14, "MINING");
-    _popup.draw_green_string(1, 24, "OUTPUT:");
+    _popup.draw_green_string(1, 14, L("MINING"));
+    _popup.draw_green_string(1, 24, L("OUTPUT:"));
 
     /* Exit box */
     _popup.draw_popup_icon(14, 128, 0x3c);
@@ -835,8 +835,8 @@ function popup_draw_ordered_building_box(_popup) {
     }
     _popup.draw_popup_building(_lx, 40, _sprite);
 
-    _popup.draw_green_string(2, 4, "Ordered");
-    _popup.draw_green_string(2, 14, "Building");
+    _popup.draw_green_string(2, 4, L("Ordered"));
+    _popup.draw_green_string(2, 14, L("Building"));
 
     if (_building.has_serf()) {
         if (_building.get_progress() == 0) { /* Digger */
@@ -916,7 +916,7 @@ function popup_draw_defenders_box(_popup) {
     }
 
     /* Draw heading string */
-    _popup.draw_green_string(3, 62, "Defenders:");
+    _popup.draw_green_string(3, 62, L("Defenders:"));
 
     /* Draw knights */
     var _next_knight = _building.get_first_knight();
@@ -981,7 +981,7 @@ function popup_draw_transport_info_box(_popup) {
         }
     }
 
-    _popup.draw_green_string(0, 4, "Transport Info:");
+    _popup.draw_green_string(0, 4, L("Transport Info:"));
     _popup.draw_popup_icon(2, 96, 0x1c); /* Geologist */
     _popup.draw_popup_icon(14, 128, 0x3c); /* Exit box */
 
@@ -993,7 +993,7 @@ function popup_draw_transport_info_box(_popup) {
         }
     }
 
-    _popup.draw_green_string(0, 128, "Index:");
+    _popup.draw_green_string(0, 128, L("Index:"));
     _popup.draw_green_number(7, 128, _flag.get_index());
 }
 
@@ -1245,8 +1245,8 @@ function popup_draw_building_stock_box(_popup) {
     }
     _popup.draw_popup_building(_lx, 30, _bld_sprite);
 
-    _popup.draw_green_string(1, 4, "Stock of");
-    _popup.draw_green_string(1, 14, "this building:");
+    _popup.draw_green_string(1, 4, L("Stock of"));
+    _popup.draw_green_string(1, 14, L("this building:"));
 
     _popup.draw_popup_icon(14, 128, 0x3c); /* exit box */
 }
@@ -1266,10 +1266,10 @@ function popup_draw_demolish_box(_popup) {
     _popup.draw_popup_icon(14, 128, 60); /* Exit */
     _popup.draw_popup_icon(7, 45, 288); /* Checkbox */
 
-    _popup.draw_green_string(0, 10, "    Demolish:");
-    _popup.draw_green_string(0, 30, "   Click here");
-    _popup.draw_green_string(0, 68, "   if you are");
-    _popup.draw_green_string(0, 86, "      sure");
+    _popup.draw_green_string(0, 10, L("    Demolish:"));
+    _popup.draw_green_string(0, 30, L("   Click here"));
+    _popup.draw_green_string(0, 68, L("   if you are"));
+    _popup.draw_green_string(0, 86, L("      sure"));
 }
 
 function popup_draw_save_box(_popup) {
@@ -1279,7 +1279,7 @@ function popup_draw_save_box(_popup) {
     _popup.draw_box_background(BackgroundPattern.diagonal_green);
     _popup.draw_custom_icon_box(_layout);
 
-    _popup.draw_green_string(3, 2, "Save  Game");
+    _popup.draw_green_string(3, 2, L("Save  Game"));
 
     /* Rows are drawn by the file_list float; drawing them here too was what
        produced the doubled row under the list. */
@@ -1347,38 +1347,38 @@ function popup_draw_game_end_box(_popup) {
        centred by column count. */
     if (_result == 1) {
         if (_mission) {
-            _popup.draw_green_string(4, 2, "MISSION");
-            _popup.draw_green_string(4, 12, "COMPLETE");
+            _popup.draw_green_string(4, 2, L("MISSION"));
+            _popup.draw_green_string(4, 12, L("COMPLETE"));
         } else {
-            _popup.draw_green_string(4, 7, "VICTORY");
+            _popup.draw_green_string(4, 7, L("VICTORY"));
         }
     } else if (_result == 3) {
         if (_mission) {
-            _popup.draw_green_string(4, 2, "MISSION");
-            _popup.draw_green_string(3, 12, "COMPLETE+");
+            _popup.draw_green_string(4, 2, L("MISSION"));
+            _popup.draw_green_string(3, 12, L("COMPLETE+"));
         } else {
-            _popup.draw_green_string(4, 2, "SUPREME");
-            _popup.draw_green_string(4, 12, "VICTORY");
+            _popup.draw_green_string(4, 2, L("SUPREME"));
+            _popup.draw_green_string(4, 12, L("VICTORY"));
         }
     } else if (_result == 2) {
         if (_mission) {
-            _popup.draw_green_string(4, 2, "MISSION");
-            _popup.draw_green_string(5, 12, "FAILED");
+            _popup.draw_green_string(4, 2, L("MISSION"));
+            _popup.draw_green_string(5, 12, L("FAILED"));
         } else {
-            _popup.draw_green_string(4, 7, "DEFEATED");
+            _popup.draw_green_string(4, 7, L("DEFEATED"));
         }
     } else {
-        _popup.draw_green_string(3, 7, "IN PROGRESS");
+        _popup.draw_green_string(3, 7, L("IN PROGRESS"));
     }
 
     /* The choice. Tick = play on, exit = back to the start screen, as those
        two icons mean everywhere else in the game. A supreme victory has
        nothing left to play on with, so it gets only the exit. */
     if (popup_game_end_can_continue(_result)) {
-        _popup.draw_green_string(4, 114, "Play on?");
+        _popup.draw_green_string(4, 114, L("Play on?"));
         _popup.draw_popup_icon(0, 128, 288);  /* Checkbox: carry on playing */
     } else {
-        _popup.draw_green_string(3, 114, "The end");
+        _popup.draw_green_string(3, 114, L("The end"));
     }
     _popup.draw_popup_icon(14, 128, 60);      /* Exit: back to the start screen */
 }

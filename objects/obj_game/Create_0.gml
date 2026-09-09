@@ -26,6 +26,10 @@ cf_init();      // "borntodie" cheat state + its effects list
 net_init();     // two-player lockstep networking (idle until NET PLAY)
 net_chat_init();
 net_lobby_init();   // discovery and the peer list, idle until the panel opens
+// The language, from settlers.ini - or, the first time, a question on top of
+// the start screen (locale_prompt_draw / locale_prompt_step). Before the
+// interface is built so that nothing draws in the wrong language first.
+locale_init();
 
 // Set by the async networking event when the host says which game to build, and
 // consumed by the Step event - a game must never be switched from inside an

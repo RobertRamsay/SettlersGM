@@ -41,6 +41,16 @@
 
 #macro UPDATE_CHECK_URL "https://raw.githubusercontent.com/RobertRamsay/SettlersGM/main/version.txt"
 
+/* Where the update note takes you when it is clicked: the itch page, which is
+   where the builds are. A page rather than a direct download, because the file
+   name changes with every version and the page does not. */
+#macro UPDATE_PAGE_URL  "https://polytricity.itch.io/settlers-gm"
+
+/* How fast the note flashes: the colour changes every this many milliseconds.
+   Two colours rather than on and off, so it is never invisible at the moment
+   somebody goes to click it. */
+#macro UPDATE_FLASH_MS  400
+
 /// The version this build reports, from Game Options.
 function game_version() {
     return string(GM_version);
@@ -207,7 +217,9 @@ enum GameInitAction {
     show_load,
     show_netplay,
     netplay_add,
-    netplay_host
+    netplay_host,
+    open_update,
+    toggle_language
 }
 
 /// GameInitBox::GameType
@@ -259,6 +271,8 @@ function game_init_init_tables() {
         GameInitAction.increment,        284,  16, 16, 16,
         GameInitAction.decrement,        284,  32, 16, 16,
         GameInitAction.close,            GAME_INIT_EXIT_X, GAME_INIT_EXIT_Y, 16, 16,
+        GameInitAction.open_update,      GAME_INIT_UPDATE_X, GAME_INIT_UPDATE_Y, GAME_INIT_UPDATE_W, GAME_INIT_ROW_H,
+        GameInitAction.toggle_language,  GAME_INIT_LANG_X, GAME_INIT_LANG_Y, GAME_INIT_LANG_W, GAME_INIT_ROW_H,
         -1
     ];
 
@@ -273,6 +287,8 @@ function game_init_init_tables() {
         GameInitAction.gen_random,       244,  16, 16,  8,
         GameInitAction.apply_random,     244,  24, 16, 24,
         GameInitAction.close,            GAME_INIT_EXIT_X, GAME_INIT_EXIT_Y, 16, 16,
+        GameInitAction.open_update,      GAME_INIT_UPDATE_X, GAME_INIT_UPDATE_Y, GAME_INIT_UPDATE_W, GAME_INIT_ROW_H,
+        GameInitAction.toggle_language,  GAME_INIT_LANG_X, GAME_INIT_LANG_Y, GAME_INIT_LANG_W, GAME_INIT_ROW_H,
         -1
     ];
 
@@ -283,6 +299,8 @@ function game_init_init_tables() {
         GameInitAction.show_load,        GAME_INIT_LOAD_X, GAME_INIT_LOAD_Y, 32, 32,
         GameInitAction.show_options,     308,  16, 32, 32,
         GameInitAction.close,            GAME_INIT_EXIT_X, GAME_INIT_EXIT_Y, 16, 16,
+        GameInitAction.open_update,      GAME_INIT_UPDATE_X, GAME_INIT_UPDATE_Y, GAME_INIT_UPDATE_W, GAME_INIT_ROW_H,
+        GameInitAction.toggle_language,  GAME_INIT_LANG_X, GAME_INIT_LANG_Y, GAME_INIT_LANG_W, GAME_INIT_ROW_H,
         -1
     ];
 
@@ -309,6 +327,8 @@ function game_init_init_tables() {
         GameInitAction.netplay_host,     NETPLAY_ROW_X, NETPLAY_HOST_Y, 240, NETPLAY_ROW_H,
         GameInitAction.netplay_add,      NETPLAY_ADD_X, NETPLAY_ADD_Y, 280, NETPLAY_ROW_H,
         GameInitAction.close,            GAME_INIT_EXIT_X, GAME_INIT_EXIT_Y, 16, 16,
+        GameInitAction.open_update,      GAME_INIT_UPDATE_X, GAME_INIT_UPDATE_Y, GAME_INIT_UPDATE_W, GAME_INIT_ROW_H,
+        GameInitAction.toggle_language,  GAME_INIT_LANG_X, GAME_INIT_LANG_Y, GAME_INIT_LANG_W, GAME_INIT_ROW_H,
         -1
     ];
 
@@ -317,12 +337,16 @@ function game_init_init_tables() {
         GameInitAction.decrement,        NETPLAY_MISSION_X,       NETPLAY_MISSION_Y, 40, NETPLAY_ROW_H,
         GameInitAction.start_game,       NETPLAY_GO_X,  NETPLAY_GO_Y,  240, NETPLAY_ROW_H,
         GameInitAction.close,            GAME_INIT_EXIT_X, GAME_INIT_EXIT_Y, 16, 16,
+        GameInitAction.open_update,      GAME_INIT_UPDATE_X, GAME_INIT_UPDATE_Y, GAME_INIT_UPDATE_W, GAME_INIT_ROW_H,
+        GameInitAction.toggle_language,  GAME_INIT_LANG_X, GAME_INIT_LANG_Y, GAME_INIT_LANG_W, GAME_INIT_ROW_H,
         -1
     ];
 
     /* Joined, waiting for the host: nothing but the way out. */
     global.game_init_clickmap_netplay_client = [
         GameInitAction.close,            GAME_INIT_EXIT_X, GAME_INIT_EXIT_Y, 16, 16,
+        GameInitAction.open_update,      GAME_INIT_UPDATE_X, GAME_INIT_UPDATE_Y, GAME_INIT_UPDATE_W, GAME_INIT_ROW_H,
+        GameInitAction.toggle_language,  GAME_INIT_LANG_X, GAME_INIT_LANG_Y, GAME_INIT_LANG_W, GAME_INIT_ROW_H,
         -1
     ];
 }
@@ -397,6 +421,31 @@ function game_init_init_tables() {
    (336, 230). */
 #macro GAME_INIT_EXIT_X   336
 #macro GAME_INIT_EXIT_Y   230
+
+/* Two things on the version rows that can be clicked, both text rather than
+   icons, both lit lime through link_colour like the NET PLAY panel's links:
+
+   The language, on the version row itself. "SETTLERSGM 1.0.6.0" is eighteen
+   characters from column 0, so the name goes at column 20 (x 180), seven
+   characters, ending at 236 - clear of NET PLAY at 260. Clicking it switches
+   to the other language on the spot and remembers it (scr_locale.gml).
+
+   The update note, on the row under it, when there is a newer build than this
+   one. It flashes to be noticed and opens the itch page when clicked. The row
+   is the same one the load status and the generation label use, so the note
+   is only drawn - and only clickable - when neither of those has it.
+
+   Both bands are 12 pixels tall around 8-pixel text, and the same numbers are
+   used by the drawing and by all six clickmaps - the NET PLAY panel draws the
+   version rows too - so they cannot drift apart. The y values are box
+   coordinates: draw_box_string(0, 212) lands at y 228. */
+#macro GAME_INIT_ROW_H    12
+#macro GAME_INIT_LANG_X   180
+#macro GAME_INIT_LANG_Y   226
+#macro GAME_INIT_LANG_W   56
+#macro GAME_INIT_UPDATE_X 20
+#macro GAME_INIT_UPDATE_Y 238
+#macro GAME_INIT_UPDATE_W 232
 
 /* The map generation bar, along the bottom of the panel (which is 360x254).
    It shares this row with the NET PLAY and LOAD buttons, so it stops at x 252
@@ -741,7 +790,7 @@ function GameInitBox(_interface) : GuiObject() constructor {
         var _grey  = NETPLAY_COL_DIM;
         var _amber = NETPLAY_COL_NOTE;
 
-        draw_box_string(0, 2, "Net play");
+        draw_box_string(0, 2, L("Net play"));
 
         if (net_is_running()) {
             /* In a game already - the panel is just a status board now. */
@@ -761,10 +810,10 @@ function GameInitBox(_interface) : GuiObject() constructor {
                with. */
             if (global.net_socket >= 0) {
                 gfx_draw_string(NETPLAY_ROW_X, NETPLAY_HOST_Y,
-                                "YOU ARE HOSTING - player 2 has joined", _amber, -1);
+                                L("YOU ARE HOSTING - player 2 has joined"), _amber, -1);
             } else {
                 gfx_draw_string(NETPLAY_ROW_X, NETPLAY_HOST_Y,
-                                "YOU ARE HOSTING - waiting for player 2", _amber, -1);
+                                L("YOU ARE HOSTING - waiting for player 2"), _amber, -1);
             }
 
             /* Four draws where there were two, because the parts of this row
@@ -789,24 +838,24 @@ function GameInitBox(_interface) : GuiObject() constructor {
                             -1);
             if (progress_mission_is_done(game_mission)) {
                 gfx_draw_string(NETPLAY_MISSION_X + 200, NETPLAY_MISSION_Y,
-                                "(done)", _grey, -1);
+                                L("(done)"), _grey, -1);
             }
 
             if (global.net_socket >= 0) {
                 gfx_draw_string(NETPLAY_GO_X, NETPLAY_GO_Y,
-                                "[ CLICK HERE TO START ]",
+                                L("[ CLICK HERE TO START ]"),
                                 link_colour(NETPLAY_GO_X, NETPLAY_GO_Y,
                                             240, NETPLAY_ROW_H), -1);
                 netplay_draw_wrapped(NETPLAY_ROW_X, NETPLAY_GO_Y + 14,
-                                     "CLICK < or > to choose the mission, then"
-                                     + " CLICK START. It begins on both pcs at"
-                                     + " once.", _amber);
+                                     L("CLICK < or > to choose the mission, then"
+                                       + " CLICK START. It begins on both pcs at"
+                                       + " once."), _amber);
             } else {
                 netplay_draw_wrapped(NETPLAY_ROW_X, NETPLAY_GO_Y,
-                                     "On the OTHER pc: open NET PLAY, find this"
-                                     + " pc in the list marked HOSTING, and"
-                                     + " CLICK it. Nothing more to do here"
-                                     + " until then.", _grey);
+                                     L("On the OTHER pc: open NET PLAY, find this"
+                                       + " pc in the list marked HOSTING, and"
+                                       + " CLICK it. Nothing more to do here"
+                                       + " until then."), _grey);
             }
 
             netplay_draw_wrapped(NETPLAY_ROW_X, NETPLAY_DIAG_Y,
@@ -820,13 +869,13 @@ function GameInitBox(_interface) : GuiObject() constructor {
 
         if (global.net_role == NetRole.client) {
             gfx_draw_string(NETPLAY_ROW_X, NETPLAY_HOST_Y,
-                            "JOINED - you are player 2", _amber, -1);
+                            L("JOINED - you are player 2"), _amber, -1);
             netplay_draw_wrapped(NETPLAY_ROW_X, NETPLAY_MISSION_Y,
-                                 "Host is " + net_addr_label(global.net_peer_ip)
-                                 + ". It picks"
-                                 + " the mission and CLICKS START. Nothing to"
-                                 + " click on this pc - just wait, the game"
-                                 + " opens by itself.", _grey);
+                                 LF("Host is {0}. It picks"
+                                    + " the mission and CLICKS START. Nothing to"
+                                    + " click on this pc - just wait, the game"
+                                    + " opens by itself.",
+                                    net_addr_label(global.net_peer_ip)), _grey);
 
             netplay_draw_wrapped(NETPLAY_ROW_X, NETPLAY_DIAG_Y,
                                  net_discovery_summary(), _grey);
@@ -839,17 +888,17 @@ function GameInitBox(_interface) : GuiObject() constructor {
 
         /* Nobody's yet. Two ways in: be the host, or join one. */
         gfx_draw_string(NETPLAY_ROW_X, NETPLAY_HOST_Y,
-                        "[ CLICK HERE TO HOST A GAME ]",
+                        L("[ CLICK HERE TO HOST A GAME ]"),
                         link_colour(NETPLAY_ROW_X, NETPLAY_HOST_Y,
                                     240, NETPLAY_ROW_H), -1);
         gfx_draw_string(NETPLAY_ROW_X, NETPLAY_LIST_HEAD_Y,
-                        "or CLICK a pc below that is HOSTING:", _white, -1);
+                        L("or CLICK a pc below that is HOSTING:"), _white, -1);
 
         var _count = net_peer_count();
         if (_count == 0) {
             netplay_draw_wrapped(NETPLAY_ROW_X, NETPLAY_ROW_Y,
-                                 "Nobody yet. Open NET PLAY on the other pc too"
-                                 + " and it appears here.", _grey);
+                                 L("Nobody yet. Open NET PLAY on the other pc too"
+                                   + " and it appears here."), _grey);
 
             /* Discovery needs the UDP port. Two copies on ONE machine cannot
                both have it, and a firewall can refuse it outright - in either
@@ -857,13 +906,13 @@ function GameInitBox(_interface) : GuiObject() constructor {
                leave somebody waiting for a row that cannot arrive. */
             if (!global.net_udp_bound) {
                 netplay_draw_wrapped(NETPLAY_ROW_X, NETPLAY_ROW_Y + 3 * NETPLAY_ROW_H,
-                                     "This pc can't listen for others (second"
-                                     + " copy running?). CLICK ADD below and"
-                                     + " type the other pc's IP.", _amber);
+                                     L("This pc can't listen for others (second"
+                                       + " copy running?). CLICK ADD below and"
+                                       + " type the other pc's IP."), _amber);
             } else {
                 netplay_draw_wrapped(NETPLAY_ROW_X, NETPLAY_ROW_Y + 3 * NETPLAY_ROW_H,
-                                     "Not showing up? CLICK ADD below and type"
-                                     + " the other pc's IP.", _grey);
+                                     L("Not showing up? CLICK ADD below and type"
+                                       + " the other pc's IP."), _grey);
             }
         }
 
@@ -885,17 +934,17 @@ function GameInitBox(_interface) : GuiObject() constructor {
                one that can. */
             var _colour = _grey;
             var _lead = "  ";
-            var _tail = "  online, not hosting";
+            var _tail = L("  online, not hosting");
             if (!net_peer_is_live(_peer)) {
                 _colour = link_colour(NETPLAY_ROW_X, _ry, 300, NETPLAY_ROW_H);
-                _lead = "[CLICK to JOIN] ";
+                _lead = L("[CLICK to JOIN] ");
                 _tail = "  ?";
             } else if (_peer.hosting == NET_HOSTING_OPEN) {
                 _colour = link_colour(NETPLAY_ROW_X, _ry, 300, NETPLAY_ROW_H);
-                _lead = "[CLICK to JOIN] ";
-                _tail = "  HOSTING";
+                _lead = L("[CLICK to JOIN] ");
+                _tail = L("  HOSTING");
             } else if (_peer.hosting == NET_HOSTING_FULL) {
-                _tail = "  hosting, full";
+                _tail = L("  hosting, full");
             }
 
             /* net_peer_label, never _peer.ip: a private address is printed
@@ -907,7 +956,7 @@ function GameInitBox(_interface) : GuiObject() constructor {
 
         if (_count > 0) {
             gfx_draw_string(NETPLAY_ROW_X, NETPLAY_HINT_Y,
-                            "? = not heard from yet. CLICK it anyway.", _grey, -1);
+                            L("? = not heard from yet. CLICK it anyway."), _grey, -1);
         }
 
         /* What discovery has actually managed, always, on both machines.
@@ -922,15 +971,15 @@ function GameInitBox(_interface) : GuiObject() constructor {
             /* The typing happens HERE, on the panel that asked for it, not in
                small yellow text in the corner of the screen behind it. */
             gfx_draw_string(NETPLAY_ROW_X, NETPLAY_STATUS_Y,
-                            "TYPE the other pc's IP, then press ENTER:",
+                            L("TYPE the other pc's IP, then press ENTER:"),
                             _amber, -1);
             gfx_draw_string(NETPLAY_ROW_X, NETPLAY_STATUS_Y + NETPLAY_ROW_H,
                             "> " + global.net_ip_text + "_", _white, -1);
             gfx_draw_string(NETPLAY_ROW_X, NETPLAY_STATUS_Y + 2 * NETPLAY_ROW_H,
-                            "(ESC cancels)", _grey, -1);
+                            L("(ESC cancels)"), _grey, -1);
         } else {
             gfx_draw_string(NETPLAY_ADD_X, NETPLAY_ADD_Y,
-                            "[ CLICK to ADD the other pc's IP ]",
+                            L("[ CLICK to ADD the other pc's IP ]"),
                             link_colour(NETPLAY_ADD_X, NETPLAY_ADD_Y,
                                         280, NETPLAY_ROW_H), -1);
 
@@ -939,6 +988,24 @@ function GameInitBox(_interface) : GuiObject() constructor {
                                      net_status_line(), _amber);
             }
         }
+    };
+
+    /// Is the update note on screen? The same answer for drawing it and for
+    /// clicking it, so a click can never land on a note that is not there.
+    /// Its row is shared: the generation bar owns it while a map is being
+    /// built and the load status owns it whenever there is something to say
+    /// about a save.
+    static update_note_shown = function() {
+        if (gen_active) {
+            return false;
+        }
+        if (!global.update_available) {
+            return false;
+        }
+        if (load_status != "") {
+            return false;
+        }
+        return true;
     };
 
     static internal_draw = function() {
@@ -1007,8 +1074,8 @@ function GameInitBox(_interface) : GuiObject() constructor {
 
                 var _level = string(game_mission + 1);
 
-                draw_box_string(10, 2, "Start mission");
-                draw_box_string(10, 18, "Mission:");
+                draw_box_string(10, 2, L("Start mission"));
+                draw_box_string(10, 18, L("Mission:"));
                 draw_box_string(20, 18, _level);
 
                 /* Not in the original: mark a mission already won, so you can
@@ -1016,7 +1083,7 @@ function GameInitBox(_interface) : GuiObject() constructor {
                    having to remember. progress_mission_is_done reads a cached
                    array, so asking every frame costs nothing. */
                 if (progress_mission_is_done(game_mission)) {
-                    draw_box_string(24, 18, "Complete");
+                    draw_box_string(24, 18, L("Complete"));
                 }
 
 
@@ -1030,8 +1097,8 @@ function GameInitBox(_interface) : GuiObject() constructor {
 
                 var _str_map_size = string(mission.get_map_size());
 
-                draw_box_string(10, 2, "New game");
-                draw_box_string(10, 18, "Mapsize:");
+                draw_box_string(10, 2, L("New game"));
+                draw_box_string(10, 18, L("Mapsize:"));
                 draw_box_string(18, 18, _str_map_size);
 
                 draw_box_icon(25, 0, 265);
@@ -1041,7 +1108,7 @@ function GameInitBox(_interface) : GuiObject() constructor {
             case GameType.load: {
                 draw_box_icon(5, 0, 316);  // Game type
 
-                draw_box_string(10, 2, "Load game");
+                draw_box_string(10, 2, L("Load game"));
 
                 break;
             }
@@ -1079,12 +1146,32 @@ function GameInitBox(_interface) : GuiObject() constructor {
         if (!gen_active) {
             draw_box_string(0, 212, GAME_INIT_VERSION + " " + game_version());
 
-            if (global.update_available && load_status == "") {
-                var _note = "UPDATE " + global.update_latest;
+            /* The language, as a button: lime, white under the pointer, over
+               the same band the clickmap reads. See the macros. */
+            gfx_draw_string(GAME_INIT_LANG_X, GAME_INIT_LANG_Y + 2, locale_name(),
+                            link_colour(GAME_INIT_LANG_X, GAME_INIT_LANG_Y,
+                                        GAME_INIT_LANG_W, GAME_INIT_ROW_H),
+                            global.game_init_color_black);
+
+            if (update_note_shown()) {
+                var _note = LF("UPDATE {0} - CLICK HERE", global.update_latest);
                 if (string_length(_note) > GEN_LABEL_COLS) {
                     _note = string_copy(_note, 1, GEN_LABEL_COLS);
                 }
-                draw_box_string(0, 224, _note);
+
+                /* Flashing between the panel's green and the note colour, so
+                   the eye is drawn to it; white while the pointer is on it,
+                   like every other link, because it is one. */
+                var _colour = global.game_init_color_green;
+                if ((current_time div UPDATE_FLASH_MS) mod 2 == 0) {
+                    _colour = NETPLAY_COL_NOTE;
+                }
+                if (box_hover(GAME_INIT_UPDATE_X, GAME_INIT_UPDATE_Y,
+                              GAME_INIT_UPDATE_W, GAME_INIT_ROW_H)) {
+                    _colour = NETPLAY_COL_TEXT;
+                }
+                gfx_draw_string(GAME_INIT_UPDATE_X, GAME_INIT_UPDATE_Y + 2, _note,
+                                _colour, global.game_init_color_black);
             }
         }
 
@@ -1208,7 +1295,7 @@ function GameInitBox(_interface) : GuiObject() constructor {
         if (game_type != GameType.netplay) {
             global.net_ip_prompt = false;
             if (net_is_active() && !net_is_running()) {
-                net_close("left net play");
+                net_close(L("left net play"));
             }
             net_lobby_close();
         }
@@ -1226,7 +1313,7 @@ function GameInitBox(_interface) : GuiObject() constructor {
     /// box rather than only to the debug log, which is easy to miss.
     static load_selected_save = function() {
         if (file_list.get_selected_slot() < 0) {
-            load_status = "No save selected";
+            load_status = L("No save selected");
             set_redraw();
             return;
         }
@@ -1234,7 +1321,7 @@ function GameInitBox(_interface) : GuiObject() constructor {
         var _slot = file_list.get_selected_slot();
         var _path = file_list.get_selected();
         if (!file_exists(_path)) {
-            load_status = "Slot " + string(_slot + 1) + " is empty";
+            load_status = LF("Slot {0} is empty", _slot + 1);
             set_redraw();
             return;
         }
@@ -1243,7 +1330,7 @@ function GameInitBox(_interface) : GuiObject() constructor {
         if (_loaded == undefined) {
             load_status = savegame_last_error();
             if (load_status == "") {
-                load_status = "Save could not be read";
+                load_status = L("Save could not be read");
             }
             set_redraw();
             return;
@@ -1252,7 +1339,7 @@ function GameInitBox(_interface) : GuiObject() constructor {
         var _loaded_map = _loaded.get_map();
         if (_loaded_map == undefined || !is_struct(_loaded_map) ||
             !variable_struct_exists(_loaded_map, "geom")) {
-            load_status = "Save has no usable map";
+            load_status = L("Save has no usable map");
             set_redraw();
             return;
         }
@@ -1261,7 +1348,7 @@ function GameInitBox(_interface) : GuiObject() constructor {
             return;
         }
 
-        load_status = "Loading...";
+        load_status = L("Loading...");
         set_redraw();
         interface.request_game(_loaded);
     };
@@ -1324,7 +1411,7 @@ function GameInitBox(_interface) : GuiObject() constructor {
                 if (game_type != GameType.load) {
                     set_game_type(GameType.load);
                     file_list.update();
-                    load_status = "Pick a save, then LOAD";
+                    load_status = L("Pick a save, then LOAD");
                     set_redraw();
                     break;
                 }
@@ -1361,6 +1448,24 @@ function GameInitBox(_interface) : GuiObject() constructor {
             case GameInitAction.netplay_host: {
                 net_lobby_host();
                 set_redraw();
+                break;
+            }
+            case GameInitAction.open_update: {
+                /* Only while the note is actually drawn - the band is in the
+                   clickmap whether or not there is anything on it. */
+                if (update_note_shown()) {
+                    show_debug_message("update: opening " + UPDATE_PAGE_URL);
+                    url_open(UPDATE_PAGE_URL);
+                }
+                break;
+            }
+            case GameInitAction.toggle_language: {
+                /* The name is only drawn when the version row is; the
+                   generation label sits there otherwise. */
+                if (!gen_active) {
+                    locale_toggle();
+                    set_redraw();
+                }
                 break;
             }
             case GameInitAction.show_options: {
@@ -1511,12 +1616,12 @@ function GameInitBox(_interface) : GuiObject() constructor {
                        a message about ports. Say the useful thing instead. */
                     if (net_peer_is_live(_peer) && _peer.hosting != NET_HOSTING_OPEN) {
                         if (_peer.hosting == NET_HOSTING_FULL) {
-                            net_set_status(net_peer_label(_peer) +
-                                           " already has a player 2");
+                            net_set_status(LF("{0} already has a player 2",
+                                              net_peer_label(_peer)));
                         } else {
-                            net_set_status(net_peer_label(_peer) +
-                                           " is not hosting - on that pc,"
-                                           + " CLICK HOST first");
+                            net_set_status(LF("{0} is not hosting - on that pc,"
+                                              + " CLICK HOST first",
+                                              net_peer_label(_peer)));
                         }
                         return true;
                     }
@@ -1745,7 +1850,7 @@ function GameInitBox(_interface) : GuiObject() constructor {
            width: the bottom row carries NET PLAY and LOAD now, and the longest
            phase name at the old wording ran 32 characters, straight across
            them. */
-        var _label = "GENERATING - " + gen_generator.gen_phase_name();
+        var _label = L("GENERATING - ") + L(gen_generator.gen_phase_name());
         if (string_length(_label) > GEN_LABEL_COLS) {
             _label = string_copy(_label, 1, GEN_LABEL_COLS);
         }

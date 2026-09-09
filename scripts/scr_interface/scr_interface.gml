@@ -1504,7 +1504,7 @@ function Interface(_game = undefined) : GuiObject() constructor {
                     /* Ctrl+N is a way out of the game like any other, so it
                        ends a networked session rather than opening the start
                        screen on top of one. */
-                    leave_game_to_menu("you left the game");
+                    leave_game_to_menu(L("you left the game"));
                 }
                 break;
             case ord("c"):

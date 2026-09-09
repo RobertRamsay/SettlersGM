@@ -39,6 +39,15 @@ for (var _t = 0; _t < _ticks; _t++) {
     net_after_tick();
 }
 
+// The language question, on the first run only, before anything else can be
+// clicked or typed: it sits over the start screen and takes the whole of the
+// input until it is answered. The ticks above still run, so the world behind
+// it does not freeze, and everything below waits.
+if (global.locale_asking) {
+    locale_prompt_step();
+    exit;
+}
+
 // The crash question, when the last run left a report and there is somewhere to
 // send it. Answered once and remembered, so a no is a no for good.
 if (global.crash_asking && !global.net_chat_open) {

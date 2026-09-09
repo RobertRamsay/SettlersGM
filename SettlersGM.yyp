@@ -39,6 +39,7 @@
     {"id":{"name":"scr_gui","path":"scripts/scr_gui/scr_gui.yy",},},
     {"id":{"name":"scr_interface","path":"scripts/scr_interface/scr_interface.yy",},},
     {"id":{"name":"scr_inventory","path":"scripts/scr_inventory/scr_inventory.yy",},},
+    {"id":{"name":"scr_locale","path":"scripts/scr_locale/scr_locale.yy",},},
     {"id":{"name":"scr_map_generator","path":"scripts/scr_map_generator/scr_map_generator.yy",},},
     {"id":{"name":"scr_map_geometry","path":"scripts/scr_map_geometry/scr_map_geometry.yy",},},
     {"id":{"name":"scr_map","path":"scripts/scr_map/scr_map.yy",},},

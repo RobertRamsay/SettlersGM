@@ -246,7 +246,7 @@ function net_live_notice(_game) {
 
     var _out = net_placing_status(_game);
     if (net_is_waiting()) {
-        _out += "  [waiting for the other player]";
+        _out += L("  [waiting for the other player]");
     }
     return _out;
 }
@@ -593,7 +593,7 @@ function net_peer_left(_why) {
             global.net_socket = -1;
         }
         global.net_peer_ip = "";
-        net_set_status("player 2 left - still hosting, waiting for another");
+        net_set_status(L("player 2 left - still hosting, waiting for another"));
         net_log(global.net_status);
         return;
     }
@@ -693,8 +693,7 @@ function net_exit_notice() {
     if (!net_exit_pending()) {
         return "";
     }
-    return "  BACK TO THE MENU IN " + string(net_exit_seconds())
-           + " - ESC TO LEAVE NOW";
+    return LF("  BACK TO THE MENU IN {0} - ESC TO LEAVE NOW", net_exit_seconds());
 }
 
 // ---------------------------------------------------------------- sending
@@ -2426,7 +2425,7 @@ function net_begin(_interface, _game, _local_player) {
     /* The silence clock starts now rather than at whenever the last packet
        happened to arrive during setup. */
     global.net_last_rx = current_time;
-    net_set_status("in game as player " + string(_local_player + 1));
+    net_set_status(LF("in game as player {0}", _local_player + 1));
     net_log(global.net_status);
 }
 
@@ -2488,7 +2487,7 @@ function net_lobby_host() {
         return true;
     }
     if (global.net_role == NetRole.client) {
-        net_set_status("already joined - press EXIT first");
+        net_set_status(L("already joined - press EXIT first"));
         return false;
     }
 
@@ -2514,7 +2513,7 @@ function net_lobby_host() {
     ds_map_clear(global.net_turns);
     ds_map_clear(global.net_checks);
     global.net_outbox = [];
-    net_set_status("HOSTING - on the other pc, CLICK this pc's name");
+    net_set_status(L("HOSTING - on the other pc, CLICK this pc's name"));
     net_log(global.net_status);
 
     /* Say it now rather than in up to three quarters of a second. */

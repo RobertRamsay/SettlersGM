@@ -87,6 +87,19 @@ function gfx_init() {
     for (var _i = 0; _i < 128; _i++) {
         global.gfx_font_map[_i] = _tbl[_i];
     }
+
+    /* The Amiga font has three glyphs Freeserf's ASCII table never reaches:
+       Ä, Ö and Ü at 26, 27 and 28, between Z and the digits. The German text
+       in scr_locale.gml needs them. Both cases map to the one glyph, as the
+       Latin letters do above; the code points are Latin-1, which is what
+       string_ord_at hands back for them and what the & 0xFF in
+       gfx_draw_char_sprite keeps whole. There is no ß - it is written ss. */
+    global.gfx_font_map[0xC4] = 26;   /* Ä */
+    global.gfx_font_map[0xE4] = 26;   /* ä */
+    global.gfx_font_map[0xD6] = 27;   /* Ö */
+    global.gfx_font_map[0xF6] = 27;   /* ö */
+    global.gfx_font_map[0xDC] = 28;   /* Ü */
+    global.gfx_font_map[0xFC] = 28;   /* ü */
 }
 
 function gfx_set_origin(_x, _y) {

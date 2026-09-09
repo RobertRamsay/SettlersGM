@@ -165,3 +165,7 @@ if (global.crash_notice != "") {
     net_draw_message(_msg, _colour);
     draw_set_colour(c_white);
 }
+
+/* The language question, over everything, until it has been answered once.
+   Draws nothing at all after that. */
+locale_prompt_draw();

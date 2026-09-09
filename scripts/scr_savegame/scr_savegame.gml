@@ -758,17 +758,17 @@ function savegame_slot_name(_slot) {
 /// Cheap enough to call from a draw handler.
 function savegame_slot_label(_slot) {
     if (!savegame_slot_exists(_slot)) {
-        return "- empty -";
+        return L("- empty -");
     }
 
     var _label_path = savegame_slot_path(_slot) + ".label";
     if (!file_exists(_label_path)) {
-        return "saved game";
+        return L("saved game");
     }
 
     var _buffer = buffer_load(_label_path);
     if (_buffer < 0) {
-        return "saved game";
+        return L("saved game");
     }
     var _text = buffer_read(_buffer, buffer_text);
     buffer_delete(_buffer);

@@ -220,7 +220,7 @@ function NotificationBox(_interface) : GuiObject() constructor {
         var _map_menu_sprite = global.notification_map_menu_sprite;
         var _mbs = global.interface_map_building_sprite;
 
-        draw_text_lines(1, 10, _view.text);
+        draw_text_lines(1, 10, L(_view.text));
         switch (_view.decoration) {
             case NOTIFICATION_SHOW_OPPONENT:
                 draw_player_face(18, 8, message.data);
