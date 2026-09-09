@@ -140,19 +140,28 @@ if (global.crash_notice != "") {
                   "   :" + string(NET_PORT) + "   (Enter connects, Esc cancels)";
     net_draw_message(_prompt, c_yellow);
 } else if (!_netplay_panel &&
-           (net_status_visible() || net_live_notice(interface.get_game()) != "")) {
-    /* Two different things share this line. The status ("player 2 joined", "in
-       game as player 2") is news: worth reading once, clutter for the rest of
-       the session, so it ages out after ten seconds. The live notice - whose
-       turn it is to place a castle, and whether we are actually held up waiting
-       for the peer - is a statement about right now, so it stays for exactly as
-       long as it is true. */
+           (net_status_visible() || net_exit_pending() ||
+            net_live_notice(interface.get_game()) != "")) {
+    /* Three things share this line. The status ("player 2 joined", "in game as
+       player 2") is news: worth reading once, clutter for the rest of the
+       session, so it ages out after ten seconds. The live notice - whose turn
+       it is to place a castle, and whether we are actually held up waiting for
+       the peer - is a statement about right now, so it stays for exactly as
+       long as it is true. The exit notice counts down the last five seconds of
+       a session the other player has walked out of, and holds the whole line up
+       while it does, since the reason above it is the point. */
     var _msg = "";
-    if (net_status_visible()) {
+    if (net_status_visible() || net_exit_pending()) {
         _msg = "NET: " + net_status_line();
     }
+    _msg += net_exit_notice();
     _msg += net_live_notice(interface.get_game());
 
-    net_draw_message(_msg, c_white);
+    var _colour = c_white;
+    if (net_exit_pending()) {
+        _colour = c_yellow;
+    }
+
+    net_draw_message(_msg, _colour);
     draw_set_colour(c_white);
 }

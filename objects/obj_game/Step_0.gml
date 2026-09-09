@@ -424,6 +424,22 @@ if (net_is_active() && !global.net_chat_open && !global.net_ip_prompt &&
 
 net_chat_step();
 
+/* The other player has gone, so the world is frozen at whatever tick lockstep
+   reached - it cannot advance a turn without their packet. Rather than leave
+   somebody sitting in a game that can never move again, the countdown armed in
+   net_handle_async runs out and takes us back to the start screen.
+
+   ESC skips the wait, not Enter: Enter opens the chat line just above, and
+   typing a message to somebody who has left is not what that key should do
+   here. The reason travels with us, so the panel still says who left. */
+if (net_exit_pending() && !global.net_chat_open) {
+    if (net_exit_due() || keyboard_check_pressed(vk_escape)) {
+        var _left_why = net_status_line();
+        net_exit_cancel();
+        interface.leave_game_to_menu(_left_why);
+    }
+}
+
 if (keyboard_check_pressed(vk_f3)) {
     show_debug = !show_debug;
 }

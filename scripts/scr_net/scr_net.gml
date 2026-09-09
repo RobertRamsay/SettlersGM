@@ -179,6 +179,10 @@ function net_init() {
     global.net_checks   = ds_map_create();
     global.net_desync   = false;
 
+    /* When the game should take itself back to the start screen because the
+       other player has gone, as a current_time stamp. 0 is "not counting". */
+    global.net_exit_at  = 0;
+
     /* The last turn whose commands have been run. Separate from what has
        ARRIVED, because a turn is five ticks long and stays the current turn for
        all five - see net_before_tick. */
@@ -444,6 +448,10 @@ function net_close(_why) {
     ds_map_clear(global.net_checks);
     global.net_outbox = [];
 
+    /* Whatever the countdown was going to do has either just happened or no
+       longer applies. */
+    net_exit_cancel();
+
     show_debug_message("net: closed - " + string(_why));
     net_log("closed - " + string(_why));
 }
@@ -508,6 +516,72 @@ function net_fail(_why) {
     global.net_phase  = NetPhase.dead;
     net_set_status(_why);
     net_log("STOPPED - " + string(_why));
+}
+
+// ------------------------------------------------- leaving after the other end
+
+/// When the other player leaves, the game they left behind is over: lockstep
+/// cannot advance a turn without their packet, so the world is frozen at
+/// whatever tick it reached. Sitting in it is not a state anyone chose, so the
+/// game says who left, counts down, and takes itself back to the start screen.
+///
+/// There is no rejoin, and this is not laziness. A machine coming back would
+/// need the ENTIRE simulation - every serf, building, flag, inventory and the
+/// random generator's own state - because in lockstep both sides must agree
+/// bit for bit, and nothing here can send that: the map slices are for hashing,
+/// not for shipping a world. It would also need the roles and sockets turned
+/// around (the one still playing would have to start listening) and the turn
+/// numbering realigned. That is a feature, not a fix, and it is not what a
+/// player staring at a stopped game needs.
+///
+/// A desync deliberately does NOT arm this. Its status line says which turn and
+/// which part of the world hash disagreed, which is worth reading rather than
+/// snatching away after five seconds.
+#macro NET_EXIT_MS 5000
+
+/// Start the countdown. current_time, not a frame count: it is a wall-clock
+/// promise to the player, and the room's frame rate is not the thing it should
+/// depend on.
+function net_exit_arm() {
+    global.net_exit_at = current_time + NET_EXIT_MS;
+}
+
+function net_exit_cancel() {
+    global.net_exit_at = 0;
+}
+
+function net_exit_pending() {
+    return (global.net_exit_at > 0);
+}
+
+/// Whole seconds left, so the line counts 5, 4, 3, 2, 1.
+function net_exit_seconds() {
+    if (!net_exit_pending()) {
+        return 0;
+    }
+    var _left = global.net_exit_at - current_time;
+    if (_left < 0) {
+        _left = 0;
+    }
+    return ceil(_left / 1000);
+}
+
+/// Is the wait over?
+function net_exit_due() {
+    if (!net_exit_pending()) {
+        return false;
+    }
+    return (current_time >= global.net_exit_at);
+}
+
+/// What to add to the status line while it runs: what is about to happen, and
+/// how to skip it.
+function net_exit_notice() {
+    if (!net_exit_pending()) {
+        return "";
+    }
+    return "  BACK TO THE MENU IN " + string(net_exit_seconds())
+           + " - ESC TO LEAVE NOW";
 }
 
 // ---------------------------------------------------------------- sending
@@ -793,7 +867,16 @@ function net_handle_async(_async) {
         }
 
         if (net_is_running()) {
-            net_fail("the other player disconnected");
+            /* Named from where the player still here is standing: they do not
+               care that "the peer" went, they care that the person running the
+               game did. The host is the one who picks the mission and starts
+               it, so its leaving is the one worth naming. */
+            var _who = "PLAYER 2 HAS LEFT THE GAME";
+            if (global.net_role == NetRole.client) {
+                _who = "THE HOST HAS LEFT THE GAME";
+            }
+            net_fail(_who);
+            net_exit_arm();
             return;
         }
 
