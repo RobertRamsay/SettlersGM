@@ -444,6 +444,50 @@ function Interface(_game = undefined) : GuiObject() constructor {
         }
     };
 
+    /// Leave the game that is on screen and go back to the start screen. Every
+    /// way out of a game goes through here: the QUIT confirmation, the end-game
+    /// box's menu button, and Ctrl+N.
+    ///
+    /// It exists because those routes used to end differently. Only the
+    /// end-game box closed the network session; QUIT and Ctrl+N just opened the
+    /// start screen over the top, leaving the role and the sockets exactly as
+    /// they were. The panel then said "In a game" about a game nobody was
+    /// playing, NET PLAY could not be used again, and the other machine was
+    /// never told - so the only way out of net play was to close the program.
+    ///
+    /// net_close, not net_fail: fail is for a desync, and deliberately leaves
+    /// the role and the sockets in place so a stopped game stays on screen with
+    /// its reason. That is wrong for somebody who chose to leave. The other
+    /// machine sees the socket go and stops with "the other player
+    /// disconnected", which is the truth.
+    ///
+    /// The session goes FIRST. Everything after it changes the simulation on
+    /// this machine alone - the speed most of all - and in a lockstep game that
+    /// has to happen after the session is over, never during it.
+    ///
+    /// Then the game is frozen. The start screen sits OVER the game rather than
+    /// replacing it, and viewport.set_enabled(false) only stops it taking
+    /// input: it carries on drawing, and drawing a burning building is what
+    /// plays Sfx.burning. Leaving a war behind you meant it crackled away
+    /// behind the menu until you started something else. There is no way back
+    /// to a game once you are here, so freezing it costs nothing.
+    static leave_game_to_menu = function(_why) {
+        if (net_is_active()) {
+            net_close(_why);
+        }
+        net_chat_close();
+
+        var _game = get_game();
+        if (_game != undefined) {
+            cf_stand_down(_game);
+            _game.set_speed(0);
+        }
+        audio_stop_sfx();
+
+        close_popup();
+        open_game_init();
+    };
+
     /* Open box for starting a new game */
     static open_game_init = function() {
         if (init_box == undefined) {
@@ -1457,7 +1501,10 @@ function Interface(_game = undefined) : GuiObject() constructor {
                 break;
             case ord("n"):
                 if ((_modifier & 1) != 0) {
-                    open_game_init();
+                    /* Ctrl+N is a way out of the game like any other, so it
+                       ends a networked session rather than opening the start
+                       screen on top of one. */
+                    leave_game_to_menu("you left the game");
                 }
                 break;
             case ord("c"):

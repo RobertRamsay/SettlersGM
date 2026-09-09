@@ -1025,18 +1025,24 @@ function popup_handle_action(_popup, _action, _x, _y) {
   case Action.quit_confirm:
     /* C++: TODO suggest save game -> TypeNoSaveQuitConfirm (disabled).
        Freeserf quits the process here; go back to the main menu instead, which
-       has its own exit. */
-    _popup.play_sound(Sfx.ahhh);
-    _interface.close_popup();
-    _interface.open_game_init();
+       has its own exit.
+
+       leave_game_to_menu, not close_popup + open_game_init: this is a way OUT
+       of a game, and it has to end a networked session like every other way
+       out. See Interface.leave_game_to_menu.
+
+       The sound comes after it, and through play_sfx rather than the popup:
+       leaving stops the effects that are sounding (the fires), which would
+       take this one with it, and the popup itself is gone by then. */
+    _interface.leave_game_to_menu("you left the game");
+    play_sfx(Sfx.ahhh);
     break;
   case Action.quit_cancel:
     _interface.close_popup();
     break;
   case Action.no_save_quit_confirm:
-    _popup.play_sound(Sfx.ahhh);
-    _interface.close_popup();
-    _interface.open_game_init();
+    _interface.leave_game_to_menu("you left the game");
+    play_sfx(Sfx.ahhh);
     break;
   case Action.show_quit:
     _interface.open_popup(PopupType.quit_confirm);
@@ -1265,40 +1271,15 @@ function popup_handle_action(_popup, _action, _x, _y) {
     _popup.interface.close_popup();
     break;
   case Action.game_end_menu: {
-    /* Back to the start screen, with the mission list already ticked.
+    /* Back to the start screen, with the mission list already ticked. The whole
+       of what that means - end the session, stand the cheat down, freeze the
+       world so the fires stop crackling behind the menu, silence what is still
+       sounding - is Interface.leave_game_to_menu, which is also what QUIT and
+       Ctrl+N do now. This case used to be the only one that did any of it.
 
-       The start screen sits OVER the game rather than replacing it, and
-       viewport.set_enabled(false) only stops it taking input - it carries on
-       drawing, and drawing a burning building is what plays Sfx.burning. After
-       a victory the map is full of them, so the fire crackled away behind the
-       menu forever. Freezing the game stops the burn counters advancing, which
-       stops the retrigger at source, and stopping the effects clears what is
-       already sounding. The music is left alone.
-
-       The game is over, so freezing it costs nothing: there is nothing left to
-       play out. Clicking the tick instead leaves it running, which is the whole
-       point of that choice. */
-    var _game = _popup.interface.get_game();
-    if (_game != undefined) {
-      /* Leaving for the menu ends a networked session. Both of the lines below
-         change the simulation on this machine only - the speed most of all -
-         so the session has to be over before they run, not after. */
-      /* net_close, not net_fail: fail leaves the role and the sockets in
-         place so a stopped game stays on screen with its reason, which is
-         right for a desync and wrong for the menu - the role then blocked
-         NET PLAY from being used again until the exe was restarted. The
-         other machine sees the socket go and stops with "the other player
-         disconnected", which is the truth. */
-      if (net_is_active()) {
-        net_close("you left the game");
-      }
-      cf_stand_down(_game);
-      _game.set_speed(0);
-    }
-    audio_stop_sfx();
-
-    _popup.interface.close_popup();
-    _popup.interface.open_game_init();
+       Clicking the tick instead of MENU leaves the game running, which is the
+       whole point of that choice. */
+    _popup.interface.leave_game_to_menu("you left the game");
     break;
   }
   case Action.options_volume_minus: {
