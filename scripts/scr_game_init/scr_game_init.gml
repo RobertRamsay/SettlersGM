@@ -254,7 +254,7 @@ function game_init_init_tables() {
         GameInitAction.start_game,        20,  16, 32, 32,
         GameInitAction.show_netplay,     NETPLAY_BTN_X, NETPLAY_BTN_Y, 32, 32,
         GameInitAction.toggle_game_type,  60,  16, 32, 32,
-        GameInitAction.show_load,        292, 216, 32, 32,
+        GameInitAction.show_load,        GAME_INIT_LOAD_X, GAME_INIT_LOAD_Y, 32, 32,
         GameInitAction.show_options,     308,  16, 32, 32,
         GameInitAction.increment,        284,  16, 16, 16,
         GameInitAction.decrement,        284,  32, 16, 16,
@@ -266,7 +266,7 @@ function game_init_init_tables() {
         GameInitAction.start_game,        20,  16, 32, 32,
         GameInitAction.show_netplay,     NETPLAY_BTN_X, NETPLAY_BTN_Y, 32, 32,
         GameInitAction.toggle_game_type,  60,  16, 32, 32,
-        GameInitAction.show_load,        292, 216, 32, 32,
+        GameInitAction.show_load,        GAME_INIT_LOAD_X, GAME_INIT_LOAD_Y, 32, 32,
         GameInitAction.show_options,     308,  16, 32, 32,
         GameInitAction.increment,        220,  24, 24, 24,
         GameInitAction.decrement,        220,  16,  8,  8,
@@ -280,7 +280,7 @@ function game_init_init_tables() {
         GameInitAction.start_game,        20,  16, 32, 32,
         GameInitAction.show_netplay,     NETPLAY_BTN_X, NETPLAY_BTN_Y, 32, 32,
         GameInitAction.toggle_game_type,  60,  16, 32, 32,
-        GameInitAction.show_load,        292, 216, 32, 32,
+        GameInitAction.show_load,        GAME_INIT_LOAD_X, GAME_INIT_LOAD_Y, 32, 32,
         GameInitAction.show_options,     308,  16, 32, 32,
         GameInitAction.close,            GAME_INIT_EXIT_X, GAME_INIT_EXIT_Y, 16, 16,
         -1
@@ -350,13 +350,23 @@ function game_init_init_tables() {
 /* The NET PLAY button: the last frame of spr_icon. */
 #macro NETPLAY_ICON       318
 
-/* Where the NET PLAY button sits: the gap on the top row between the map size
-   and the dice. The bottom-right slot it was in first is the wrong home for the
-   only route into the panel, and it is crowded there. MISSION keeps its arrows
-   at x 284 and CUSTOM its dice at 220, so 188 to 220 is the one 32-wide slot
-   free on every screen. Move it by changing these two. */
-#macro NETPLAY_BTN_X      188
-#macro NETPLAY_BTN_Y      16
+/* The bottom row, which is now three buttons at an even 40-pixel pitch:
+   NET PLAY, LOAD, EXIT. All of them start at y 216, which is the first row
+   clear of the map preview (it ends at 215) and of the player boxes.
+
+   NET PLAY was on the top row at x 188, in what looked like a free 32-wide
+   slot. It is not free on MISSION: "START MISSION" and "MISSION: n" are drawn
+   from x 100 and run straight under it, so the icon sat on top of the words.
+   Down here nothing else is competing for the space.
+
+   32-wide icons at 260 and 300, EXIT's 16 at 336, and the frame's inside edge
+   at 352. Everything else on this row - the version line, the update note, the
+   generation bar and its label - stops at x 252, which is what
+   GEN_BAR_W and GEN_LABEL_COLS below are for. */
+#macro NETPLAY_BTN_X      260
+#macro NETPLAY_BTN_Y      216
+#macro GAME_INIT_LOAD_X   300
+#macro GAME_INIT_LOAD_Y   216
 
 /* ADD AN ADDRESS, below the list. Its own row rather than the bottom-right
    slot, which is where LOAD is drawn - a button that reads LOAD and adds an
@@ -389,12 +399,20 @@ function game_init_init_tables() {
 #macro GAME_INIT_EXIT_Y   230
 
 /* The map generation bar, along the bottom of the panel (which is 360x254).
-   Kept clear of the EXIT icon at GAME_INIT_EXIT_X/Y. */
+   It shares this row with the NET PLAY and LOAD buttons, so it stops at x 252
+   - 20 + 232 - which leaves eight clear pixels before NET PLAY at 260.
+
+   GEN_LABEL_COLS is the same limit for the label above it, in characters:
+   gfx_draw_string neither wraps nor clips, so a phase name longer than the row
+   would simply keep drawing out across the buttons. "GENERATING - TREES AND
+   STONE" is the longest there is at 28, and the label is cut to 29 so that a
+   phase name added later cannot quietly start painting over LOAD. */
 #macro GEN_BAR_X          20
 #macro GEN_BAR_LABEL_Y    228
 #macro GEN_BAR_Y          240
-#macro GEN_BAR_W          264
+#macro GEN_BAR_W          232
 #macro GEN_BAR_H          8
+#macro GEN_LABEL_COLS     29
 
 /* How far down the stone wall behind the panel is taken, 0 for the art as it
    comes. A wash rather than a repaint, so the courses and the carving are all
@@ -886,8 +904,15 @@ function GameInitBox(_interface) : GuiObject() constructor {
         /* Below the list, not under it: file_list is 160x160 at (20,55) and
            paints a black background over everything from y=55 to y=215, so a
            status drawn inside that range was never visible. */
+        /* Cut to the row's width like everything else down here. Most of these
+           are short, but savegame_last_error() is whatever the loader had to
+           say, and a long one would run out across LOAD and EXIT. */
         if (load_status != "") {
-            gfx_draw_string(20, 240, load_status,
+            var _status = load_status;
+            if (string_length(_status) > GEN_LABEL_COLS) {
+                _status = string_copy(_status, 1, GEN_LABEL_COLS);
+            }
+            gfx_draw_string(20, 240, _status,
                             make_colour_rgb(0xff, 0xff, 0x99), -1);
         }
 
@@ -975,41 +1000,41 @@ function GameInitBox(_interface) : GuiObject() constructor {
             }
         }
 
-        /* Display program name and version in caption */
-        /* The bar and its message occupy this row, so the version line stands
-           down while a map is being generated rather than being drawn through.
-           It comes back the moment the map is done. */
-        if (!gen_active) {
-            draw_box_string(0, 212, GAME_INIT_VERSION + " " + game_version());
-        }
-
-        /* And, when the repository says there is a newer build than this one,
-           a word about it on the same line. Right-aligned rather than placed at
-           a fixed column, because the length depends on how many parts the new
+        /* Program name and version, and - when the repository says there is a
+           newer build than this one - a word about that on the same line,
+           right-aligned because its length depends on how many parts the new
            version number has.
 
-           The room it has is the gap between the name on the left, which ends
-           at x 164, and the LOAD button, which starts at x 292: columns 18 to
-           32, fifteen characters, ending at x 284 so there is daylight either
-           side. There is no second line to fall back on - the map preview comes
-           down to y 215 and this caption is at y 228 - so a version number too
+           Both stand down while a map is being generated: the bar and its
+           label own this row then, and drawing all four things through each
+           other is how the row looked before. They come back the moment the
+           map is done.
+
+           The note's room is the gap between the name, which ends at x 164,
+           and the row's limit at x 252: columns 19 to 29, eleven characters.
+           There is no second line to fall back on - the map preview comes down
+           to y 215 and the load status already uses y 240 - so a version too
            long to fit drops the number and keeps the word rather than running
-           under the button. "UPDATE" alone still says what it needs to; the
+           under NET PLAY. "UPDATE" alone still says what it needs to; the
            number is on the download page either way. */
-        if (global.update_available) {
-            var _note = "UPDATE " + global.update_latest;
-            if (string_length(_note) > 15) {
-                _note = "UPDATE";
+        if (!gen_active) {
+            draw_box_string(0, 212, GAME_INIT_VERSION + " " + game_version());
+
+            if (global.update_available) {
+                var _note = "UPDATE " + global.update_latest;
+                if (string_length(_note) > 11) {
+                    _note = "UPDATE";
+                }
+                draw_box_string(29 - string_length(_note), 212, _note);
             }
-            draw_box_string(33 - string_length(_note), 212, _note);
         }
 
-        /* Bottom-row buttons. LOAD is 32x32 against EXIT's 16x16, so it is
-           placed by its own top-left rather than sharing a row of icon
-           columns: x 292..324 puts it hard against EXIT, and y 216..248 clears
-           the map preview above it (which ends at 215). */
+        /* Bottom-row buttons: NET PLAY at 260, LOAD at 300, EXIT at 336, all
+           at y 216, which is the first row clear of the map preview above.
+           LOAD is 32x32 against EXIT's 16x16, so both are placed by their own
+           top-left rather than by icon columns - see the macros. */
         if (game_type != GameType.netplay) {
-            draw_box_icon(34, 200, 316); /* load */
+            gfx_draw_sprite(GAME_INIT_LOAD_X, GAME_INIT_LOAD_Y, Asset.icon, 316);
         }
         gfx_draw_sprite(GAME_INIT_EXIT_X, GAME_INIT_EXIT_Y, Asset.icon, 60);
 
@@ -1643,8 +1668,9 @@ function GameInitBox(_interface) : GuiObject() constructor {
         return false;
     };
 
-    /// "GENERATING MAP" and a bar, along the bottom of the panel. Drawn only
-    /// while a preview is being built.
+    /// "GENERATING - <phase>" and a bar, along the bottom of the panel, to the
+    /// left of the NET PLAY and LOAD buttons. Drawn only while a preview is
+    /// being built.
     static draw_map_progress = function() {
         if (!gen_active) {
             return;
@@ -1656,8 +1682,15 @@ function GameInitBox(_interface) : GuiObject() constructor {
             _done = _total;
         }
 
-        gfx_draw_string(GEN_BAR_X, GEN_BAR_LABEL_Y,
-                        "GENERATING MAP - " + gen_generator.gen_phase_name(),
+        /* "MAP" dropped from the label and the whole thing cut to the row's
+           width: the bottom row carries NET PLAY and LOAD now, and the longest
+           phase name at the old wording ran 32 characters, straight across
+           them. */
+        var _label = "GENERATING - " + gen_generator.gen_phase_name();
+        if (string_length(_label) > GEN_LABEL_COLS) {
+            _label = string_copy(_label, 1, GEN_LABEL_COLS);
+        }
+        gfx_draw_string(GEN_BAR_X, GEN_BAR_LABEL_Y, _label,
                         make_colour_rgb(0xff, 0xff, 0xff), -1);
 
         /* Frame, then the filled part. Drawn with rectangles rather than a row
