@@ -69,6 +69,7 @@ crash_notice_step();
 
 net_age_status();
 net_late_checks(interface.get_game());
+net_silence_check();
 
 // A start the host sent while the async event was running. Handled here for the
 // same reason apply_pending_game is: switching the game rebuilds the float list.

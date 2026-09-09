@@ -58,7 +58,8 @@ enum NetMsg {
     start = 1,       // host -> client: which mission, and the RNG seed
     turn = 2,        // both ways: the commands for one turn
     check = 3,       // both ways: a world hash at a turn boundary
-    chat = 4         // both ways: a line of text, outside the simulation
+    chat = 4,        // both ways: a line of text, outside the simulation
+    bye = 5          // both ways: I am leaving - see net_send_bye
 }
 
 /// The commands that can cross the wire. Only build_flag is wired up in this
@@ -182,6 +183,10 @@ function net_init() {
     /* When the game should take itself back to the start screen because the
        other player has gone, as a current_time stamp. 0 is "not counting". */
     global.net_exit_at  = 0;
+
+    /* When anything last arrived from the other machine, for net_silence_check.
+       0 is "nothing yet", which never times out. */
+    global.net_last_rx  = 0;
 
     /* The last turn whose commands have been run. Separate from what has
        ARRIVED, because a turn is five ticks long and stays the current turn for
@@ -428,6 +433,12 @@ function net_join(_ip) {
 }
 
 function net_close(_why) {
+    /* Say goodbye while there is still a socket to say it on. A client whose
+       host closes is not reliably given a disconnect event by GameMaker, so
+       without this the other machine simply waits - which is exactly what it
+       used to do. See net_send_bye. */
+    net_send_bye();
+
     if (global.net_socket >= 0) {
         network_destroy(global.net_socket);
         global.net_socket = -1;
@@ -538,6 +549,108 @@ function net_fail(_why) {
 /// which part of the world hash disagreed, which is worth reading rather than
 /// snatching away after five seconds.
 #macro NET_EXIT_MS 5000
+
+/// The other end is gone. One place, because there are three ways to find out
+/// and they must all end the same way.
+///
+/// _why is empty for "they went without saying", and carries a reason when we
+/// were told one (the goodbye packet) or worked one out (the silence check).
+///
+/// Called for a disconnect event, for NetMsg.bye, and by the silence check -
+/// and being called twice for one departure is expected, since a goodbye is
+/// normally followed by the socket closing. The dead check above the running
+/// case is what makes the second call harmless.
+function net_peer_left(_why) {
+    if (global.net_phase == NetPhase.dead) {
+        /* Already stopped, and the reason on screen - a desync, say - is the
+           one worth keeping. */
+        return;
+    }
+
+    if (net_is_running()) {
+        /* Named from where the player still here is standing: they do not care
+           that "the peer" went, they care that the person running the game
+           did. The host is the one who picks the mission and starts it, so its
+           leaving is the one worth naming. */
+        var _who = "PLAYER 2 HAS LEFT THE GAME";
+        if (global.net_role == NetRole.client) {
+            _who = "THE HOST HAS LEFT THE GAME";
+        }
+        if (_why != "") {
+            _who += " (" + _why + ")";
+        }
+        net_fail(_who);
+        net_exit_arm();
+        return;
+    }
+
+    /* Before a game. A host stays a host - player 2 leaving is no reason to
+       stop offering - and just goes back to waiting; a joiner goes back to the
+       list. */
+    if (global.net_role == NetRole.host) {
+        if (global.net_socket >= 0) {
+            network_destroy(global.net_socket);
+            global.net_socket = -1;
+        }
+        global.net_peer_ip = "";
+        net_set_status("player 2 left - still hosting, waiting for another");
+        net_log(global.net_status);
+        return;
+    }
+
+    if (global.net_role == NetRole.client) {
+        net_drop_to_lobby("the host dropped the connection - CLICK it to try"
+                          + " again");
+    }
+}
+
+/// Tell the other machine we are going, before the socket goes with us.
+///
+/// GameMaker raises an async disconnect event when a CLIENT of our server
+/// leaves, but a client whose SERVER closes is not reliably told anything at
+/// all - the socket simply goes quiet. That is why a host quitting to the menu
+/// left the other player watching "waiting for the other player" forever: the
+/// event they were relying on never came.
+///
+/// So the leaver says so out loud. It is one byte, it is not a NetCmd and never
+/// touches the world hash, and it arrives before the close does. The silence
+/// check below is the backstop for everything that cannot say goodbye - a
+/// crash, a pulled cable, a machine that went to sleep.
+function net_send_bye() {
+    if (net_peer_socket() < 0) {
+        return;
+    }
+    var _b = global.net_send;
+    buffer_seek(_b, buffer_seek_start, 0);
+    buffer_write(_b, buffer_u8, NetMsg.bye);
+    network_send_packet(net_peer_socket(), _b, buffer_tell(_b));
+    net_log("sent bye");
+}
+
+/* How long a running game will sit with nothing at all from the other machine
+   before deciding it is not coming back. Generous on purpose: lockstep pauses
+   of a second or two are ordinary, and GameMaker stops running a window that
+   has lost focus, so somebody alt-tabbing must not be declared gone. Nothing
+   can be played during the wait either way - the game cannot advance a turn
+   without their packet - so the only cost of being generous is the delay before
+   the notice. */
+#macro NET_SILENCE_MS 30000
+
+/// Called once a frame while a game is running. See net_send_bye for why this
+/// exists at all.
+function net_silence_check() {
+    if (!net_is_running()) {
+        return;
+    }
+    if (global.net_last_rx <= 0) {
+        return;
+    }
+    if (current_time - global.net_last_rx < NET_SILENCE_MS) {
+        return;
+    }
+    net_peer_left("nothing heard for "
+                  + string(NET_SILENCE_MS div 1000) + " seconds");
+}
 
 /// Start the countdown. current_time, not a frame count: it is a wall-clock
 /// promise to the player, and the room's frame rate is not the thing it should
@@ -866,33 +979,7 @@ function net_handle_async(_async) {
             return;
         }
 
-        if (net_is_running()) {
-            /* Named from where the player still here is standing: they do not
-               care that "the peer" went, they care that the person running the
-               game did. The host is the one who picks the mission and starts
-               it, so its leaving is the one worth naming. */
-            var _who = "PLAYER 2 HAS LEFT THE GAME";
-            if (global.net_role == NetRole.client) {
-                _who = "THE HOST HAS LEFT THE GAME";
-            }
-            net_fail(_who);
-            net_exit_arm();
-            return;
-        }
-
-        /* Before a game. A host stays a host - player 2 leaving is no
-           reason to stop offering - and just goes back to waiting; a joiner
-           goes back to the list. */
-        if (global.net_role == NetRole.host) {
-            network_destroy(global.net_socket);
-            global.net_socket = -1;
-            global.net_peer_ip = "";
-            net_set_status("player 2 left - still hosting, waiting for another");
-            net_log(global.net_status);
-            return;
-        }
-        net_drop_to_lobby("the host dropped the connection - CLICK it to try"
-                          + " again");
+        net_peer_left("");
         return;
     }
 
@@ -916,6 +1003,12 @@ function net_handle_async(_async) {
        datagram that turns up and is not a beacon means the wire is fine and the
        fault is in here, which is the opposite conclusion from nothing at all. */
 
+    /* Anything at all from the other machine means it is still there. This is
+       what net_silence_check reads, so it is stamped for every game message
+       rather than for turn packets alone - a machine that is chatting is not a
+       machine that has gone. */
+    global.net_last_rx = current_time;
+
     switch (_msg) {
     case NetMsg.start:
         net_receive_start(_b, _async[? "id"]);
@@ -928,6 +1021,12 @@ function net_handle_async(_async) {
         break;
     case NetMsg.chat:
         net_receive_chat(_b);
+        break;
+    case NetMsg.bye:
+        /* They said so themselves, which is the only way a client ever finds
+           out that its host has gone. */
+        net_log("peer said bye");
+        net_peer_left("");
         break;
     default:
         show_debug_message("net: unknown message " + string(_msg));
@@ -2324,6 +2423,9 @@ function net_begin(_interface, _game, _local_player) {
     }
 
     global.net_phase = NetPhase.running;
+    /* The silence clock starts now rather than at whenever the last packet
+       happened to arrive during setup. */
+    global.net_last_rx = current_time;
     net_set_status("in game as player " + string(_local_player + 1));
     net_log(global.net_status);
 }

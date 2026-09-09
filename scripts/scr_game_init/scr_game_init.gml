@@ -430,6 +430,17 @@ function game_init_init_tables() {
 #macro NETPLAY_COL_DIM    make_colour_rgb(0xa0, 0xa0, 0xb0)
 #macro NETPLAY_COL_NOTE   make_colour_rgb(0xff, 0xff, 0x99)
 
+/* A fourth: the colour of something you can actually click. This panel is
+   built out of text rather than buttons, so nothing about a line says whether
+   pressing it will do anything - HOST, a machine in the list, ADD, the mission
+   arrows and START all looked exactly like the sentences explaining them.
+
+   Lime for "this does something", and NETPLAY_COL_TEXT while the pointer is on
+   it. Every one of them goes through link_colour with the SAME rectangle the
+   clickmap uses, so what lights up under the pointer is what will be pressed -
+   if those ever disagree, it is now visible rather than silent. */
+#macro NETPLAY_COL_LINK   make_colour_rgb(0x7c, 0xff, 0x3c)
+
 /// Port of Random::Random() (random.cc lines 27-33): seed from the clock
 /// and consume one value.
 function game_init_random_default() {
@@ -685,6 +696,30 @@ function GameInitBox(_interface) : GuiObject() constructor {
         return _lines;
     };
 
+    /// Is the pointer inside this rectangle of the box?
+    ///
+    /// get_screen_position rather than the gfx origin: it is what the drawing
+    /// itself is offset by, so the two cannot disagree about where the box is,
+    /// and it works whether or not a draw is in progress. mouse_x and mouse_y
+    /// are room coordinates, which GameMaker has already divided the window
+    /// scaling out of - the same coordinates the click arrives in.
+    static box_hover = function(_hx, _hy, _hw, _hh) {
+        var _sp = get_screen_position();
+        var _mx = mouse_x - _sp[0];
+        var _my = mouse_y - _sp[1];
+        return (_mx >= _hx && _mx < _hx + _hw &&
+                _my >= _hy && _my < _hy + _hh);
+    };
+
+    /// The colour for something clickable: lime, or white while the pointer is
+    /// over it. Pass the rectangle the clickmap uses for it.
+    static link_colour = function(_hx, _hy, _hw, _hh) {
+        if (box_hover(_hx, _hy, _hw, _hh)) {
+            return NETPLAY_COL_TEXT;
+        }
+        return NETPLAY_COL_LINK;
+    };
+
     /// Draw a line, wrapped, from _y downwards. Returns the y after the last
     /// line so the next thing can carry on from there.
     static netplay_draw_wrapped = function(_x, _y, _str, _colour) {
@@ -732,19 +767,36 @@ function GameInitBox(_interface) : GuiObject() constructor {
                                 "YOU ARE HOSTING - waiting for player 2", _amber, -1);
             }
 
-            var _done = "";
+            /* Four draws where there were two, because the parts of this row
+               are not the same kind of thing. Only the first 40 pixels - the
+               five characters of "[ < ]" - are the decrement button, and only
+               40 more at +152 are the increment; lighting the whole row would
+               promise a click that lands nowhere.
+
+               The mission name sits between them, in the 96 pixels from +56 to
+               +152, which is twelve characters - enough for "MISSION 10". The
+               "(done)" mark goes after the second arrow rather than after the
+               name, where it used to run 48 pixels straight through it once the
+               mission number reached two digits. */
+            gfx_draw_string(NETPLAY_MISSION_X, NETPLAY_MISSION_Y, "[ < ]",
+                            link_colour(NETPLAY_MISSION_X, NETPLAY_MISSION_Y,
+                                        40, NETPLAY_ROW_H), -1);
+            gfx_draw_string(NETPLAY_MISSION_X + 56, NETPLAY_MISSION_Y,
+                            "MISSION " + string(game_mission + 1), _white, -1);
+            gfx_draw_string(NETPLAY_MISSION_X + 152, NETPLAY_MISSION_Y, "[ > ]",
+                            link_colour(NETPLAY_MISSION_X + 152,
+                                        NETPLAY_MISSION_Y, 40, NETPLAY_ROW_H),
+                            -1);
             if (progress_mission_is_done(game_mission)) {
-                _done = "  (done)";
+                gfx_draw_string(NETPLAY_MISSION_X + 200, NETPLAY_MISSION_Y,
+                                "(done)", _grey, -1);
             }
-            gfx_draw_string(NETPLAY_MISSION_X, NETPLAY_MISSION_Y,
-                            "[ < ]  MISSION " + string(game_mission + 1) + _done,
-                            _white, -1);
-            gfx_draw_string(NETPLAY_MISSION_X + 152, NETPLAY_MISSION_Y,
-                            "[ > ]", _white, -1);
 
             if (global.net_socket >= 0) {
                 gfx_draw_string(NETPLAY_GO_X, NETPLAY_GO_Y,
-                                "[ CLICK HERE TO START ]", _white, -1);
+                                "[ CLICK HERE TO START ]",
+                                link_colour(NETPLAY_GO_X, NETPLAY_GO_Y,
+                                            240, NETPLAY_ROW_H), -1);
                 netplay_draw_wrapped(NETPLAY_ROW_X, NETPLAY_GO_Y + 14,
                                      "CLICK < or > to choose the mission, then"
                                      + " CLICK START. It begins on both pcs at"
@@ -787,7 +839,9 @@ function GameInitBox(_interface) : GuiObject() constructor {
 
         /* Nobody's yet. Two ways in: be the host, or join one. */
         gfx_draw_string(NETPLAY_ROW_X, NETPLAY_HOST_Y,
-                        "[ CLICK HERE TO HOST A GAME ]", _white, -1);
+                        "[ CLICK HERE TO HOST A GAME ]",
+                        link_colour(NETPLAY_ROW_X, NETPLAY_HOST_Y,
+                                    240, NETPLAY_ROW_H), -1);
         gfx_draw_string(NETPLAY_ROW_X, NETPLAY_LIST_HEAD_Y,
                         "or CLICK a pc below that is HOSTING:", _white, -1);
 
@@ -823,14 +877,21 @@ function GameInitBox(_interface) : GuiObject() constructor {
                needs its owner to click HOST first; one never heard from could
                be anything, so it can be tried. Each of those is a different
                line, so nobody has to guess which they are looking at. */
+            /* A row worth clicking is lime and lights up under the pointer,
+               over the same 300 pixels handle_click_left reads. A row that is
+               online and not hosting stays grey: clicking it only produces a
+               line of text telling you to go and press HOST over there, and a
+               control that cannot do the thing it names should not look like
+               one that can. */
             var _colour = _grey;
             var _lead = "  ";
             var _tail = "  online, not hosting";
             if (!net_peer_is_live(_peer)) {
+                _colour = link_colour(NETPLAY_ROW_X, _ry, 300, NETPLAY_ROW_H);
                 _lead = "[CLICK to JOIN] ";
                 _tail = "  ?";
             } else if (_peer.hosting == NET_HOSTING_OPEN) {
-                _colour = _white;
+                _colour = link_colour(NETPLAY_ROW_X, _ry, 300, NETPLAY_ROW_H);
                 _lead = "[CLICK to JOIN] ";
                 _tail = "  HOSTING";
             } else if (_peer.hosting == NET_HOSTING_FULL) {
@@ -869,7 +930,9 @@ function GameInitBox(_interface) : GuiObject() constructor {
                             "(ESC cancels)", _grey, -1);
         } else {
             gfx_draw_string(NETPLAY_ADD_X, NETPLAY_ADD_Y,
-                            "[ CLICK to ADD the other pc's IP ]", _white, -1);
+                            "[ CLICK to ADD the other pc's IP ]",
+                            link_colour(NETPLAY_ADD_X, NETPLAY_ADD_Y,
+                                        280, NETPLAY_ROW_H), -1);
 
             if (net_status_line() != "") {
                 netplay_draw_wrapped(NETPLAY_ROW_X, NETPLAY_STATUS_Y,
