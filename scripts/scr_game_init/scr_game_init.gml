@@ -219,7 +219,10 @@ enum GameInitAction {
     netplay_add,
     netplay_host,
     open_update,
-    toggle_language
+    toggle_language,
+    netplay_mode_mission,
+    netplay_mode_custom,
+    netplay_new_map
 }
 
 /// GameInitBox::GameType
@@ -333,8 +336,11 @@ function game_init_init_tables() {
     ];
 
     global.game_init_clickmap_netplay_host = [
+        GameInitAction.netplay_mode_mission, NETPLAY_MODE_X,   NETPLAY_MODE_Y, NETPLAY_MODE_MISSION_W, NETPLAY_ROW_H,
+        GameInitAction.netplay_mode_custom,  NETPLAY_MODE_CUSTOM_X, NETPLAY_MODE_Y, NETPLAY_MODE_CUSTOM_W, NETPLAY_ROW_H,
         GameInitAction.increment,        NETPLAY_MISSION_X + 152, NETPLAY_MISSION_Y, 40, NETPLAY_ROW_H,
         GameInitAction.decrement,        NETPLAY_MISSION_X,       NETPLAY_MISSION_Y, 40, NETPLAY_ROW_H,
+        GameInitAction.netplay_new_map,  NETPLAY_MISSION_X + 200, NETPLAY_MISSION_Y, NETPLAY_NEW_MAP_W, NETPLAY_ROW_H,
         GameInitAction.start_game,       NETPLAY_GO_X,  NETPLAY_GO_Y,  240, NETPLAY_ROW_H,
         GameInitAction.close,            GAME_INIT_EXIT_X, GAME_INIT_EXIT_Y, 16, 16,
         GameInitAction.open_update,      GAME_INIT_UPDATE_X, GAME_INIT_UPDATE_Y, GAME_INIT_UPDATE_W, GAME_INIT_ROW_H,
@@ -360,7 +366,9 @@ function game_init_init_tables() {
      58  list, six rows, to 118            120 hint about "?"
      130 discovery line                    142 status, up to four lines, to 182
      192 ADD                               228 version caption (the box's own)
-   The host's screen reuses 46 for the mission arrows and 62 for START. */
+   The host's screen reuses 46 for the MISSION / CUSTOM MAP choice, 58 for
+   that choice's arrows and 72 for START, with the instructions wrapped from
+   86 and stopping short of the discovery line at 130. */
 #macro NETPLAY_ROW_X      20
 #macro NETPLAY_ROW_H      10
 #macro NETPLAY_HOST_Y     32
@@ -401,9 +409,23 @@ function game_init_init_tables() {
 /* The host's two controls, in the list's own style rather than as icons on a
    row that is otherwise empty. Drawn only when there is a host to use them. */
 #macro NETPLAY_MISSION_X  20
-#macro NETPLAY_MISSION_Y  46
+#macro NETPLAY_MISSION_Y  58
 #macro NETPLAY_GO_X       20
-#macro NETPLAY_GO_Y       62
+#macro NETPLAY_GO_Y       72
+
+/* The host's choice of what to play: a MISSION, or a CUSTOM MAP - a map of
+   the host's chosen size from a seed the host can roll again, with the two
+   humans on it and nobody else. Two buttons on one row; the one in force is
+   amber and the other is a link. The second sits at a fixed x with room for
+   the German "[ EIGENE KARTE ]" (sixteen characters), so the clickmap does not
+   move with the language. NEW MAP is at +200 on the arrows' row, the slot
+   "(done)" has on the mission row, and is sized for "[ NEUE KARTE ]". */
+#macro NETPLAY_MODE_X          20
+#macro NETPLAY_MODE_Y          46
+#macro NETPLAY_MODE_MISSION_W  88
+#macro NETPLAY_MODE_CUSTOM_X   124
+#macro NETPLAY_MODE_CUSTOM_W   128
+#macro NETPLAY_NEW_MAP_W       112
 
 /* How many characters fit on a line here. gfx_draw_string advances 8 pixels a
    character and nothing about it wraps or clips, so a line that is too long
@@ -654,6 +676,14 @@ function GameInitBox(_interface) : GuiObject() constructor {
        it rather than always landing on one of them. */
     netplay_return_type = GameType.custom;
 
+    /* The host's alternative to a mission: a custom map of netplay_size from
+       netplay_seed, two humans and no AI. Only these two numbers are the map;
+       net_custom_game_info builds the same GameInfo from them on both
+       machines. The seed is rolled here and again by NEW MAP. */
+    netplay_custom = false;
+    netplay_size = NET_CUSTOM_SIZE_MIN;
+    netplay_seed = game_init_random_default();
+
     custom_mission = undefined;
     mission = undefined;
 
@@ -816,6 +846,22 @@ function GameInitBox(_interface) : GuiObject() constructor {
                                 L("YOU ARE HOSTING - waiting for player 2"), _amber, -1);
             }
 
+            /* What to play. The choice in force is amber and stays amber
+               under the pointer - pressing it again does nothing, so it must
+               not light up like something that would. The other is a link. */
+            var _mission_colour = _amber;
+            var _custom_colour = link_colour(NETPLAY_MODE_CUSTOM_X, NETPLAY_MODE_Y,
+                                             NETPLAY_MODE_CUSTOM_W, NETPLAY_ROW_H);
+            if (netplay_custom) {
+                _mission_colour = link_colour(NETPLAY_MODE_X, NETPLAY_MODE_Y,
+                                              NETPLAY_MODE_MISSION_W, NETPLAY_ROW_H);
+                _custom_colour = _amber;
+            }
+            gfx_draw_string(NETPLAY_MODE_X, NETPLAY_MODE_Y, L("[ MISSION ]"),
+                            _mission_colour, -1);
+            gfx_draw_string(NETPLAY_MODE_CUSTOM_X, NETPLAY_MODE_Y, L("[ CUSTOM MAP ]"),
+                            _custom_colour, -1);
+
             /* Four draws where there were two, because the parts of this row
                are not the same kind of thing. Only the first 40 pixels - the
                five characters of "[ < ]" - are the decrement button, and only
@@ -826,19 +872,31 @@ function GameInitBox(_interface) : GuiObject() constructor {
                +152, which is twelve characters - enough for "MISSION 10". The
                "(done)" mark goes after the second arrow rather than after the
                name, where it used to run 48 pixels straight through it once the
-               mission number reached two digits. */
+               mission number reached two digits.
+
+               On a custom map the same arrows step the size and the slot after
+               them is the NEW MAP button, which rolls another seed. */
             gfx_draw_string(NETPLAY_MISSION_X, NETPLAY_MISSION_Y, "[ < ]",
                             link_colour(NETPLAY_MISSION_X, NETPLAY_MISSION_Y,
                                         40, NETPLAY_ROW_H), -1);
-            gfx_draw_string(NETPLAY_MISSION_X + 56, NETPLAY_MISSION_Y,
-                            "MISSION " + string(game_mission + 1), _white, -1);
             gfx_draw_string(NETPLAY_MISSION_X + 152, NETPLAY_MISSION_Y, "[ > ]",
                             link_colour(NETPLAY_MISSION_X + 152,
                                         NETPLAY_MISSION_Y, 40, NETPLAY_ROW_H),
                             -1);
-            if (progress_mission_is_done(game_mission)) {
+            if (netplay_custom) {
+                gfx_draw_string(NETPLAY_MISSION_X + 56, NETPLAY_MISSION_Y,
+                                LF("SIZE {0}", netplay_size), _white, -1);
                 gfx_draw_string(NETPLAY_MISSION_X + 200, NETPLAY_MISSION_Y,
-                                L("(done)"), _grey, -1);
+                                L("[ NEW MAP ]"),
+                                link_colour(NETPLAY_MISSION_X + 200, NETPLAY_MISSION_Y,
+                                            NETPLAY_NEW_MAP_W, NETPLAY_ROW_H), -1);
+            } else {
+                gfx_draw_string(NETPLAY_MISSION_X + 56, NETPLAY_MISSION_Y,
+                                "MISSION " + string(game_mission + 1), _white, -1);
+                if (progress_mission_is_done(game_mission)) {
+                    gfx_draw_string(NETPLAY_MISSION_X + 200, NETPLAY_MISSION_Y,
+                                    L("(done)"), _grey, -1);
+                }
             }
 
             if (global.net_socket >= 0) {
@@ -846,10 +904,18 @@ function GameInitBox(_interface) : GuiObject() constructor {
                                 L("[ CLICK HERE TO START ]"),
                                 link_colour(NETPLAY_GO_X, NETPLAY_GO_Y,
                                             240, NETPLAY_ROW_H), -1);
-                netplay_draw_wrapped(NETPLAY_ROW_X, NETPLAY_GO_Y + 14,
-                                     L("CLICK < or > to choose the mission, then"
-                                       + " CLICK START. It begins on both pcs at"
-                                       + " once."), _amber);
+                if (netplay_custom) {
+                    netplay_draw_wrapped(NETPLAY_ROW_X, NETPLAY_GO_Y + 14,
+                                         L("CLICK < or > to set the map size and"
+                                           + " NEW MAP to roll another, then CLICK"
+                                           + " START. It begins on both pcs at"
+                                           + " once."), _amber);
+                } else {
+                    netplay_draw_wrapped(NETPLAY_ROW_X, NETPLAY_GO_Y + 14,
+                                         L("CLICK < or > to choose the mission, then"
+                                           + " CLICK START. It begins on both pcs at"
+                                           + " once."), _amber);
+                }
             } else {
                 netplay_draw_wrapped(NETPLAY_ROW_X, NETPLAY_GO_Y,
                                      L("On the OTHER pc: open NET PLAY, find this"
@@ -870,7 +936,7 @@ function GameInitBox(_interface) : GuiObject() constructor {
         if (global.net_role == NetRole.client) {
             gfx_draw_string(NETPLAY_ROW_X, NETPLAY_HOST_Y,
                             L("JOINED - you are player 2"), _amber, -1);
-            netplay_draw_wrapped(NETPLAY_ROW_X, NETPLAY_MISSION_Y,
+            netplay_draw_wrapped(NETPLAY_ROW_X, NETPLAY_MODE_Y,
                                  LF("Host is {0}. It picks"
                                     + " the mission and CLICKS START. Nothing to"
                                     + " click on this pc - just wait, the game"
@@ -1364,7 +1430,13 @@ function GameInitBox(_interface) : GuiObject() constructor {
                         break;
                     }
                     net_lobby_close();
-                    net_host_start_game(interface, game_mission);
+                    if (netplay_custom) {
+                        net_host_start_game(interface, NET_CUSTOM_MISSION,
+                                            netplay_size, netplay_seed);
+                    } else {
+                        net_host_start_game(interface, game_mission, 0,
+                                            new RandomState(0, 0, 0));
+                    }
                     interface.close_game_init();
                     break;
                 }
@@ -1450,6 +1522,29 @@ function GameInitBox(_interface) : GuiObject() constructor {
                 set_redraw();
                 break;
             }
+            case GameInitAction.netplay_mode_mission: {
+                if (global.net_role == NetRole.host) {
+                    netplay_custom = false;
+                    set_redraw();
+                }
+                break;
+            }
+            case GameInitAction.netplay_mode_custom: {
+                if (global.net_role == NetRole.host) {
+                    netplay_custom = true;
+                    set_redraw();
+                }
+                break;
+            }
+            case GameInitAction.netplay_new_map: {
+                /* Only on a custom map: on the mission row this slot is the
+                   "(done)" mark, which is not a button. */
+                if (global.net_role == NetRole.host && netplay_custom) {
+                    netplay_seed = game_init_random_default();
+                    set_redraw();
+                }
+                break;
+            }
             case GameInitAction.open_update: {
                 /* Only while the note is actually drawn - the band is in the
                    clickmap whether or not there is anything on it. */
@@ -1480,9 +1575,13 @@ function GameInitBox(_interface) : GuiObject() constructor {
                    change a hidden value the rest of the time. */
                 if (game_type == GameType.netplay) {
                     if (global.net_role == NetRole.host) {
-                        game_mission = min(game_mission + 1,
-                                           game_info_get_mission_count() - 1);
-                        mission = game_info_get_mission(game_mission);
+                        if (netplay_custom) {
+                            netplay_size = min(netplay_size + 1, NET_CUSTOM_SIZE_MAX);
+                        } else {
+                            game_mission = min(game_mission + 1,
+                                               game_info_get_mission_count() - 1);
+                            mission = game_info_get_mission(game_mission);
+                        }
                         set_redraw();
                     }
                     break;
@@ -1501,8 +1600,12 @@ function GameInitBox(_interface) : GuiObject() constructor {
             case GameInitAction.decrement:
                 if (game_type == GameType.netplay) {
                     if (global.net_role == NetRole.host) {
-                        game_mission = max(0, game_mission - 1);
-                        mission = game_info_get_mission(game_mission);
+                        if (netplay_custom) {
+                            netplay_size = max(netplay_size - 1, NET_CUSTOM_SIZE_MIN);
+                        } else {
+                            game_mission = max(0, game_mission - 1);
+                            mission = game_info_get_mission(game_mission);
+                        }
                         set_redraw();
                     }
                     break;

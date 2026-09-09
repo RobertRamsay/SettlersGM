@@ -185,7 +185,7 @@ if (global.net_autostart &&
     global.net_phase == NetPhase.listening &&
     global.net_socket >= 0) {
     global.net_autostart = false;
-    net_host_start_game(interface, 0);
+    net_host_start_game(interface, 0, 0, new RandomState(0, 0, 0));
 }
 
 // ---- F10 toggles fullscreen, the same switch the options popup's row throws.

@@ -702,11 +702,21 @@ function net_peer_socket() {
     return global.net_socket;
 }
 
-function net_send_start(_mission_index, _rnd) {
+/// The start message. A mission index, or NET_CUSTOM_MISSION and the custom
+/// map's size and seed in its place - the client builds the same map from
+/// those, so no map data ever crosses the wire. The game's RNG state after
+/// building comes last, for either kind, so both machines draw the same
+/// numbers from the same point. The custom fields are always present, zero
+/// for a mission, so the packet has one shape.
+function net_send_start(_mission_index, _size, _base, _rnd) {
     var _b = global.net_send;
     buffer_seek(_b, buffer_seek_start, 0);
     buffer_write(_b, buffer_u8,  NetMsg.start);
     buffer_write(_b, buffer_s16, _mission_index);
+    buffer_write(_b, buffer_u8,  _size);
+    buffer_write(_b, buffer_u16, _base.state[0]);
+    buffer_write(_b, buffer_u16, _base.state[1]);
+    buffer_write(_b, buffer_u16, _base.state[2]);
     buffer_write(_b, buffer_u16, _rnd.state[0]);
     buffer_write(_b, buffer_u16, _rnd.state[1]);
     buffer_write(_b, buffer_u16, _rnd.state[2]);
@@ -1035,11 +1045,17 @@ function net_handle_async(_async) {
 
 function net_receive_start(_b, _from_socket) {
     var _mission = buffer_read(_b, buffer_s16);
+    var _size = buffer_read(_b, buffer_u8);
+    var _b0 = buffer_read(_b, buffer_u16);
+    var _b1 = buffer_read(_b, buffer_u16);
+    var _b2 = buffer_read(_b, buffer_u16);
     var _s0 = buffer_read(_b, buffer_u16);
     var _s1 = buffer_read(_b, buffer_u16);
     var _s2 = buffer_read(_b, buffer_u16);
 
     show_debug_message("net: start, mission " + string(_mission + 1) +
+                       " size " + string(_size) +
+                       " base " + string(_b0) + "/" + string(_b1) + "/" + string(_b2) +
                        " seed " + string(_s0) + "/" + string(_s1) + "/" + string(_s2)
                        + " on socket " + string(_from_socket));
 
@@ -1051,7 +1067,9 @@ function net_receive_start(_b, _from_socket) {
     /* obj_game picks this up on its next step - starting a game from inside the
        async event would rebuild the float list while the event that is walking
        it has not returned. */
-    global.net_pending_start = { mission: _mission, s0: _s0, s1: _s1, s2: _s2,
+    global.net_pending_start = { mission: _mission,
+                                 size: _size, b0: _b0, b1: _b1, b2: _b2,
+                                 s0: _s0, s1: _s1, s2: _s2,
                                  socket: _from_socket };
 }
 
@@ -2266,17 +2284,54 @@ function net_late_checks(_game) {
 
 // ---------------------------------------------------------------- starting
 
+/* The mission index that means "not a mission - a custom map", in the start
+   message and in the panel. Missions are 0-based, so nothing real is -1. */
+#macro NET_CUSTOM_MISSION  -1
+
+/* A custom map's size runs the same range the NEW GAME screen allows. */
+#macro NET_CUSTOM_SIZE_MIN 3
+#macro NET_CUSTOM_SIZE_MAX 10
+
+/// The game info for a custom net map: two humans and nobody else, on a map
+/// of _size built from _base. ONE function builds it on both machines, from
+/// the two numbers the start message carries, so the players cannot differ
+/// by so much as a supply point - anything that differed would be a desync
+/// on the first tick. No AI: a custom map here is the two people playing.
+///
+/// Faces and colours are the NEW GAME screen's defaults for its two players.
+/// Supplies, intelligence and reproduction are equal, because the second
+/// player is not the AI that the NEW GAME screen gives less to.
+function net_custom_game_info(_size, _base) {
+    var _info = new GameInfo(_base);
+    _info.remove_all_players();
+    _info.add_player(12, { red: 0x00, green: 0xe3, blue: 0xe3 }, 40, 40, 40);
+    _info.add_player(1,  { red: 0xcf, green: 0x63, blue: 0x63 }, 40, 40, 40);
+    _info.set_map_size(clamp(_size, NET_CUSTOM_SIZE_MIN, NET_CUSTOM_SIZE_MAX));
+    return _info;
+}
+
+/// The GameInfo for what the panel chose: the mission, or the custom map
+/// when _mission_index is NET_CUSTOM_MISSION.
+function net_game_info_for(_mission_index, _size, _base) {
+    if (_mission_index == NET_CUSTOM_MISSION) {
+        return net_custom_game_info(_size, _base);
+    }
+    return game_info_get_mission(_mission_index);
+}
+
 /// Host: build the game, tell the client what to build, and start the clock.
-function net_host_start_game(_interface, _mission_index) {
+/// _size and _base are the custom map's; for a mission they are ignored, and
+/// the caller may pass 0 and any RandomState (they still travel, as zeros).
+function net_host_start_game(_interface, _mission_index, _size, _base) {
     var _game = new Game();
-    var _mission = game_info_get_mission(_mission_index);
+    var _mission = net_game_info_for(_mission_index, _size, _base);
     if (_mission.instantiate(_game) == undefined) {
         net_fail("could not build mission " + string(_mission_index + 1));
         return;
     }
     _game.mission_index = _mission_index;
 
-    net_send_start(_mission_index, _game.rnd);
+    net_send_start(_mission_index, _size, _base, _game.rnd);
     net_begin(_interface, _game, 0);
 }
 
@@ -2293,7 +2348,8 @@ function net_client_start_game(_interface, _start) {
     }
 
     var _game = new Game();
-    var _mission = game_info_get_mission(_start.mission);
+    var _base = new RandomState(_start.b0, _start.b1, _start.b2);
+    var _mission = net_game_info_for(_start.mission, _start.size, _base);
     if (_mission.instantiate(_game) == undefined) {
         net_fail("could not build mission " + string(_start.mission + 1));
         return;
@@ -2362,8 +2418,13 @@ function net_placing_status(_game) {
 
 function net_begin(_interface, _game, _local_player) {
     net_log_reset();
-    net_log("starting as player " + string(_local_player + 1) +
-            ", mission " + string(_game.mission_index + 1));
+    if (_game.mission_index == NET_CUSTOM_MISSION) {
+        net_log("starting as player " + string(_local_player + 1) +
+                ", custom map size " + string(_game.get_map().geom.size));
+    } else {
+        net_log("starting as player " + string(_local_player + 1) +
+                ", mission " + string(_game.mission_index + 1));
+    }
     global.net_local_player = _local_player;
     global.net_sim_tick = 0;
     global.net_executed_turn = -1;

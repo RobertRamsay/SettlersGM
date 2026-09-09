@@ -280,6 +280,12 @@ function locale_build_de() {
     locale_add("YOU ARE HOSTING - waiting for player 2",
                "DU BIST HOST - warte auf Spieler 2");
     locale_add("(done)", "(fertig)");
+    locale_add("[ MISSION ]", "[ MISSION ]");
+    locale_add("[ CUSTOM MAP ]", "[ EIGENE KARTE ]");
+    locale_add("SIZE {0}", "GRÖSSE {0}");
+    locale_add("[ NEW MAP ]", "[ NEUE KARTE ]");
+    locale_add("CLICK < or > to set the map size and NEW MAP to roll another, then CLICK START. It begins on both pcs at once.",
+               "KLICKE < oder > für die Kartengrösse und NEUE KARTE für eine andere, dann KLICKE START. Es beginnt auf beiden PCs zugleich.");
     locale_add("[ CLICK HERE TO START ]", "[ HIER KLICKEN ZUM START ]");
     locale_add("CLICK < or > to choose the mission, then CLICK START. It begins on both pcs at once.",
                "KLICKE < oder > für die Mission, dann KLICKE START. Es beginnt auf beiden PCs zugleich.");
