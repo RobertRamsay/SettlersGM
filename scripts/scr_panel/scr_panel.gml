@@ -758,7 +758,11 @@ function PanelBar(_interface) : GuiObject() constructor {
                     }
                     break;
                 default:
-                    throw ("PanelBar::update: NOT_REACHED");
+                    /* A cursor type with no button set. The panel keeps the
+                       buttons it had, which is the least surprising thing it
+                       can do. */
+                    fault_note("panel.update.cursor_type",
+                               "type " + string(interface.get_map_cursor_type()));
                     break;
             }
         }

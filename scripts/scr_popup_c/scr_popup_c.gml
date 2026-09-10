@@ -1108,7 +1108,8 @@ function popup_handle_action(_popup, _action, _x, _y) {
         net_player_setting(_player, NetSetting.reset_inventory_prio);
         break;
       default:
-        throw ("popup_handle_action: NOT_REACHED (default_sett_5_6)");
+        fault_note("popup.default_sett_5_6.popup_type",
+                   "type " + string(_popup.get_box()));
         break;
     }
     break;

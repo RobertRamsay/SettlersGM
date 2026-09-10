@@ -80,8 +80,14 @@ function MapGeometry(_size) constructor {
     tile_mask = 0;
 
     // --- init() ---
+    /* Above 20 a map position no longer fits in a 32-bit integer, so this is a
+       real limit rather than a taste. A size that arrives over it can only have
+       come from a corrupt save or a mission table with a typo in it, and
+       building the biggest map that DOES work beats refusing to start - the
+       player gets a game, and the report says the size was wrong. */
     if (size > 20) {
-        throw "Above size 20 the map positions can no longer fit in a 32-bit integer.";
+        fault_note("map_geometry.size_too_big", "size " + string(size));
+        size = 20;
     }
 
     col_size = 5 + (size div 2);

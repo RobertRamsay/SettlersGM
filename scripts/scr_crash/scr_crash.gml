@@ -90,6 +90,21 @@
 /// short enough that nobody has to scroll for the stack trace.
 #macro CRASH_LOG_TAIL     40
 
+/// Where the world the crash happened in is written, beside the ordinary saves.
+///
+/// NOT attached to the report, and it never will be: these run to tens of
+/// megabytes, a Discord webhook takes eight, and it is somebody's game rather
+/// than a diagnostic to be posted anywhere without being asked. What the report
+/// carries is its NAME and size, so it can be asked for - and the file is one
+/// the player already has, in the place they keep their saves.
+///
+/// One file, overwritten each time: a crash that repeats would otherwise fill
+/// the disk with the same world over and over.
+#macro CRASH_SAVE_PATH    "settlers_crash_save.dat"
+
+/// Set false to stop writing it at all.
+#macro CRASH_SAVE_ENABLED true
+
 function crash_init() {
     global.crash_request  = -1;
     global.crash_pending  = "";     /* a report waiting for an answer */
@@ -212,7 +227,19 @@ function crash_report_text(_ex) {
         _out += "\n" + string(_ex);
     }
 
+    /* What the world was doing when it stopped, then the faults that led up to
+       it. Both go ABOVE the save listing and the net log on purpose: a Discord
+       webhook takes the first CRASH_DISCORD_MAX characters and drops the rest,
+       so the order of this function is the order of what survives. */
+    _out += "\n\n--- state ---\n" + crash_state_block();
+
+    var _faults = fault_report();
+    if (_faults != "") {
+        _out += "\n--- faults ---\n" + _faults;
+    }
+
     _out += "\n\n--- saves ---\n" + crash_save_listing();
+    _out += crash_write_save();
 
     /* The net log, when there is one. A crash during a networked game is much
        easier to read with the last few turns in front of you. */
@@ -223,6 +250,94 @@ function crash_report_text(_ex) {
     }
 
     return _out;
+}
+
+/// The world at the moment it stopped: how far in, how big, how much of it
+/// there was, and whether anybody else was connected.
+///
+/// "Delivered unexpected resource" is a sentence about a building; "at tick
+/// 380000, on a size 7 map, with 900 serfs and a networked game running" is the
+/// difference between reading that sentence and being able to look for it.
+///
+/// Every part is wrapped: this runs when something has already gone wrong, and
+/// half of it is worth more than none of it. The game comes from fault_set_game
+/// rather than through the interface, which may be mid-rebuild.
+function crash_state_block() {
+    var _out = "";
+
+    try {
+        var _game = global.fault_game;
+        if (_game == undefined) {
+            _out += "no game running (start screen)\n";
+        } else {
+            var _map = _game.get_map();
+            _out += "tick " + string(_game.get_tick())
+                    + ", speed " + string(_game.game_speed)
+                    + ", mission " + string(_game.mission_index) + "\n";
+            _out += "map " + string(_map.geom.cols) + "x"
+                    + string(_map.geom.rows) + "\n";
+            _out += "serfs " + string(_game.serfs.size())
+                    + ", buildings " + string(_game.buildings.size())
+                    + ", flags " + string(_game.flags.size())
+                    + ", inventories " + string(_game.inventories.size())
+                    + ", players " + string(_game.players.size()) + "\n";
+        }
+    } catch (_e) {
+        _out += "(game state unreadable: " + string(_e.message) + ")\n";
+    }
+
+    try {
+        if (net_is_active()) {
+            _out += "net role " + string(global.net_role)
+                    + " phase " + string(global.net_phase)
+                    + " - " + net_status_line() + "\n";
+        } else {
+            _out += "net off\n";
+        }
+    } catch (_e2) {
+        _out += "(net state unreadable)\n";
+    }
+
+    return _out;
+}
+
+/// Write the world the crash happened in, next to the ordinary saves, and
+/// return the line about it for the report.
+///
+/// It is not sent anywhere - see CRASH_SAVE_PATH - but a crash that only
+/// happens in one particular game is otherwise unreproducible, and by the time
+/// anybody asks, the player has usually played on over their own saves.
+///
+/// Wrapped, and last in the report: saving is a walk over the entire world, and
+/// the world is the thing that has just gone wrong. If it throws, the report is
+/// already built and this adds a line saying it could not be written.
+function crash_write_save() {
+    if (!CRASH_SAVE_ENABLED) {
+        return "";
+    }
+
+    var _game = global.fault_game;
+    if (_game == undefined) {
+        return "";
+    }
+
+    try {
+        if (!game_store_save(CRASH_SAVE_PATH, _game)) {
+            return "\ncrash save: could not be written\n";
+        }
+    } catch (_e) {
+        return "\ncrash save: could not be written ("
+               + string(_e.message) + ")\n";
+    }
+
+    var _size = "?";
+    var _b = buffer_load(CRASH_SAVE_PATH);
+    if (_b >= 0) {
+        _size = string(buffer_get_size(_b));
+        buffer_delete(_b);
+    }
+
+    return "\ncrash save: " + CRASH_SAVE_PATH + "  (" + _size + " bytes)\n";
 }
 
 /// os_get_info returns a map on some platforms and nothing useful on others, so

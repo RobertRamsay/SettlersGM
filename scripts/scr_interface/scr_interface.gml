@@ -794,7 +794,10 @@ function Interface(_game = undefined) : GuiObject() constructor {
                 }
                 break;
             default:
-                throw ("Interface::update_interface: NOT_REACHED");
+                /* A build possibility with no cursor sprites. The cursor keeps
+                   the ones it has. */
+                fault_note("interface.cursor.build_possibility",
+                           "possibility " + string(build_possibility));
                 break;
             }
         }
@@ -825,6 +828,12 @@ function Interface(_game = undefined) : GuiObject() constructor {
         }
 
         game = _new_game;
+
+        /* Faults are stamped with the tick they happened on, and this is where
+           the clock they read comes from - handed over rather than looked up,
+           so reporting one never has to reach back through an interface that
+           may be halfway through rebuilding itself. */
+        fault_set_game(game);
 
         /* Adopt whatever mission the incoming game says it is - which covers
            EVERY way a game becomes current, not just starting one from the

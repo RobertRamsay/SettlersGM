@@ -586,8 +586,12 @@ function Flag(_game, _index) : GameObject(_game, _index) constructor {
     /// Returns a struct {result, res, dest}: result false when the slot is
     /// empty (C++ false), otherwise true with the out-params filled.
     static pick_up_resource = function(_from_slot) {
-        if (_from_slot >= FLAG_MAX_RES_COUNT) {
-            throw ("Wrong flag slot index.");
+        if (_from_slot < 0 || _from_slot >= FLAG_MAX_RES_COUNT) {
+            /* An index off the end of the flag's slots. Answered as an empty
+               slot, which every caller already handles. */
+            fault_note("flag.pick_up.slot_index",
+                       "flag " + string(index) + " slot " + string(_from_slot));
+            return { result: false, res: ResourceType.none, dest: 0 };
         }
 
         if (slot[_from_slot].type == ResourceType.none) {
@@ -605,7 +609,11 @@ function Flag(_game, _index) : GameObject(_game, _index) constructor {
 
     static drop_resource = function(_res, _dest) {
         if (_res < ResourceType.none || _res > ResourceType.group_food) {
-            throw ("Wrong resource type.");
+            /* Not a resource. Refused the same way a full flag is refused, so
+               the caller's own "it would not go down" path takes it. */
+            fault_note("flag.drop.resource_type",
+                       "flag " + string(index) + " res " + string(_res));
+            return false;
         }
 
         for (var _i = 0; _i < FLAG_MAX_RES_COUNT; _i++) {
@@ -685,7 +693,16 @@ function Flag(_game, _index) : GameObject(_game, _index) constructor {
                 var _dest_bld = _data.flag.other_endpoint[Direction.up_left];
 
                 if (!_dest_bld.add_requested_resource(_res, true)) {
-                    throw ("Failed to request resource.");
+                    /* The search said this building wants the resource and the
+                       building then would not take it - the two disagree, which
+                       is worth knowing about. The resource is left unrouted and
+                       the next pass over this flag tries again, so nothing is
+                       lost and nothing is sent somewhere it cannot go. */
+                    fault_note("flag.schedule.refused_by_dest",
+                               "flag " + string(index) +
+                               " res " + string(_res) +
+                               " dest bld " + string(_dest_bld.get_index()));
+                    return;
                 }
 
                 slot[_slot_num].dest = _dest_bld.get_flag_index();
@@ -716,7 +733,14 @@ function Flag(_game, _index) : GameObject(_game, _index) constructor {
                 }
 
                 if ((_dir < Direction.right) || (_dir > Direction.up)) {
-                    throw ("Failed to request resource.");
+                    /* transporters() said there was one and no direction has
+                       one. Leave the resource where it is: the flag is looked
+                       at again next update, by which time the count and the
+                       directions agree or the transporter has arrived. */
+                    fault_note("flag.schedule.no_transporter_dir",
+                               "flag " + string(index) +
+                               " slot " + string(_slot_num));
+                    return;
                 }
 
                 if (!is_scheduled(_dir)) {

@@ -338,7 +338,12 @@ function serf_handle_serf_free_walking_state_dest_reached(_serf) {
 function serf_handle_serf_free_walking_switch_on_dir(_serf, _dir) {
     // A suitable direction has been found; walk.
     if (_dir < Direction.right) {
-        throw ("Wrong direction.");
+        /* No direction to walk in. Nothing to do but leave the serf where he
+           is; free walking picks him up again next tick. */
+        fault_note("serf.free_walking.wrong_dir",
+                   "serf " + string(_serf.get_index()) +
+                   " dir " + string(_dir));
+        return;
     }
     var _sign = -1;
     if (_dir < 3) {
@@ -1376,8 +1381,11 @@ function serf_handle_serf_mining_state(_serf) {
                 }
                 break;
             default:
-                throw ("NOT_REACHED: serf mining substate");
-                break;
+                /* A mining substate with no case. Nothing advances this tick;
+                   the miner is picked up again on the next one. */
+                fault_note("serf.mining.substate", "serf " +
+                           string(_serf.get_index()));
+                return;
         }
     }
 }
@@ -2090,10 +2098,18 @@ function serf_handle_serf_sampling_geo_spot_state(_serf) {
                             _mtype = MessageType.found_stone;
                             break;
                         default:
-                            throw ("NOT_REACHED: sampling geo spot mineral type");
+                            /* A mineral with no message for it. The find still
+                               happens - the geologist has already marked the
+                               spot - it just goes unannounced. */
+                            fault_note("serf.geologist.mineral_type",
+                                       "res type " +
+                                       string(_map.get_res_type(_serf.pos)));
+                            break;
                     }
-                    _serf.game.get_player(_serf.get_owner()).add_notification(
-                        _mtype, _serf.pos, _map.get_res_type(_serf.pos) - 1);
+                    if (_mtype != MessageType.none) {
+                        _serf.game.get_player(_serf.get_owner()).add_notification(
+                            _mtype, _serf.pos, _map.get_res_type(_serf.pos) - 1);
+                    }
                 }
 
                 _serf.counter += 64;

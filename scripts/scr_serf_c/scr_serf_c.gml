@@ -1415,7 +1415,10 @@ function serf_handle_serf_state_knight_leave_for_walk_to_fight(_serf) {
           _serf.state = SerfState.defending_fortress;
           break;
         default:
-          throw ("NOT_REACHED: serf_handle_serf_state_knight_leave_for_walk_to_fight");
+          /* A knight coming back to something that is not a garrison. He keeps
+             the state he has and the building refuses him below. */
+          fault_note("serf.knight_return.building_type",
+                     "type " + string(building.get_type()));
           break;
       }
 
@@ -1586,7 +1589,8 @@ function serf_handle_serf_defending_state(_serf, training_params) {
   case SerfType.knight4: /* Cannot train anymore. */
     break;
   default:
-    throw ("NOT_REACHED: serf_handle_serf_defending_state");
+    /* Somebody defending who is not a knight. No training, no crash. */
+    fault_note("serf.defending.serf_type", "type " + string(_serf.get_type()));
     break;
   }
 }

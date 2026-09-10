@@ -32,6 +32,7 @@
     {"id":{"name":"scr_building","path":"scripts/scr_building/scr_building.yy",},},
     {"id":{"name":"scr_cheat_cf","path":"scripts/scr_cheat_cf/scr_cheat_cf.yy",},},
     {"id":{"name":"scr_crash","path":"scripts/scr_crash/scr_crash.yy",},},
+    {"id":{"name":"scr_fault","path":"scripts/scr_fault/scr_fault.yy",},},
     {"id":{"name":"scr_flag","path":"scripts/scr_flag/scr_flag.yy",},},
     {"id":{"name":"scr_game_init","path":"scripts/scr_game_init/scr_game_init.yy",},},
     {"id":{"name":"scr_game","path":"scripts/scr_game/scr_game.yy",},},

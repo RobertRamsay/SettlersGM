@@ -235,7 +235,14 @@ function Inventory(_game, _index) : GameObject(_game, _index) constructor {
         }
 
         if (resources[_type] == 0) {
-            throw ("No resource with type.");
+            /* Asked to send out something this inventory does not have. Sending
+               it anyway would take the count below zero and invent a resource,
+               so nothing goes in the queue - the requester asks again, and by
+               then the stock is either there or the request has gone. */
+            fault_note("inventory.queue.none_of_type",
+                       "inv " + string(get_index()) +
+                       " res " + string(_type));
+            return;
         }
 
         resources[_type] -= 1;

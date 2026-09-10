@@ -962,20 +962,31 @@ function Viewport(_interface, _map) : GuiObject() constructor {
     // ------------------------------------------------------------ landscape
 
     static draw_triangle_up = function(_lx, _ly, _m, _left, _right, _pos) {
+        /* Four assertions about the heights of the three corners. Freeserf
+           throws on each; a corner this port has got wrong is a triangle that
+           does not get drawn, which is a hole in the ground for one frame and
+           not the end of somebody's game. */
         if (((_left - _m) < -4) || ((_left - _m) > 4)) {
-            throw ("Failed to draw triangle up (1).");
+            fault_note("viewport.triangle_up.left",
+                       "m " + string(_m) + " left " + string(_left));
+            return;
         }
         if (((_right - _m) < -4) || ((_right - _m) > 4)) {
-            throw ("Failed to draw triangle up (2).");
+            fault_note("viewport.triangle_up.right",
+                       "m " + string(_m) + " right " + string(_right));
+            return;
         }
         var _mask = 4 + _m - _left + 9 * (4 + _m - _right);
         if (tri_mask_up[_mask] < 0) {
-            throw ("Failed to draw triangle up (3).");
+            fault_note("viewport.triangle_up.mask", "mask " + string(_mask));
+            return;
         }
         var _type = map.get_type_up(map.geom.move_up(_pos));
         var _index = (_type << 3) | tri_mask_up[_mask];
         if (_index >= 128) {
-            throw ("Failed to draw triangle up (4).");
+            fault_note("viewport.triangle_up.index",
+                       "type " + string(_type) + " index " + string(_index));
+            return;
         }
         var _sprite = tri_spr[_index];
         draw_sprite(spr_ground_up, _mask * MAP_TILE_TEXTURES + _sprite, _lx, _ly);
@@ -983,19 +994,26 @@ function Viewport(_interface, _map) : GuiObject() constructor {
 
     static draw_triangle_down = function(_lx, _ly, _m, _left, _right, _pos) {
         if (((_left - _m) < -4) || ((_left - _m) > 4)) {
-            throw ("Failed to draw triangle down (1).");
+            fault_note("viewport.triangle_down.left",
+                       "m " + string(_m) + " left " + string(_left));
+            return;
         }
         if (((_right - _m) < -4) || ((_right - _m) > 4)) {
-            throw ("Failed to draw triangle down (2).");
+            fault_note("viewport.triangle_down.right",
+                       "m " + string(_m) + " right " + string(_right));
+            return;
         }
         var _mask = 4 + _left - _m + 9 * (4 + _right - _m);
         if (tri_mask_down[_mask] < 0) {
-            throw ("Failed to draw triangle down (3).");
+            fault_note("viewport.triangle_down.mask", "mask " + string(_mask));
+            return;
         }
         var _type = map.get_type_down(map.geom.move_up_left(_pos));
         var _index = (_type << 3) | tri_mask_down[_mask];
         if (_index >= 128) {
-            throw ("Failed to draw triangle down (4).");
+            fault_note("viewport.triangle_down.index",
+                       "type " + string(_type) + " index " + string(_index));
+            return;
         }
         var _sprite = tri_spr[_index];
         draw_sprite(spr_ground_down, _mask * MAP_TILE_TEXTURES + _sprite, _lx, _ly + MAP_TILE_HEIGHT);
@@ -1331,8 +1349,10 @@ function Viewport(_interface, _map) : GuiObject() constructor {
             _h_diff_2 = 4 * _h_diff - _h3 + _h4;
             break;
         default:
-            throw ("draw_path_segment: NOT_REACHED");
-            break;
+            /* A direction outside 0..5. Nothing to draw and nothing sensible
+               to draw instead, so the segment is skipped. */
+            fault_note("viewport.path_segment.dir", "dir " + string(_dir));
+            return;
         }
 
         var _mask = _h_diff + 4 + _dir * 9;
@@ -1415,8 +1435,8 @@ function Viewport(_interface, _map) : GuiObject() constructor {
             _h_diff_2 = 4 * _h_diff - _h3 + _h4;
             break;
         default:
-            throw ("draw_border_segment: NOT_REACHED");
-            break;
+            fault_note("viewport.border_segment.dir", "dir " + string(_dir));
+            return;
         }
 
         var _sprite = 0;
@@ -1726,7 +1746,10 @@ function Viewport(_interface, _map) : GuiObject() constructor {
                 }
                 break;
             default:
-                throw ("draw_unharmed_building: NOT_REACHED");
+                /* A building type with no drawing case. The frame it is on
+                   loses its ornament, not the game. */
+                fault_note("viewport.unharmed_building.type",
+                           "type " + string(_building.get_type()));
                 break;
             }
         } else { /* unfinished building */
@@ -2077,7 +2100,12 @@ function Viewport(_interface, _map) : GuiObject() constructor {
                         _res = _serf.get_leaving_building_field_B() - 1;
                         break;
                     default:
-                        throw ("serf_get_body (miner): NOT_REACHED");
+                        /* A miner in a state that carries no resource. -1
+                           falls through the switch below and leaves him
+                           empty-handed, which is what he looks like anyway. */
+                        fault_note("viewport.serf_body.miner_state",
+                                   "state " + string(_serf.get_state()));
+                        _res = -1;
                         break;
                     }
 
@@ -2086,7 +2114,10 @@ function Viewport(_interface, _map) : GuiObject() constructor {
                     case ResourceType.iron_ore: _t += 0x2500; break;
                     case ResourceType.coal: _t += 0x2600; break;
                     case ResourceType.gold_ore: _t += 0x2400; break;
-                    default: throw ("serf_get_body (miner res): NOT_REACHED"); break;
+                    default:
+                        fault_note("viewport.serf_body.miner_res",
+                                   "res " + string(_res));
+                        break;
                     }
                 }
             } else {
@@ -2246,7 +2277,10 @@ function Viewport(_interface, _map) : GuiObject() constructor {
                     case ResourceType.saw: _t += 0x6200; break;
                     case ResourceType.pick: _t += 0x6300; break;
                     case ResourceType.pincer: _t += 0x6400; break;
-                    default: throw ("serf_get_body (toolmaker): NOT_REACHED"); break;
+                    default:
+                        fault_note("viewport.serf_body.toolmaker_res",
+                                   "res " + string(_res));
+                        break;
                     }
                 } else {
                     _t += 0x5800;
@@ -2354,7 +2388,12 @@ function Viewport(_interface, _map) : GuiObject() constructor {
             _t += 0x8700;
             break;
         default:
-            throw ("serf_get_body: NOT_REACHED");
+            /* A serf type with no body sprite. _t keeps whatever the head of
+               this function put in it, which draws SOMETHING - and a wrong
+               sprite for one serf is a better outcome than the session
+               ending. */
+            fault_note("viewport.serf_body.type",
+                       "type " + string(_serf.get_type()));
             break;
         }
 
@@ -3238,7 +3277,11 @@ function Viewport(_interface, _map) : GuiObject() constructor {
                         case BuildingType.tower: _max_knights = 6; break;
                         case BuildingType.fortress: _max_knights = 12; break;
                         case BuildingType.castle: _max_knights = 20; break;
-                        default: throw ("handle_dbl_click: NOT_REACHED"); break;
+                        default:
+                            fault_note("viewport.attack.building_type",
+                                       "type " + string(_building.get_type()));
+                            _max_knights = 0;
+                            break;
                         }
 
                         var _knights = _player.knights_available_for_attack(_building.get_position());

@@ -393,7 +393,14 @@ function popup_draw_start_attack_box(_popup) {
         case BuildingType.tower: _ly = 32; break;
         case BuildingType.fortress: _ly = 17; break;
         case BuildingType.castle: _ly = 0; break;
-        default: throw ("NOT_REACHED: draw_start_attack_box"); break;
+        default:
+            /* Return rather than fall through: the line below indexes the
+               building-sprite table with this same type, and in GML an
+               out-of-range array read is the end of the session - which is the
+               thing this whole sweep exists to stop. */
+            fault_note("popup.start_attack.building_type",
+                       "type " + string(_building.get_type()));
+            return;
     }
 
     _popup.draw_popup_building(0, _ly, global.popup_b_map_building_sprite[_building.get_type()]);
@@ -911,7 +918,11 @@ function popup_draw_defenders_box(_popup) {
             _ly = 1;
             break;
         default:
-            throw ("NOT_REACHED: draw_defenders_box");
+            fault_note("popup.defenders.building_type",
+                       "type " + string(_building.get_type()));
+            _lx = 0;
+            _ly = 0;
+            break;
     }
 
     _popup.draw_popup_building(_lx, _ly, _sprite);
@@ -1077,7 +1088,15 @@ function popup_draw_resdir_box(_popup) {
             var _serf = _popup.interface.get_game().get_serf(_serf_index);
             var _serf_type = _serf.get_type();
             if ((_serf_type < SerfType.knight0) || (_serf_type > SerfType.knight4)) {
-                throw ("Not a knight among the castle defenders.");
+                /* Somebody who is not a knight in the defenders' list. Counted
+                   as nobody rather than indexed into the knight array with a
+                   number that is not one - which in GML is the end of the
+                   session, and over a number on a popup. */
+                fault_note("popup.defenders.not_a_knight",
+                           "serf " + string(_serf_index) +
+                           " type " + string(_serf_type));
+                _serf_index = _serf.get_next();
+                continue;
             }
             _knights[_serf_type - SerfType.knight0] += 1;
             _serf_index = _serf.get_next();

@@ -15,6 +15,7 @@
 // tends to go wrong on somebody else's machine - a missing asset or a driver
 // that will not give us a surface goes bang in the lines below.
 crash_init();
+fault_init();   // what the simulation does instead of throwing - see scr_fault
 report_init();
 
 // Assets / lookup tables

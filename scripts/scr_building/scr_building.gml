@@ -527,8 +527,12 @@ function Building(_game, _index) : GameObject(_game, _index) constructor {
                     _max_gold = 8;
                     break;
                 default:
-                    throw ("NOT_REACHED: Building.set_first_knight");
-                    break;
+                    /* Not a garrison, so there is no gold stock to set up and
+                       no occupation to announce. */
+                    fault_note("building.first_knight.type",
+                               "building " + string(get_index()) +
+                               " type " + string(type));
+                    return;
             }
 
             game.get_player(owner).add_notification(MessageType.knight_occupied, pos,
@@ -756,7 +760,12 @@ function Building(_game, _index) : GameObject(_game, _index) constructor {
                 _max_capacity = 12;
                 break;
             default:
-                throw ("NOT_REACHED: Building.is_enough_place_for_knight");
+                /* Not a garrison: no room for a knight, which is what a
+                   capacity of zero says below. */
+                fault_note("building.knight_capacity.type",
+                           "building " + string(get_index()) +
+                           " type " + string(type));
+                _max_capacity = 0;
                 break;
         }
 
@@ -1319,7 +1328,11 @@ function Building(_game, _index) : GameObject(_game, _index) constructor {
                     update_unfinished_adv();
                     break;
                 default:
-                    throw ("NOT_REACHED: Building.update_");
+                    /* A building type with no update case. It stands there and
+                       does nothing, which is visible and survivable. */
+                    fault_note("building.update.type",
+                               "building " + string(get_index()) +
+                               " type " + string(type));
                     break;
             }
         }
@@ -1414,7 +1427,15 @@ function Building(_game, _index) : GameObject(_game, _index) constructor {
             while (_next_serf_index != 0) {
                 var _serf = game.get_serf(_next_serf_index);
                 if (_serf == undefined) {
-                    throw ("Index of nonexistent serf in the queue.");
+                    /* The knight list runs through serf indexes; one of them
+                       points at a serf that is gone. The rest of the list is
+                       unreachable from here, so the walk stops with whatever it
+                       has - which is the same answer it would have given if the
+                       list had ended there. */
+                    fault_note("building.knight_queue.missing_serf",
+                               "building " + string(get_index()) +
+                               " serf " + string(_next_serf_index));
+                    break;
                 }
                 if ((_best_knight == undefined) || _serf.get_type() < _best_knight.get_type()) {
                     _best_knight = _serf;
@@ -1533,8 +1554,12 @@ function Building(_game, _index) : GameObject(_game, _index) constructor {
                 _max_gold = 8;
                 break;
             default:
-                throw ("NOT_REACHED: Building.update_military");
-                break;
+                /* update_military on something that is not a garrison. Nothing
+                   below applies to it. */
+                fault_note("building.update_military.type",
+                           "building " + string(get_index()) +
+                           " type " + string(type));
+                return;
         }
 
         /* A stale knight-layer entry on the door tile would stop this
@@ -1561,7 +1586,10 @@ function Building(_game, _index) : GameObject(_game, _index) constructor {
             while (_serf_index != 0) {
                 var _serf = game.get_serf(_serf_index);
                 if (_serf == undefined) {
-                    throw ("Index of nonexistent serf in the queue.");
+                    fault_note("building.knight_queue.missing_serf_out",
+                               "building " + string(get_index()) +
+                               " serf " + string(_serf_index));
+                    break;
                 }
                 if (_leaving_serf == undefined || _serf.get_type() < _leaving_serf.get_type()) {
                     _leaving_serf = _serf;

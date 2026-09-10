@@ -240,7 +240,8 @@ function NotificationBox(_interface) : GuiObject() constructor {
                         draw_map_object(16, 8, _mbs[BuildingType.fortress]);
                         break;
                     default:
-                        throw ("NotificationBox::draw_notification: NOT_REACHED");
+                        fault_note("notification.military_type",
+                                   "data " + string(message.data));
                         break;
                 }
                 break;

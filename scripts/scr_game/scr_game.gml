@@ -220,7 +220,15 @@ function Game() constructor {
     static add_gold_total = function(_delta) {
         if (_delta < 0) {
             if (gold_total < -_delta) {
-                throw ("Failed to decrease global gold counter.");
+                /* More gold taken out of the world than the world says is in
+                   it. Clamped to zero: the counter drives the morale of every
+                   player, so a negative one is worse than a wrong one, and
+                   ending the session over it is worse than both. */
+                fault_note("game.gold_total.underflow",
+                           "total " + string(gold_total) +
+                           " delta " + string(_delta));
+                gold_total = 0;
+                return;
             }
         }
         gold_total += _delta;
@@ -541,7 +549,15 @@ function Game() constructor {
 
                         var _dest_bld = _flags_[_i].get_building();
                         if (!_dest_bld.add_requested_resource(_res, false)) {
-                            throw ("Failed to request resource.");
+                            /* The search found this building and the building
+                               will not take it. Nothing leaves the stock, so
+                               the resource stays where it is and this runs
+                               again next update. */
+                            fault_note("game.inventory_dispatch.refused",
+                                       "res " + string(_res) +
+                                       " dest bld " +
+                                       string(_dest_bld.get_index()));
+                            continue;
                         }
 
                         /* Put resource in out queue */
@@ -1276,7 +1292,9 @@ function Game() constructor {
                 }
                 break;
             default:
-                throw ("NOT_REACHED: road_segment_in_water");
+                /* A direction outside 0..5. Answered as "not water", which is
+                   what the caller does with an ordinary bit of land. */
+                fault_note("game.road_segment.dir", "dir " + string(_dir));
                 break;
         }
 
@@ -1967,8 +1985,10 @@ function Game() constructor {
                 }
                 break;
             default:
-                throw ("NOT_REACHED: can_build_building");
-                break;
+                /* A building type with no size rule. Refused: an unknown
+                   building is not one this can say yes to. */
+                fault_note("game.can_build.type", "type " + string(_type));
+                return false;
         }
 
         /* Check if military building is possible */
@@ -2591,7 +2611,13 @@ function Game() constructor {
         /* Allocate object */
         var _player = players.allocate();
         if (_player == undefined) {
-            throw ("Failed to create new player.");
+            /* No room for another player. This is setup rather than play - the
+               mission asked for more players than the game holds - so there is
+               nothing to recover, only something to report. -1 is not a player
+               index, and the caller adding players stops getting them. */
+            fault_note("game.add_player.no_room",
+                       "players " + string(players.size()));
+            return -1;
         }
 
         _player.init(_intelligence, _supplies, _reproduction);

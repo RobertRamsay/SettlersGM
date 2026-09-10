@@ -897,7 +897,13 @@ function Player(_game, _index) : GameObject(_game, _index) constructor {
 
     static decrease_serf_count = function(_type) {
         if (serf_count[_type] == 0) {
-            throw ("Failed to decrease serf count");
+            /* The count is already at zero, so something was counted out twice.
+               It stays at zero rather than going negative and turning every
+               statistic that reads it into nonsense. */
+            fault_note("player.serf_count.underflow",
+                       "player " + string(get_index()) +
+                       " type " + string(_type));
+            return;
         }
         serf_count[_type]--;
     };

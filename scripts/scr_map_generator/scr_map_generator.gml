@@ -269,7 +269,12 @@ function ClassicMapGenerator(_map, _rnd) constructor {
             init_heights_diamond_square(); /* Diamond square algorithm */
             break;
           default:
-            throw "ClassicMapGenerator.generate: unknown height generator";
+            /* An unknown height generator. Midpoints is the one the game uses
+               everywhere, so the map comes out looking like a map. */
+            fault_note("mapgen.height_generator",
+                       "generator " + string(height_generator));
+            init_heights_midpoints();
+            break;
         }
         break;
       case 2:  clamp_heights();          break;
@@ -288,7 +293,13 @@ function ClassicMapGenerator(_map, _rnd) constructor {
       case 11: create_mineral_deposits(); break;
       case 12: clean_up();               break;
       default:
-        throw "ClassicMapGenerator.generate_step: phase out of range";
+        /* A phase number past the end of the list. Answered as "finished",
+           which stops the stepping rather than leaving the start screen
+           generating forever. */
+        fault_note("mapgen.phase_out_of_range",
+                   "phase " + string(gen_phase));
+        gen_phase = gen_phase_count();
+        return true;
     }
 
     gen_phase += 1;

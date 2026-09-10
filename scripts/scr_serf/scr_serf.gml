@@ -1634,14 +1634,30 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
             set_state(SerfState.looking_for_geo_spot);
             counter = 0;
         } else {
+            /* Both of these say the road this serf was walking is not there
+               any more - a flag or a path taken up while he was on it, which a
+               player can do at any moment. He becomes lost, which is the state
+               the game already has for a serf who does not know where he is,
+               and finds his own way to an inventory. */
             var _flag = game.get_flag_at_pos(pos);
             if (_flag == undefined) {
-                throw ("Flag expected as destination of walking serf.");
+                fault_note("serf.walking.no_flag_at_dest",
+                           "serf " + string(get_index()) +
+                           " at " + string(pos));
+                set_state(SerfState.lost);
+                s.lost_field_B = 0;
+                return;
             }
             var _dir = s.walking_dir1;
             var _other_flag = _flag.get_other_end_flag(_dir);
             if (_other_flag == undefined) {
-                throw ("Path has no other end flag in selected dir.");
+                fault_note("serf.walking.no_other_end",
+                           "serf " + string(get_index()) +
+                           " flag " + string(_flag.get_index()) +
+                           " dir " + string(_dir));
+                set_state(SerfState.lost);
+                s.lost_field_B = 0;
+                return;
             }
             var _other_dir = _flag.get_other_end_dir(_dir);
 
@@ -2262,9 +2278,20 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
                     _map.clear_serf_index(pos, self);
 
                     var _building_gn = game.get_building_at_pos(pos);
-                    var _inventory = _building_gn.get_inventory();
+                    var _inventory = undefined;
+                    if (_building_gn != undefined) {
+                        _inventory = _building_gn.get_inventory();
+                    }
                     if (_inventory == undefined) {
-                        throw ("Not inventory.");
+                        /* A generic serf walked into something that is not a
+                           stock - it was one when he set off, or he was sent
+                           to the wrong door. Lost, rather than dead. */
+                        fault_note("serf.entering.not_inventory",
+                                   "serf " + string(get_index()) +
+                                   " at " + string(pos));
+                        set_state(SerfState.lost);
+                        s.lost_field_B = 0;
+                        return;
                     }
                     _inventory.serf_come_back();
 
@@ -2314,7 +2341,11 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
                                     _next_state = SerfState.defending_fortress;
                                     break;
                                 default:
-                                    throw ("NOT_REACHED: Serf::handle_serf_entering_building_state knight building type");
+                                    /* A knight walking into something that is
+                                       not a garrison. He keeps the state he
+                                       has, which sends him back out. */
+                                    fault_note("serf.entering.knight_building",
+                                               "serf " + string(get_index()));
                                     break;
                             }
 
@@ -2331,7 +2362,10 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
                 case SerfType.dead:
                     break;
                 default:
-                    throw ("NOT_REACHED: Serf::handle_serf_entering_building_state serf type");
+                    /* A serf type with no case for entering a building. He
+                       simply does not take up a job here. */
+                    fault_note("serf.entering.serf_type",
+                               "type " + string(get_type()));
                     break;
             }
         }
@@ -2766,7 +2800,14 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
         var _res = _flag.drop_resource(s.move_resource_out_res - 1,
                                        s.move_resource_out_res_dest);
         if (!_res) {
-            throw ("Failed to drop resource.");
+            /* Every slot on the flag is full. The caller is supposed to have
+               checked, so this is a miscount somewhere upstream; the resource
+               is lost, and the serf goes back inside rather than standing in
+               the doorway holding it forever. */
+            fault_note("serf.drop_out.flag_full",
+                       "serf " + string(get_index()) +
+                       " res " + string(s.move_resource_out_res - 1) +
+                       " flag " + string(_flag.get_index()));
         }
 
         set_state(SerfState.ready_to_enter);

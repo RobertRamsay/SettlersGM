@@ -501,7 +501,10 @@ function Map(_geom) constructor {
 
     // Some code may still assume that map has at least size 3.
     if (geom.size < 3) {
-        throw "Failed to create map with size less than 3.";
+        /* Same story as the ceiling in MapGeometry: a size this small cannot
+           have been chosen, so it came from something broken. The map is built
+           anyway and the report carries the number. */
+        fault_note("map.size_too_small", "size " + string(geom.size));
     }
 
     map_init_static_tables();
@@ -1060,7 +1063,13 @@ function Map(_geom) constructor {
                 case 1: _adj_pos = move_down_right(_adj_pos); break;
                 case 2: _adj_pos = move_left(_adj_pos); break;
                 case 3: _adj_pos = move_up_left(_adj_pos); break;
-                default: throw "NOT_REACHED: Map.update_hidden"; break;
+                default:
+                    /* Two bits cannot be outside 0..3, so this is unreachable
+                       - and unreachable code that ends the session if it is
+                       ever reached is exactly what this sweep is about. The
+                       fish stays where it is. */
+                    fault_note("map.update_hidden.dir", "r " + string(_r));
+                    break;
             }
 
             if (is_in_water(_adj_pos)) {
@@ -1287,7 +1296,8 @@ function Map(_geom) constructor {
                 }
                 break;
             default:
-                throw "NOT_REACHED: Map.road_segment_in_water";
+                /* A direction outside 0..5. Answered as "not water". */
+                fault_note("map.road_segment.dir", "dir " + string(_dir));
                 break;
         }
 
