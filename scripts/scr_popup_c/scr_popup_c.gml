@@ -19,18 +19,35 @@ function popup_c_init_tables() {
     -1
   ];
 
+  /* Seven rows and a bottom band, in 144 px of content.
+
+     There used to be six rows on a 20-pixel pitch, which left no room for the
+     sound effects to have a volume of their own - and one volume that moved the
+     music and the axes together is no volume at all if what you want is quiet
+     music over a loud settlement.
+
+     A 16-pixel pitch fits eight rows where six sat before: the icons are 16 tall
+     and the text 8, so 16 is as tight as this box goes without things touching.
+     The two-line labels ("Sound / effects", "Fullscreen / video") became one
+     line each to pay for it. Rows are at 8, 24, 40, 56, 72, 88, 104, and the
+     bottom band stays where it was at 126.
+
+     Every entry here is (8 * icon column + 2, the row's y): what is drawn and
+     what is clicked come from the same numbers, which is what stops them
+     drifting apart. */
   global.popup_c_clk_box_options = [
-    Action.options_music, 106, 10, 16, 16,
-    Action.options_sfx, 106, 30, 16, 16,
-    Action.options_volume_minus, 90, 50, 16, 16,
-    Action.options_volume_plus, 106, 50, 16, 16,
-    Action.options_fullscreen, 106, 70, 16, 16,
-    Action.options_message_count_1, 90, 90, 32, 16,
-    Action.options_map_drag, 88, 106, 40, 16,
+    Action.options_music, 106, 8, 16, 16,
+    Action.options_sfx, 106, 24, 16, 16,
+    Action.options_music_vol_minus, 90, 40, 16, 16,
+    Action.options_music_vol_plus, 106, 40, 16, 16,
+    Action.options_sfx_vol_minus, 90, 56, 16, 16,
+    Action.options_sfx_vol_plus, 106, 56, 16, 16,
+    Action.options_fullscreen, 106, 72, 16, 16,
+    Action.options_message_count_1, 90, 88, 32, 16,
+    Action.options_map_drag, 88, 104, 40, 16,
     /* Mono / Stereo shares the bottom band with the exit icon, which is drawn
        at x 120 and clicked from 112, so this stops at 108 and the two stay
-       disjoint. Every row above it is full - the box has only 144 px of
-       content height. */
+       disjoint. */
     Action.options_sfx_stereo, 8, 126, 100, 16,
     Action.close_options, 112, 126, 16, 16,
     -1
@@ -1282,15 +1299,27 @@ function popup_handle_action(_popup, _action, _x, _y) {
     _popup.interface.leave_game_to_menu(L("you left the game"));
     break;
   }
-  case Action.options_volume_minus: {
-    /* Audio::get_instance().get_volume_controller()->volume_down() */
-    audio_volume_down();
+  case Action.options_music_vol_minus: {
+    /* Audio::get_instance().get_volume_controller()->volume_down(), now the
+       music's own. */
+    audio_music_volume_down();
     _popup.play_sound(Sfx.click);
     break;
   }
-  case Action.options_volume_plus: {
-    /* Audio::get_instance().get_volume_controller()->volume_up() */
-    audio_volume_up();
+  case Action.options_music_vol_plus: {
+    audio_music_volume_up();
+    _popup.play_sound(Sfx.click);
+    break;
+  }
+  case Action.options_sfx_vol_minus: {
+    audio_sfx_volume_down();
+    /* The click is the effects channel confirming its own new level, which is
+       the whole of the feedback anybody needs from this pair. */
+    _popup.play_sound(Sfx.click);
+    break;
+  }
+  case Action.options_sfx_vol_plus: {
+    audio_sfx_volume_up();
     _popup.play_sound(Sfx.click);
     break;
   }

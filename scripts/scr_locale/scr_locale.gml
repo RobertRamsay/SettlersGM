@@ -341,9 +341,24 @@ function locale_build_de() {
     locale_add("    Are you", "    Bist du");
     locale_add("     sure?", "    sicher?");
     locale_add("Music", "Musik");
+    /* "Sound" + "effects", "Volume" and "video" are no longer drawn by
+       anything - the options box lost its stacked labels and its single volume
+       when the effects got one of their own. Kept because they cost nothing and
+       a half-translated box is a worse thing to come back to than three unused
+       rows. */
     locale_add("Sound", "Sound");
     locale_add("effects", "effekte");
     locale_add("Volume", "Lautst.");
+    /* The options box has two volumes now and one line per row, so these three
+       stand where the stacked "Sound / effects" and "Fullscreen / video" pairs
+       used to.
+
+       The two volume labels have SEVEN characters before they reach the level
+       shown at column 8 - so no German abbreviation here may be longer than
+       that either, which is why "Lautstärke" is cut the way it is. */
+    locale_add("Sound fx", "Sound fx");
+    locale_add("Mus vol", "Mus.Lst");
+    locale_add("Sfx vol", "Sfx Lst");
     locale_add("Fullscreen", "Vollbild");
     locale_add("video", "Anzeige");
     locale_add("Messages", "Meldungen");

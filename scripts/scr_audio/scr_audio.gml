@@ -300,15 +300,27 @@ function sfx_start(_asset, _gain, _pan, _force) {
         _place_pan = 0;
     }
 
+    /* The effects volume is applied HERE rather than on the master gain, which
+       is what lets the music sit at its own level. It multiplies the caller's
+       gain, so everything that decides how loud a sound should be - distance
+       from the middle of the view, the original's own per-sound level, the
+       ambience envelopes - still decides it, and this is the last word.
+
+       global.sfx_voice_gain keeps the caller's gain WITHOUT it, because that is
+       what the voice-stealing test compares: whether a new sound is louder than
+       the quietest one playing is a question about the sounds, not about where
+       the slider happens to be. */
+    var _level = _gain * SFX_BASE_GAIN * global.audio_sfx_volume;
+
     var _handle = -1;
     if (SFX_USE_EMITTERS) {
         var _emitter = global.sfx_voice_emitter[_slot];
-        audio_emitter_gain(_emitter, _gain * SFX_BASE_GAIN);
+        audio_emitter_gain(_emitter, _level);
         audio_emitter_position(_emitter, _place_pan * SFX_PAN_DISTANCE, 0, 0);
         _handle = audio_play_sound_on(_emitter, _asset, false, 10);
     } else {
         _handle = audio_play_sound(_asset, 10, false);
-        audio_sound_gain(_handle, _gain * SFX_BASE_GAIN, 0);
+        audio_sound_gain(_handle, _level, 0);
     }
 
     /* The Amiga sounds are played back at the rate and with the per-play
@@ -638,7 +650,19 @@ function play_sfx_at_map_pos(_id, _pos) {
 function audio_init() {
     global.audio_music_enabled = true;
     global.audio_sfx_enabled = true;
-    global.audio_volume = 1.0;
+
+    /* Two volumes, not one. There used to be a single number on
+       audio_master_gain, which is the mixer's output stage: turning the music
+       down took every axe, gull and battle down with it, so the only way to
+       play with the music quiet was to play with the game quiet. Neither of
+       these touches the master gain now.
+
+       Music is applied to the one playing music instance, and the effects
+       volume is folded into every effect's gain as it starts - see sfx_start.
+       An effect already sounding keeps the level it started at, which for
+       samples this short is not something anybody can hear. */
+    global.audio_music_volume = 1.0;
+    global.audio_sfx_volume = 1.0;
     global.audio_music_id = -1;
 
     /* The four voices, and a short history of what was started when. Both are
@@ -722,18 +746,35 @@ function audio_init() {
             is_enabled: function() { return global.audio_sfx_enabled; },
             enable: function(_e) { global.audio_sfx_enabled = _e; }
         },
-        volume: {
-            get_volume: function() { return global.audio_volume; },
+        music_volume: {
+            get_volume: function() { return global.audio_music_volume; },
             set_volume: function(_v) {
-                global.audio_volume = clamp(_v, 0, 1);
-                audio_master_gain(global.audio_volume);
+                global.audio_music_volume = clamp(_v, 0, 1);
+                audio_apply_music_volume();
             },
-            volume_up: function() { self.set_volume(global.audio_volume + 0.1); },
-            volume_down: function() { self.set_volume(global.audio_volume - 0.1); }
+            volume_up: function() {
+                self.set_volume(global.audio_music_volume + 0.1);
+            },
+            volume_down: function() {
+                self.set_volume(global.audio_music_volume - 0.1);
+            }
+        },
+        sfx_volume: {
+            get_volume: function() { return global.audio_sfx_volume; },
+            set_volume: function(_v) {
+                global.audio_sfx_volume = clamp(_v, 0, 1);
+            },
+            volume_up: function() {
+                self.set_volume(global.audio_sfx_volume + 0.1);
+            },
+            volume_down: function() {
+                self.set_volume(global.audio_sfx_volume - 0.1);
+            }
         },
         get_music_player: function() { return self.music; },
         get_sound_player: function() { return self.sfx; },
-        get_volume_controller: function() { return self.volume; }
+        get_music_volume_controller: function() { return self.music_volume; },
+        get_sfx_volume_controller: function() { return self.sfx_volume; }
     };
 }
 
@@ -744,10 +785,21 @@ function audio_get_instance() {
     return global.audio_instance;
 }
 
+/// Put the music volume on the playing music, if there is any. Safe to call at
+/// any time: with no music started there is nothing to set, and the level is
+/// applied when it does start.
+function audio_apply_music_volume() {
+    if (global.audio_music_id == -1) {
+        return;
+    }
+    audio_sound_gain(global.audio_music_id, global.audio_music_volume, 0);
+}
+
 function settlers_play_music() {
     var _a = audio_get_instance();
     if (global.audio_music_id == -1) {
         global.audio_music_id = audio_play_sound(mus_settlers, 1, true);
+        audio_apply_music_volume();
         if (!global.audio_music_enabled) {
             audio_pause_sound(global.audio_music_id);
         }
@@ -803,12 +855,31 @@ function audio_toggle_sfx() {
     _a.sfx.enable(!_a.sfx.is_enabled());
 }
 
-function audio_volume_up() {
-    audio_get_instance().volume.volume_up();
+function audio_music_volume_up() {
+    audio_get_instance().music_volume.volume_up();
 }
 
-function audio_volume_down() {
-    audio_get_instance().volume.volume_down();
+function audio_music_volume_down() {
+    audio_get_instance().music_volume.volume_down();
+}
+
+function audio_sfx_volume_up() {
+    audio_get_instance().sfx_volume.volume_up();
+}
+
+function audio_sfx_volume_down() {
+    audio_get_instance().sfx_volume.volume_down();
+}
+
+/// 0..1, for the options box to show as a number.
+function audio_music_volume() {
+    audio_get_instance();
+    return global.audio_music_volume;
+}
+
+function audio_sfx_volume() {
+    audio_get_instance();
+    return global.audio_sfx_volume;
 }
 
 /// Snapshot the whole Game struct. See scr_savegame.

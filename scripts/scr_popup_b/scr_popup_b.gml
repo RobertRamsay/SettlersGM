@@ -614,10 +614,23 @@ function popup_draw_no_save_quit_confirm_box(_popup) {
 function popup_draw_options_box(_popup) {
     _popup.draw_box_background(BackgroundPattern.diagonal_green);
 
-    _popup.draw_green_string(1, 14, L("Music"));
-    _popup.draw_green_string(1, 30, L("Sound"));
-    _popup.draw_green_string(1, 39, L("effects"));
-    _popup.draw_green_string(1, 54, L("Volume"));
+    /* Seven rows on a 16-pixel pitch - 8, 24, 40, 56, 72, 88, 104 - and the
+       bottom band at 128 where it has always been. Freeserf had six rows on a
+       20-pixel pitch, which left nowhere to put a second volume.
+
+       Sixteen is as tight as this box goes: the icons are 16 pixels tall, so
+       the rows now touch exactly and nothing overlaps. The price is that the
+       two labels that were stacked over two lines - "Sound / effects" and
+       "Fullscreen / video" - are one line each.
+
+       Each label sits four pixels below its row's icon, which is where the
+       original put them, and the clickmap in scr_popup_c uses the same row
+       numbers. Text columns across a row: label from 1, the volume number at 8,
+       the minus icon at 11, the plus at 13. */
+    _popup.draw_green_string(1, 12, L("Music"));
+    _popup.draw_green_string(1, 28, L("Sound fx"));
+    _popup.draw_green_string(1, 44, L("Mus vol"));
+    _popup.draw_green_string(1, 60, L("Sfx vol"));
 
     // Audio::get_instance() -> audio_get_instance() (scr_audio.gml, Audio singleton struct)
     var _audio = audio_get_instance();
@@ -627,34 +640,35 @@ function popup_draw_options_box(_popup) {
     if ((_player != undefined) && _player.is_enabled()) {
         _music_sprite = 288;
     }
-    _popup.draw_popup_icon(13, 10, _music_sprite);
+    _popup.draw_popup_icon(13, 8, _music_sprite);
     _player = _audio.get_sound_player();
     // Sfx
     var _sfx_sprite = 220;
     if ((_player != undefined) && _player.is_enabled()) {
         _sfx_sprite = 288;
     }
-    _popup.draw_popup_icon(13, 30, _sfx_sprite);
-    _popup.draw_popup_icon(11, 50, 220); /* Volume minus */
-    _popup.draw_popup_icon(13, 50, 221); /* Volume plus */
+    _popup.draw_popup_icon(13, 24, _sfx_sprite);
 
-    var _volume = 0.0;
-    var _volume_controller = _audio.get_volume_controller();
-    if (_volume_controller != undefined) {
-        _volume = 99.0 * _volume_controller.get_volume();
-    }
-    var _str = string(floor(_volume));
-    _popup.draw_green_string(8, 54, _str);
+    /* The music's volume, then the effects' own. The same pair of icons twice,
+       one row apart, each with its own level beside it - so which number
+       belongs to which is never a guess. */
+    _popup.draw_popup_icon(11, 40, 220); /* Music volume minus */
+    _popup.draw_popup_icon(13, 40, 221); /* Music volume plus  */
+    _popup.draw_popup_icon(11, 56, 220); /* Sfx volume minus   */
+    _popup.draw_popup_icon(13, 56, 221); /* Sfx volume plus    */
 
-    _popup.draw_green_string(1, 70, L("Fullscreen"));
-    _popup.draw_green_string(1, 79, L("video"));
+    /* 0..99, the way the original shows a level. */
+    _popup.draw_green_string(8, 44, string(floor(99.0 * audio_music_volume())));
+    _popup.draw_green_string(8, 60, string(floor(99.0 * audio_sfx_volume())));
+
+    _popup.draw_green_string(1, 76, L("Fullscreen"));
 
     /* Fullscreen mode */
     var _fullscreen_sprite = 220;
     if (window_get_fullscreen()) {
         _fullscreen_sprite = 288;
     }
-    _popup.draw_popup_icon(13, 70, _fullscreen_sprite);
+    _popup.draw_popup_icon(13, 72, _fullscreen_sprite);
 
     var _value = L("All");
     if (!_popup.interface.get_config(3)) {
@@ -666,8 +680,8 @@ function popup_draw_options_box(_popup) {
             }
         }
     }
-    _popup.draw_green_string(1, 94, L("Messages"));
-    _popup.draw_green_string(11, 94, _value);
+    _popup.draw_green_string(1, 92, L("Messages"));
+    _popup.draw_green_string(11, 92, _value);
 
     // Not in the original. There are only two possible drag behaviours and they
     // differ by nothing but the sign: No grabs the ground, so the pixel under
@@ -679,8 +693,8 @@ function popup_draw_options_box(_popup) {
     if (global.map_drag_invert) {
         _invert_value = L("Yes");
     }
-    _popup.draw_green_string(1, 110, L("Invert"));
-    _popup.draw_green_string(11, 110, _invert_value);
+    _popup.draw_green_string(1, 108, L("Invert"));
+    _popup.draw_green_string(11, 108, _invert_value);
 
     /* Not in the original: the Amiga had four channels and one mix, so there
        was nothing to choose. Stereo places each effect across the sound stage

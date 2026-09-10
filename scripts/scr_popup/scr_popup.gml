@@ -362,8 +362,11 @@ enum Action {
     sett_8_castle_def_inc,
     options_music,
     options_fullscreen,
-    options_volume_minus,
-    options_volume_plus,
+    /* Freeserf's one volume pair, which is the MUSIC volume now that the
+       effects have their own below. Renamed rather than left ambiguous: a name
+       that just says "volume" when there are two of them is a trap. */
+    options_music_vol_minus,
+    options_music_vol_plus,
     demolish,
     options_sfx,
     save,
@@ -373,9 +376,11 @@ enum Action {
        numbering of everything above is untouched. */
     game_end_continue,
     game_end_menu,
-    /* Not in Freeserf either: Mono / Stereo for the sound effects. Appended for
-       the same reason. */
-    options_sfx_stereo
+    /* Not in Freeserf either: Mono / Stereo for the sound effects, and the
+       effects' own volume. Appended for the same reason. */
+    options_sfx_stereo,
+    options_sfx_vol_minus,
+    options_sfx_vol_plus
 }
 
 /// Static tables for popup.cc (the local `const int layout[]` arrays of the
