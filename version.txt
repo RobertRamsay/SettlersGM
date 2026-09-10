@@ -1,4 +1,4 @@
-1.0.8.0
+1.0.9.0
 
 The first line of this file is the newest released version of SettlersGM, and
 the running game compares it against its own (Game Options -> Version) to decide
