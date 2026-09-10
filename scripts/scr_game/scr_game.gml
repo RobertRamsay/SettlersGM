@@ -2625,10 +2625,32 @@ function Game() constructor {
         }
 
         var _flag = flags.get(_dest);
-        if (!_flag.has_building()) {
-            throw ("Failed to cancel transported resource.");
+
+        /* The destination may not be there any more. A player demolishing a
+           building - or an enemy burning it down - does it while resources are
+           already walking towards it, and this is called precisely to tidy up
+           after that, so arriving to find the building gone is the ordinary
+           case rather than a broken one. There is then nothing to cancel: the
+           request counters went with the building.
+
+           Freeserf throws here ("Failed to cancel transported resource"), and
+           so did this port. Same family as the throw that used to be in
+           Building.requested_resource_delivered, and it would end a running
+           game the same way - over bookkeeping, for a building that no longer
+           exists. A missing flag is the same story one step further on:
+           flags.get returns undefined for an index that has been freed. */
+        if (_flag == undefined || !_flag.has_building()) {
+            show_debug_message("game: resource " + string(_res) +
+                               " was bound for flag " + string(_dest) +
+                               " which has no building any more - nothing to" +
+                               " cancel");
+            return;
         }
+
         var _building = _flag.get_building();
+        if (_building == undefined) {
+            return;
+        }
         _building.cancel_transported_resource(_res);
     };
 

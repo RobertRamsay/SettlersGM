@@ -2792,7 +2792,32 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
                 s.walking_dir1 = ResourceType.none;
                 var _building =
                     game.get_building_at_pos(game.get_map().move_up_left(pos));
-                _building.requested_resource_delivered(_res);
+
+                /* Two ways this delivery can find nowhere to go, and neither of
+                   them is a reason to end somebody's game.
+
+                   The building can be GONE - demolished, burnt down or taken
+                   while this serf was walking in with something for it - in
+                   which case get_building_at_pos hands back undefined and the
+                   old code went straight through it.
+
+                   Or it can be there and have no stock slot for what arrived,
+                   which is what "Delivered unexpected resource" was, and which
+                   a building that has just finished building is wide open to -
+                   see Building.requested_resource_delivered.
+
+                   Either way the serf is standing on the building's flag with a
+                   resource in his hands, so he puts it down there. It keeps its
+                   place in the economy, gets routed to wherever wants it next,
+                   and the player's resource count is right - which is what
+                   drop_resource is for. */
+                var _taken = false;
+                if (_building != undefined) {
+                    _taken = _building.requested_resource_delivered(_res);
+                }
+                if (!_taken) {
+                    drop_resource(_res);
+                }
             }
 
             animation = 4 + 9 - (animation - (3 + 10 * 9));

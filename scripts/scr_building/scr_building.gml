@@ -651,12 +651,35 @@ function Building(_game, _index) : GameObject(_game, _index) constructor {
         stock[_stock_num].maximum = _maximum;
     };
 
+    /// Take a resource a serf has just carried in.
+    ///
+    /// Returns TRUE if the building took it. FALSE means nothing here has a
+    /// place for it and the caller still owns it - see the serf's delivering
+    /// state, which puts it back on the flag rather than into nowhere.
+    ///
+    /// It used to return nothing and throw on that case, which is what Freeserf
+    /// does, and a player lost a game to it:
+    ///
+    ///   Unable to find a handler for exception Delivered unexpected resource.
+    ///   in requested_resource_delivered ... handle_serf_delivering_state
+    ///
+    /// A finished building has a window where an unexpected resource is not
+    /// even surprising. When construction completes, build_progress() resets
+    /// BOTH stock slots to ResourceType.none, and the production types are not
+    /// set until the worker walks over and enters - see the stock_init calls in
+    /// the serf's enter-building handling. Between those two moments the
+    /// building has no slot for anything at all, and that gap is as long as the
+    /// walk from the castle. Anything still on its way from the construction -
+    /// a plank or a stone one flag behind the last one - lands in it.
     static requested_resource_delivered = function(_resource) {
         if (burning) {
-            return;
+            /* Lost, as in the original: a building on fire is not somewhere to
+               put a plank back. */
+            return true;
         }
         if (has_inventory()) {
             inventory.push_resource(_resource);
+            return true;
         } else {
             var _resource_ = _resource;
             if (_resource_ == ResourceType.fish ||
@@ -692,11 +715,26 @@ function Building(_game, _index) : GameObject(_game, _index) constructor {
                                            string(stock[_i].available));
                         stock[_i].requested = 0;
                     }
-                    return;
+                    return true;
                 }
             }
 
-            throw ("Delivered unexpected resource.");
+            /* Nothing here takes it. Everything the caller needs to identify
+               which of the shapes this was is in the line: a building still
+               constructing means the delivery raced ahead of the build; done
+               with no holder and two empty stock types is the completion window
+               described above; anything else is new and wants looking at. */
+            show_debug_message("building: #" + string(get_index()) +
+                               " type " + string(type) +
+                               " at " + string(pos) +
+                               " was delivered resource " + string(_resource) +
+                               " which it has no stock for" +
+                               " (constructing " + string(constructing) +
+                               ", holder " + string(holder) +
+                               ", stock types " + string(stock[0].type) +
+                               "/" + string(stock[1].type) +
+                               ") - handed back to the flag");
+            return false;
         }
     };
 
