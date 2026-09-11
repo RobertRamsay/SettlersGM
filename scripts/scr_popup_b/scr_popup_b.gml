@@ -672,7 +672,7 @@ function popup_draw_options_box(_popup) {
 
     /* Fullscreen mode */
     var _fullscreen_sprite = 220;
-    if (window_get_fullscreen()) {
+    if (fullscreen_is_on()) {
         _fullscreen_sprite = 288;
     }
     _popup.draw_popup_icon(13, 72, _fullscreen_sprite);

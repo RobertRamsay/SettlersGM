@@ -442,38 +442,59 @@ function gfx_wrap_string(_str, _cols) {
 }
 
 /* ---------------------------------------------------------------------------
-   Fullscreen.
+   Fullscreen - as a borderless window the size of the display, NOT the
+   runtime's own fullscreen mode.
 
-   The switch is asked for from HERE - a few frames into the first room, and
-   only on a frame when this window is the one the desktop is pointing at - and
-   NOT by the platform's "start fullscreen" option, which is off on every
-   target.
-
-   Starting fullscreen while the window is in the background crashes the
-   runtime outright:
+   window_set_fullscreen(true) makes the runtime tear down and recreate its
+   swap chain, and if the window is not in the foreground at that moment it
+   faults inside that recreation:
 
      Fullscreen state changed (was: 0, want: 1) - need to recreate swap chain
      Runner.exe exited with non-zero status (-1073741819)
 
-   which is 0xC0000005, an access violation, inside GameMaker's own swap-chain
-   recreation. It happens every time the game is launched and then clicked away
-   from before it finishes loading - alt-tabbing to the IDE is enough, which is
-   exactly what somebody testing does all day.
+   0xC0000005, every time the game was launched and then clicked away from
+   before it finished loading. Waiting for window_has_focus() before asking
+   was not enough: the focus can go again during the recreation itself, and
+   the same fault came back as a heavy flicker followed by the crash.
 
-   We cannot fix the runtime, but we can stop asking it to do the thing it
-   cannot do. The window opens at its ordinary size and goes fullscreen on a
-   frame where that is safe; if the player never comes back to the window, it
-   simply stays windowed, which is the harmless outcome rather than the fatal
-   one. */
+   A window with no border, moved to the top-left corner and sized to the
+   display, looks the same to the player and never touches the swap chain: it
+   is an ordinary resize, which the runtime already survives while
+   unfocused. The application surface stays SCREEN_W x SCREEN_H and is scaled
+   into the window by the project's keep-aspect-ratio setting, exactly as it
+   is for a dragged window edge. The platform's "start fullscreen" option and
+   "allow fullscreen switching" stay off on every target, so nothing else can
+   ask for the real thing.
+
+   Two more rules, both learned from building and then alt-tabbing away:
+
+   - The window is one pixel SHORT of the display. A borderless window that
+     covers the monitor exactly is promoted by DXGI to its "fullscreen
+     optimisation" path - the same swap-chain dance as real fullscreen, with
+     the same fault when the window is in the background. One pixel short and
+     it stays an ordinary window.
+   - The switch only happens on a frame when this window has the focus. It
+     costs nothing - the game just stays windowed until the player comes back
+     to it - and it means the resize never lands on a window that Windows is
+     in the middle of pushing behind something else. */
 #macro FULLSCREEN_AT_START      true
 #macro FULLSCREEN_SETTLE_FRAMES 8
 
 function fullscreen_init() {
     global.fullscreen_wanted = FULLSCREEN_AT_START;
     global.fullscreen_delay = FULLSCREEN_SETTLE_FRAMES;
+    global.fullscreen_on = false;
 }
 
-/* Called once a frame from obj_game's Step. */
+/* What the options popup and F10 read. window_get_fullscreen() would answer
+   false here forever, because the runtime's own mode is never entered. */
+function fullscreen_is_on() {
+    return global.fullscreen_on;
+}
+
+/* Called once a frame from obj_game's Step. The settling frames let the Create
+   event's window_set_size and Alarm 0's window_center land first, so the
+   restore path below has a real windowed size to go back to. */
 function fullscreen_step() {
     if (!global.fullscreen_wanted) {
         return;
@@ -489,7 +510,26 @@ function fullscreen_step() {
         return;
     }
     global.fullscreen_wanted = false;
-    window_set_fullscreen(true);
+    fullscreen_set(true);
+}
+
+/* Go full-window, or back to the pixel-scaled window in the middle of the
+   display. */
+function fullscreen_set(_on) {
+    global.fullscreen_on = _on;
+    if (_on) {
+        window_set_showborder(false);
+        window_set_position(0, 0);
+        window_set_size(display_get_width(), display_get_height() - 1);
+        return;
+    }
+    window_set_showborder(true);
+    window_set_size(SCREEN_W * SCREEN_SCALE, SCREEN_H * SCREEN_SCALE);
+    /* Centre next frame, the same way Create does: the size change has to
+       settle before window_center measures it. */
+    with (obj_game) {
+        alarm[0] = 1;
+    }
 }
 
 /* F10 and the options popup's Fullscreen row both come through here. */
@@ -498,5 +538,5 @@ function fullscreen_toggle() {
        got there first, honour what they asked for rather than overriding it a
        few frames later. */
     global.fullscreen_wanted = false;
-    window_set_fullscreen(!window_get_fullscreen());
+    fullscreen_set(!global.fullscreen_on);
 }

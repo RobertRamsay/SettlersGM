@@ -199,8 +199,8 @@ if (global.net_autostart &&
 }
 
 // ---- F10 toggles fullscreen, the same switch the options popup's row throws.
-// The popup reads window_get_fullscreen() when it draws rather than keeping its
-// own copy, so the label is right whichever way the state was changed.
+// The popup reads fullscreen_is_on() when it draws rather than keeping its own
+// copy, so the label is right whichever way the state was changed.
 if (keyboard_check_pressed(vk_f10)) {
     fullscreen_toggle();
     play_sfx(Sfx.click);
