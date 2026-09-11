@@ -352,9 +352,128 @@ function savegame_decode_game(_data) {
     }
 
     savegame_fix_serf_layers(_game);
+    savegame_audit_garrisons(_game);
     savegame_kick_knights(_game);
 
     return _game;
+}
+
+/// Check every garrison's knight bookkeeping against reality, and correct it.
+///
+/// A military building keeps two counts: stock[0].available, the knights
+/// inside, and stock[0].requested, the ones on their way. Nothing checks them
+/// against anything. They are written from a dozen places - a knight arriving,
+/// leaving, dying, being called out, giving up on the walk, a building being
+/// captured - and a single missed decrement leaves a garrison believing in a
+/// knight who does not exist, for the rest of that game and every save made
+/// from it.
+///
+/// That is not theoretical. A player watched two or three knights walk up to
+/// one hut and turn back to the castle, over and over, in a loaded game; the
+/// hut was asking for knights it did not need and refusing the ones that came.
+/// Demolishing it and building another in the same spot fixed it, which is the
+/// clearest possible statement that the fault was in that building's counters
+/// and not in the knights.
+///
+/// Both numbers have a truth to compare against:
+///
+///   available  is the knights in the building's own first_knight list, which
+///              is what every other part of the game walks to find them.
+///   requested  is the live knights whose knight_dest_building names this
+///              building - the field both send paths set when one is called
+///              out, and that knight_drop_dest clears when he gives up.
+///
+/// Anything else is a miscount, and a miscount is corrected here rather than
+/// reported and left, because the player cannot do anything about it and the
+/// alternative is the loop above. Every correction goes through fault_note, so
+/// a save that needed fixing says so in the log and in the next crash report.
+///
+/// Deterministic: it walks collections in index order and every comparison is
+/// integer, so two machines loading the same file make the same corrections.
+function savegame_audit_garrisons(_game) {
+    var _buildings = _game.buildings.objects;
+    var _serfs = _game.serfs.objects;
+    var _bn = array_length(_buildings);
+    var _sn = array_length(_serfs);
+    var _fixed = 0;
+
+    for (var _i = 0; _i < _bn; _i++) {
+        var _b = _buildings[_i];
+        if (_b == undefined) {
+            continue;
+        }
+        if (!_b.is_military() || _b.is_burning() || !_b.is_done()) {
+            continue;
+        }
+        if (_b.has_inventory()) {
+            continue;       /* the castle counts its knights another way */
+        }
+
+        /* Knights actually inside, from the list the rest of the game uses.
+           A link that names a serf who is gone ends the walk: the rest of that
+           list is unreachable anyway, and the count has to match what everybody
+           else can see. */
+        var _inside = 0;
+        var _in_list = [];
+        var _index = _b.get_first_knight();
+        while (_index != 0) {
+            var _serf = _game.get_serf(_index);
+            if (_serf == undefined) {
+                fault_note("garrison.knight_list.broken",
+                           "building " + string(_b.get_index()) +
+                           " link to serf " + string(_index));
+                break;
+            }
+            _inside += 1;
+            array_push(_in_list, _index);
+            _index = _serf.get_next();
+        }
+
+        /* Knights on their way here. Anyone already counted as inside is not
+           also on his way in - the arrival clears the field, but a save from an
+           older build may not have, and counting him twice would leave the
+           garrison expecting a knight who is standing in it. */
+        var _coming = 0;
+        for (var _s = 0; _s < _sn; _s++) {
+            var _k = _serfs[_s];
+            if (_k == undefined) {
+                continue;
+            }
+            if (_k.knight_dest_building != _b.get_index()) {
+                continue;
+            }
+
+            var _already_in = false;
+            for (var _l = 0; _l < array_length(_in_list); _l++) {
+                if (_in_list[_l] == _k.get_index()) {
+                    _already_in = true;
+                    break;
+                }
+            }
+            if (!_already_in) {
+                _coming += 1;
+            }
+        }
+
+        var _was_available = _b.get_res_count_in_stock(0);
+        var _was_requested = _b.get_requested_in_stock(0);
+
+        if (_was_available != _inside || _was_requested != _coming) {
+            fault_note("garrison.knight_count",
+                       "building " + string(_b.get_index()) +
+                       " available " + string(_was_available) + "->" +
+                       string(_inside) +
+                       ", requested " + string(_was_requested) + "->" +
+                       string(_coming));
+            _b.set_knight_counts(_inside, _coming);
+            _fixed += 1;
+        }
+    }
+
+    if (_fixed > 0) {
+        show_debug_message("savegame: corrected the knight counts of " +
+                           string(_fixed) + " garrison(s)");
+    }
 }
 
 /// Get every travelling knight moving again the moment a game is loaded.

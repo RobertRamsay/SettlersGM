@@ -745,6 +745,23 @@ function Building(_game, _index) : GameObject(_game, _index) constructor {
     static requested_knight_arrived = function() {
         stock[0].available += 1;
         stock[0].requested -= 1;
+        if (stock[0].requested < 0) {
+            /* Somebody arrived that this garrison had stopped expecting. The
+               count is what decides whether it asks for another, so a negative
+               one asks for ever. */
+            fault_note("building.knight_requested.underflow",
+                       "building " + string(get_index()));
+            stock[0].requested = 0;
+        }
+    };
+
+    /// Put this garrison's knight counts back to what they really are. Only
+    /// savegame_audit_garrisons calls this, and only when it has just counted
+    /// both - see the note there for why a garrison's books are worth
+    /// checking at all.
+    static set_knight_counts = function(_available, _requested) {
+        stock[0].available = _available;
+        stock[0].requested = _requested;
     };
 
     /// How many knights this garrison actually WANTS right now.
