@@ -855,11 +855,35 @@ function prof_live_count(_collection) {
     return _count;
 }
 
-// Append snapshots, so overlay-on/off comparisons live in one shareable file.
+// One timestamped file per F3 press. A suffix preserves captures made in
+// the same second, including files left by earlier runs of the game.
+function prof_pad2(_value) {
+    var _text = string(_value);
+    if (_value < 10) {
+        return "0" + _text;
+    }
+    return _text;
+}
+
+function prof_report_path(_when) {
+    var _stem = "settlers_performance_" + string(date_get_year(_when)) + "-" +
+        prof_pad2(date_get_month(_when)) + "-" + prof_pad2(date_get_day(_when)) + "_" +
+        prof_pad2(date_get_hour(_when)) + "-" + prof_pad2(date_get_minute(_when)) + "-" +
+        prof_pad2(date_get_second(_when));
+    var _path = _stem + ".txt";
+    var _suffix = 2;
+    while (file_exists(_path)) {
+        _path = _stem + "_" + string(_suffix) + ".txt";
+        _suffix += 1;
+    }
+    return _path;
+}
+
 // No save data, player names, addresses, or automatic upload.
 function prof_dump(_game, _interface) {
-    var _path = "settlers_performance.txt";
-    var _file = file_text_open_append(_path);
+    var _when = date_current_datetime();
+    var _path = prof_report_path(_when);
+    var _file = file_text_open_write(_path);
     if (_file < 0) {
         global.prof_notice = "Could not write performance report";
         global.prof_notice_until = current_time + 5000;
@@ -867,7 +891,7 @@ function prof_dump(_game, _interface) {
         return;
     }
     var _lines = [];
-    array_push(_lines, "=== SettlersGM performance: " + date_datetime_string(date_current_datetime()) + " ===");
+    array_push(_lines, "=== SettlersGM performance: " + date_datetime_string(_when) + " ===");
     array_push(_lines, "Patch perf-01; base fa077a24; game " + game_version() + "; OS " + string(os_type));
     array_push(_lines, "Map " + string(_game.map.geom.cols) + "x" + string(_game.map.geom.rows) +
         "; tick " + string(_game.get_tick()) + "; speed " + string(_game.game_speed));
@@ -904,7 +928,7 @@ function prof_dump(_game, _interface) {
         file_text_writeln(_file);
     }
     file_text_close(_file);
-    global.prof_notice = "Saved settlers_performance.txt";
+    global.prof_notice = "Performance report saved";
     global.prof_notice_until = current_time + 5000;
     show_debug_message("Performance report: " + working_directory + _path);
 }
