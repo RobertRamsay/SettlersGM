@@ -595,7 +595,9 @@ enum ProfSec {
 }
 
 function prof_init() {
-    global.prof_on = true;
+    // Sampling disabled along with the F3/FPS UI; keep globals initialised.
+    // global.prof_on = true;
+    global.prof_on = false;
     global.prof_dump_pending = false;
     global.prof_notice_until = 0;
     global.prof_notice = "";

@@ -487,7 +487,8 @@ if (net_exit_pending() && !global.net_chat_open) {
     }
 }
 
-if (keyboard_check_pressed(vk_f3)) {
-    // Capture only: F3 never opens the detailed statistics overlay.
-    global.prof_dump_pending = true;
-}
+// Temporarily disabled for release; retained for debugging.
+// if (keyboard_check_pressed(vk_f3)) {
+//     // Capture only: F3 never opens the detailed statistics overlay.
+//     global.prof_dump_pending = true;
+// }

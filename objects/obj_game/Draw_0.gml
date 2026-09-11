@@ -8,8 +8,9 @@ interface.handle_event(gui_make_event(EventType.draw, 0, 0, 0, 0, 0));
 prof_draw_end();
 
 // Keep the play view quiet. Detailed timings are available in the F3 file.
-draw_set_color(c_white);
-draw_text(4, 4, "FPS " + string(fps));
+// Temporarily disabled for release; retained for debugging.
+// draw_set_color(c_white);
+// draw_text(4, 4, "FPS " + string(fps));
 
 // ---- networking status, drawn last so nothing covers it.
 // Only while networked: offline this is not a thing the player should see.
@@ -163,11 +164,12 @@ if (global.crash_notice != "") {
    Draws nothing at all after that. */
 locale_prompt_draw();
 
-if (global.prof_dump_pending) {
-    global.prof_dump_pending = false;
-    prof_dump(interface.get_game(), interface);
-}
-if (current_time < global.prof_notice_until) {
-    draw_set_color(c_white);
-    draw_text(4, SCREEN_H - 16, global.prof_notice);
-}
+// Temporarily disabled for release; retained for debugging.
+// if (global.prof_dump_pending) {
+//     global.prof_dump_pending = false;
+//     prof_dump(interface.get_game(), interface);
+// }
+// if (current_time < global.prof_notice_until) {
+//     draw_set_color(c_white);
+//     draw_text(4, SCREEN_H - 16, global.prof_notice);
+// }
