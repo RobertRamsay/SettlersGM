@@ -56,6 +56,32 @@ function game_version() {
     return string(GM_version);
 }
 
+/// The version as the two platforms can agree on it: the first three numbers.
+///
+/// Windows Game Options hold four fields, macOS hold three, so the same
+/// release reads "1.0.9.0" on one and "1.0.9" on the other. The fourth field
+/// is never bumped - it is always the .0 - so it carries no information and
+/// only ever made two matching builds look different. This is what the net
+/// handshake compares and what it sends; the full string stays for the start
+/// screen and the update check, which are each on one platform only.
+function game_build_version() {
+    var _v = game_version();
+    var _out = "";
+    var _fields = 0;
+    var _n = string_length(_v);
+    for (var _i = 1; _i <= _n; _i++) {
+        var _c = string_char_at(_v, _i);
+        if (_c == ".") {
+            _fields += 1;
+            if (_fields >= 3) {
+                break;
+            }
+        }
+        _out += _c;
+    }
+    return _out;
+}
+
 /// Everything the update check owns, laid out before anything can read it.
 /// Called from obj_game Create.
 function update_check_init() {

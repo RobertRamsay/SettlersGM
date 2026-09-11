@@ -760,7 +760,7 @@ function net_send_start(_mission_index, _size, _base, _rnd) {
        version first would have made every old client read the protocol number
        as the mission index. */
     buffer_write(_b, buffer_u16,    NET_PROTOCOL);
-    buffer_write(_b, buffer_string, game_version());
+    buffer_write(_b, buffer_string, game_build_version());
 
     network_send_packet(net_peer_socket(), _b, buffer_tell(_b));
 }
@@ -787,10 +787,10 @@ function net_send_hello() {
     buffer_seek(_b, buffer_seek_start, 0);
     buffer_write(_b, buffer_u8,     NetMsg.hello);
     buffer_write(_b, buffer_u16,    NET_PROTOCOL);
-    buffer_write(_b, buffer_string, game_version());
+    buffer_write(_b, buffer_string, game_build_version());
     network_send_packet(net_peer_socket(), _b, buffer_tell(_b));
     net_log("sent hello - protocol " + string(NET_PROTOCOL) +
-            " version " + game_version());
+            " version " + game_build_version());
 }
 
 /// The one sentence a mismatch gets, from where the reader is standing.
@@ -801,14 +801,14 @@ function net_hello_mismatch_text(_proto, _their_version) {
     }
     if (_proto < NET_PROTOCOL) {
         return _who + " is running an older build - both need version " +
-               game_version();
+               game_build_version();
     }
     if (_proto > NET_PROTOCOL) {
         return _who + " is running a newer build (" + string(_their_version) +
                ") - both need the same version";
     }
     return _who + " is running " + string(_their_version) +
-           " and you are running " + game_version() +
+           " and you are running " + game_build_version() +
            " - both need the same version";
 }
 
@@ -823,7 +823,7 @@ function net_receive_hello(_b) {
         return;
     }
 
-    if (_proto != NET_PROTOCOL || _their_version != game_version()) {
+    if (_proto != NET_PROTOCOL || _their_version != game_build_version()) {
         net_refuse_peer(net_hello_mismatch_text(_proto, _their_version));
         return;
     }
@@ -1273,9 +1273,9 @@ function net_receive_start(_b, _from_socket, _bytes) {
         return;
     }
 
-    if (_their_version != game_version()) {
+    if (_their_version != game_build_version()) {
         var _mismatch = "the host is running " + string(_their_version) +
-                        " and you are running " + string(game_version()) +
+                        " and you are running " + string(game_build_version()) +
                         " - both need the same version";
         show_debug_message("net: refusing start - " + _mismatch);
         net_close(_mismatch);
