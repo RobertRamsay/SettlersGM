@@ -708,6 +708,19 @@ function net_peer_socket() {
 /// building comes last, for either kind, so both machines draw the same
 /// numbers from the same point. The custom fields are always present, zero
 /// for a mission, so the packet has one shape.
+/// The wire format's own number. Bump it when the SHAPE of what crosses the
+/// wire changes - a field added to a packet, a command renumbered - so that two
+/// builds which cannot even parse each other say so instead of misreading.
+///
+/// It is not the whole compatibility question. Lockstep needs both machines to
+/// simulate identically, and any change to the simulation breaks that while
+/// leaving the wire format alone, so the build's own version travels with the
+/// start packet too and has to match exactly. That is strict on purpose: two
+/// builds that differ anywhere in the simulation will desync, and a desync
+/// twenty minutes in is a far worse way to find out than a line of text before
+/// anybody has built a road.
+#macro NET_PROTOCOL 1
+
 function net_send_start(_mission_index, _size, _base, _rnd) {
     var _b = global.net_send;
     buffer_seek(_b, buffer_seek_start, 0);
@@ -720,6 +733,16 @@ function net_send_start(_mission_index, _size, _base, _rnd) {
     buffer_write(_b, buffer_u16, _rnd.state[0]);
     buffer_write(_b, buffer_u16, _rnd.state[1]);
     buffer_write(_b, buffer_u16, _rnd.state[2]);
+
+    /* APPENDED, not prepended, and that is deliberate. A build from before this
+       existed reads the fields above and stops, so host-and-client pairs where
+       one side is old behave exactly as they did yesterday - no worse - while
+       two builds that both have this check each other properly. Putting the
+       version first would have made every old client read the protocol number
+       as the mission index. */
+    buffer_write(_b, buffer_u16,    NET_PROTOCOL);
+    buffer_write(_b, buffer_string, game_version());
+
     network_send_packet(net_peer_socket(), _b, buffer_tell(_b));
 }
 
@@ -1020,7 +1043,9 @@ function net_handle_async(_async) {
 
     switch (_msg) {
     case NetMsg.start:
-        net_receive_start(_b, _async[? "id"]);
+        /* The packet's length goes with it: the version fields at the end are
+           only there when the sender was new enough to write them. */
+        net_receive_start(_b, _async[? "id"], _async[? "size"]);
         break;
     case NetMsg.turn:
         net_receive_turn(_b);
@@ -1043,7 +1068,7 @@ function net_handle_async(_async) {
     }
 }
 
-function net_receive_start(_b, _from_socket) {
+function net_receive_start(_b, _from_socket, _bytes) {
     var _mission = buffer_read(_b, buffer_s16);
     var _size = buffer_read(_b, buffer_u8);
     var _b0 = buffer_read(_b, buffer_u16);
@@ -1053,14 +1078,58 @@ function net_receive_start(_b, _from_socket) {
     var _s1 = buffer_read(_b, buffer_u16);
     var _s2 = buffer_read(_b, buffer_u16);
 
+    /* Who sent it, if they are new enough to say. A build from before the check
+       existed sends nothing here, which is why the length is consulted rather
+       than the buffer simply being read on: reading past the end of a packet is
+       not a thing to do on somebody else's machine. */
+    var _len = 0;
+    if (is_real(_bytes)) {
+        _len = _bytes;
+    }
+
+    var _proto = 0;
+    var _their_version = "";
+    if (_len > buffer_tell(_b)) {
+        _proto = buffer_read(_b, buffer_u16);
+        _their_version = buffer_read(_b, buffer_string);
+    }
+
     show_debug_message("net: start, mission " + string(_mission + 1) +
                        " size " + string(_size) +
                        " base " + string(_b0) + "/" + string(_b1) + "/" + string(_b2) +
                        " seed " + string(_s0) + "/" + string(_s1) + "/" + string(_s2)
-                       + " on socket " + string(_from_socket));
+                       + " protocol " + string(_proto) +
+                       " version '" + string(_their_version) + "'" +
+                       " on socket " + string(_from_socket));
 
     if (net_is_running()) {
         net_log("start from the peer ignored - already in a game");
+        return;
+    }
+
+    /* Two machines in lockstep have to simulate identically, and nothing about
+       two different builds guarantees that. Until now they would start anyway
+       and find out twenty minutes later, as a desync, with no way to tell it
+       from a real bug. */
+    if (_proto != NET_PROTOCOL) {
+        var _why = "the other machine is running an older build - both need " +
+                   "the same version of the game";
+        if (_proto > NET_PROTOCOL) {
+            _why = "the other machine is running a newer build - both need " +
+                   "the same version of the game";
+        }
+        show_debug_message("net: refusing start - protocol " + string(_proto) +
+                           ", ours " + string(NET_PROTOCOL));
+        net_close(_why);
+        return;
+    }
+
+    if (_their_version != game_version()) {
+        var _mismatch = "the host is running " + string(_their_version) +
+                        " and you are running " + string(game_version()) +
+                        " - both need the same version";
+        show_debug_message("net: refusing start - " + _mismatch);
+        net_close(_mismatch);
         return;
     }
 

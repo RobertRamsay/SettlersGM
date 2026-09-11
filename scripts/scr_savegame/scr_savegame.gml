@@ -299,7 +299,21 @@ function savegame_apply_struct(_target, _source, _game) {
     }
 }
 
-function savegame_decode_game(_data) {
+/// Rebuild a game from decoded JSON.
+///
+/// _repair says whether the load-time repairs run afterwards. They are on for
+/// every real load and OFF for the round-trip self test, and that distinction
+/// is not a detail: the repairs deliberately CHANGE the game they are handed -
+/// travelling knights are sent off again, occupancy layers are rebuilt from the
+/// map, garrison counts are corrected against reality - so a self test that
+/// encodes, decodes and compares would be comparing the file against a game
+/// that has been mended since. It would fail on a perfectly good save and say
+/// serialisation was broken when nothing of the sort had happened.
+///
+/// What the self test is for is the round trip: does every field survive being
+/// written and read. Repairs are a separate question, and the game answers it
+/// by loading normally.
+function savegame_decode_game(_data, _repair = true) {
     savegame_init_tables();
 
     if (!is_struct(_data) || !variable_struct_exists(_data, "version")) {
@@ -349,6 +363,13 @@ function savegame_decode_game(_data) {
 
     if (!savegame_check_map(_game, _data)) {
         return undefined;
+    }
+
+    /* Everything below here MENDS the loaded game rather than restoring it.
+       See the note on this function for why the self test asks for it to be
+       skipped. */
+    if (!_repair) {
+        return _game;
     }
 
     savegame_fix_serf_layers(_game);
@@ -424,6 +445,25 @@ function savegame_audit_garrisons(_game) {
                            " link to serf " + string(_index));
                 break;
             }
+
+            /* A knight who names somebody already on this list - himself, most
+               likely - is a loop, and following it is a hang at the loading
+               screen with no way out. This runs on files that are damaged by
+               definition, so the one thing it must not do is trust them. */
+            var _seen = false;
+            for (var _v = 0; _v < array_length(_in_list); _v++) {
+                if (_in_list[_v] == _index) {
+                    _seen = true;
+                    break;
+                }
+            }
+            if (_seen) {
+                fault_note("garrison.knight_list.loop",
+                           "building " + string(_b.get_index()) +
+                           " serf " + string(_index) + " appears twice");
+                break;
+            }
+
             _inside += 1;
             array_push(_in_list, _index);
             _index = _serf.get_next();
@@ -439,18 +479,37 @@ function savegame_audit_garrisons(_game) {
             if (_k == undefined) {
                 continue;
             }
-            if (_k.knight_dest_building != _b.get_index()) {
+
+            if (_k.knight_dest_building == _b.get_index()) {
+                var _already_in = false;
+                for (var _l = 0; _l < array_length(_in_list); _l++) {
+                    if (_in_list[_l] == _k.get_index()) {
+                        _already_in = true;
+                        break;
+                    }
+                }
+                if (!_already_in) {
+                    _coming += 1;
+                }
                 continue;
             }
 
-            var _already_in = false;
-            for (var _l = 0; _l < array_length(_in_list); _l++) {
-                if (_in_list[_l] == _k.get_index()) {
-                    _already_in = true;
-                    break;
-                }
+            /* Halfway through the door, and neither in the list nor carrying a
+               destination any more: the arrival cleared the field and
+               requested_knight_arrived has not run yet, so his place is still
+               booked in requested and this is the moment he is invisible to
+               both counts. A save taken on that tick used to lose his booking
+               on load, and the garrison would call for a replacement it did not
+               need. He is standing on the building's own tile - that is what
+               the entering-building handler itself looks him up by. */
+            if (!serf_is_knight(_k)) {
+                continue;
             }
-            if (!_already_in) {
+            if (_k.get_state() != SerfState.entering_building) {
+                continue;
+            }
+            var _at = _game.get_building_at_pos(_k.get_pos());
+            if (_at != undefined && _at.get_index() == _b.get_index()) {
                 _coming += 1;
             }
         }
@@ -907,10 +966,17 @@ function savegame_load_slot(_slot) {
 
 /// Encode, decode, re-encode and compare. Catches fields that do not survive
 /// the round trip without needing a save file or a restart.
+///
+/// Decoded WITHOUT the load-time repairs. They mend the game they are given -
+/// knights sent on their way again, occupancy rebuilt, garrison counts
+/// corrected - so with them running this test compares a file against a game
+/// that has moved on since, and reports a serialisation failure that is really
+/// the repairs doing their job. A save can only be judged against what it says,
+/// which is what the second encode reads.
 function savegame_self_test(_game) {
     var _first = json_stringify(savegame_encode_game(_game));
 
-    var _copy = savegame_decode_game(json_parse(_first));
+    var _copy = savegame_decode_game(json_parse(_first), false);
     if (_copy == undefined) {
         show_debug_message("savegame self test: decode returned nothing");
         return false;
