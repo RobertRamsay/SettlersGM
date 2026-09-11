@@ -57,6 +57,11 @@ gpu_set_texfilter(false);
 game_set_speed(TICKS_PER_SEC, gamespeed_fps);
 camera_set_view_size(view_camera[0], SCREEN_W, SCREEN_H);
 alarm[0] = 1;   // centre window next frame (size change must settle first)
+// Fullscreen is asked for from the Step event, a few frames in and only once
+// this window has the focus - never from the platform's "start fullscreen"
+// option, which is off on every target because it faults the runtime when the
+// window is in the background. See fullscreen_step in scr_gfx.
+fullscreen_init();
 
 // Game: Tutorial 1 from the mission table (player 0 = "You", no castle yet —
 // the castle is placed by the player, exactly like the original).

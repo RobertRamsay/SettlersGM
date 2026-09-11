@@ -440,3 +440,63 @@ function gfx_wrap_string(_str, _cols) {
     }
     return _lines;
 }
+
+/* ---------------------------------------------------------------------------
+   Fullscreen.
+
+   The switch is asked for from HERE - a few frames into the first room, and
+   only on a frame when this window is the one the desktop is pointing at - and
+   NOT by the platform's "start fullscreen" option, which is off on every
+   target.
+
+   Starting fullscreen while the window is in the background crashes the
+   runtime outright:
+
+     Fullscreen state changed (was: 0, want: 1) - need to recreate swap chain
+     Runner.exe exited with non-zero status (-1073741819)
+
+   which is 0xC0000005, an access violation, inside GameMaker's own swap-chain
+   recreation. It happens every time the game is launched and then clicked away
+   from before it finishes loading - alt-tabbing to the IDE is enough, which is
+   exactly what somebody testing does all day.
+
+   We cannot fix the runtime, but we can stop asking it to do the thing it
+   cannot do. The window opens at its ordinary size and goes fullscreen on a
+   frame where that is safe; if the player never comes back to the window, it
+   simply stays windowed, which is the harmless outcome rather than the fatal
+   one. */
+#macro FULLSCREEN_AT_START      true
+#macro FULLSCREEN_SETTLE_FRAMES 8
+
+function fullscreen_init() {
+    global.fullscreen_wanted = FULLSCREEN_AT_START;
+    global.fullscreen_delay = FULLSCREEN_SETTLE_FRAMES;
+}
+
+/* Called once a frame from obj_game's Step. */
+function fullscreen_step() {
+    if (!global.fullscreen_wanted) {
+        return;
+    }
+    if (!window_has_focus()) {
+        /* Somebody else has the foreground. The count does not run down while
+           we are in the background, so the window still gets its settling
+           frames after the player comes back to it. */
+        return;
+    }
+    global.fullscreen_delay -= 1;
+    if (global.fullscreen_delay > 0) {
+        return;
+    }
+    global.fullscreen_wanted = false;
+    window_set_fullscreen(true);
+}
+
+/* F10 and the options popup's Fullscreen row both come through here. */
+function fullscreen_toggle() {
+    /* A deliberate toggle cancels the pending start-up switch: if the player
+       got there first, honour what they asked for rather than overriding it a
+       few frames later. */
+    global.fullscreen_wanted = false;
+    window_set_fullscreen(!window_get_fullscreen());
+}

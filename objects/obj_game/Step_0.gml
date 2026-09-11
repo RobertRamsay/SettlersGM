@@ -1,5 +1,10 @@
 /// obj_game Step - event loop (port of event_loop-sdl.cc) + fixed-rate game ticks
 
+// The start-up fullscreen switch, which waits for this window to have the
+// focus before it asks the runtime to recreate the swap chain. Does nothing
+// at all once it has fired, or once the player has toggled it themselves.
+fullscreen_step();
+
 // ---- game ticks: one update per TICK_LENGTH_MS of real time (50 Hz)
 tick_accumulator += delta_time / 1000;   // delta_time is microseconds
 var _ticks = tick_accumulator div TICK_LENGTH_MS;
@@ -192,7 +197,7 @@ if (global.net_autostart &&
 // The popup reads window_get_fullscreen() when it draws rather than keeping its
 // own copy, so the label is right whichever way the state was changed.
 if (keyboard_check_pressed(vk_f10)) {
-    window_set_fullscreen(!window_get_fullscreen());
+    fullscreen_toggle();
     play_sfx(Sfx.click);
 }
 

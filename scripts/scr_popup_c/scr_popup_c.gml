@@ -1270,7 +1270,7 @@ function popup_handle_action(_popup, _action, _x, _y) {
     break;
   }
   case Action.options_fullscreen:
-    window_set_fullscreen(!window_get_fullscreen());
+    fullscreen_toggle();
     _popup.play_sound(Sfx.click);
     break;
   case Action.options_map_drag:
