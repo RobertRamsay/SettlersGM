@@ -373,7 +373,14 @@ function serf_handle_knight_occupy_enemy_building(_serf) {
           /* Somewhere he was not expected. If he was expected elsewhere, that
              request is given back first so the other garrison asks again. */
           knight_drop_dest(_serf);
-          if (building.is_enough_place_for_knight()) {
+
+          /* wants_another_knight, not is_enough_place_for_knight: the second
+             asks whether the building could HOLD him, which for a hut with one
+             knight in it is yes right up to three - and the hut then turns him
+             out on the next update_military because the occupancy setting only
+             wanted one. Walking in through a door you are about to be thrown
+             out of is the loop this whole change is about. */
+          if (building.wants_another_knight()) {
             /* Enter building */
             _serf.home_tries = 0; /* he is home; start counting again next time */
             _serf.enter_building(-1, 0);
@@ -455,19 +462,36 @@ function serf_handle_knight_occupy_enemy_building(_serf) {
 #macro KNIGHT_HOME_FREE_SLOTS 2
 
 /// Places left in a military building, counting knights already on their way.
-/// The capacities mirror Building.is_enough_place_for_knight.
+///
+/// Against what the garrison WANTS - Building.get_needed_occupants - and not
+/// against what it could physically hold. Those are different numbers, and
+/// using the wrong one sent knights home to buildings that immediately turned
+/// them out again:
+///
+///   A hut holds three. How many it asks for comes from the player's
+///   knight-occupation setting for its threat level, and inside your own
+///   country that is ONE. Measured by capacity, every interior hut in the
+///   kingdom looks like it has two free bunks, so it is the nearest and best
+///   ranked home for miles. A knight walks there, walks in, and on the very
+///   next update_military the hut is over its occupancy and puts him out of the
+///   door. He is lost again, picks the nearest home again, and it is the same
+///   hut - out, in, out, in, for as long as anybody watches.
+///
+/// Reading the number the garrison itself acts on is the whole fix: a building
+/// that would turn him out never looks like somewhere to go.
 function knight_home_free_slots(_building) {
-  var _max = 0;
   switch (_building.get_type()) {
-    case BuildingType.hut:      _max = 3;  break;
-    case BuildingType.tower:    _max = 6;  break;
-    case BuildingType.fortress: _max = 12; break;
-    default:                    return 0;
+    case BuildingType.hut:
+    case BuildingType.tower:
+    case BuildingType.fortress:
+      break;
+    default:
+      return 0;
   }
 
   var _taken = _building.get_res_count_in_stock(0) +
                _building.get_requested_in_stock(0);
-  return _max - _taken;
+  return _building.get_needed_occupants() - _taken;
 }
 
 /// Rank a candidate home. Higher is better, 0 means "not a home at all".
@@ -664,6 +688,16 @@ function knight_send_home(_serf) {
 /// seconds at normal speed.
 #macro KNIGHT_STUCK_TICKS 1000
 
+/// How many times he may be kicked at the SAME destination before the
+/// destination itself is treated as the problem.
+///
+/// The log that came with this bug is three knights being sent to building 68
+/// over and over, minutes apart, never arriving. A destination that has not
+/// worked three times is not going to work the fourth: it is full, or it is
+/// across water, or the door is jammed. The place is given back and he picks
+/// again from somewhere new.
+#macro KNIGHT_KICK_TRIES 3
+
 /// Send a knight to a hut even when its flag has no road to any inventory.
 #macro KNIGHT_DISPATCH_WITHOUT_ROAD true
 
@@ -772,7 +806,24 @@ function knight_dest_is_valid(_serf, _building) {
   if (_building.is_burning() || !_building.is_done()) {
     return false;
   }
-  return _building.has_inventory() || _building.is_military();
+
+  /* An inventory always takes him: the castle and the stocks have no
+     occupancy to be over. */
+  if (_building.has_inventory()) {
+    return true;
+  }
+  if (!_building.is_military()) {
+    return false;
+  }
+
+  /* A garrison, though, can stop wanting him while he is walking - somebody
+     came back from a fight and took the bunk, or the player pulled the
+     occupancy setting down. Walking on regardless is what put knights at the
+     door of a full hut trying to get in over and over: he arrives, the place
+     is gone, he is turned out, and the watchdog sends him straight back.
+     Letting the destination go here means he becomes lost at the point he
+     finds out, and picks somewhere that does want him. */
+  return _building.still_expecting_knight();
 }
 
 /// Hand back the request this knight was counted against, because he is not
@@ -1044,6 +1095,20 @@ function knight_kick(_serf, _why) {
     }
   }
 
+  /* Kicked at the same destination too many times. The destination is not the
+     problem - being kicked means he has stood still for a thousand ticks
+     already - so sending him there once more is the definition of not
+     learning. Give the place back and let the lost walk pick somewhere else;
+     home_tries carries the count onwards, so knight_pick_home skips the homes
+     it has already offered him and eventually gives up on the whole idea. */
+  if (_dest != undefined) {
+    _serf.home_tries += 1;
+    if (_serf.home_tries > KNIGHT_KICK_TRIES) {
+      knight_drop_dest(_serf);
+      _dest = undefined;
+    }
+  }
+
   /* Clear an engagement link he cannot be holding in any of these states, so
      the viewport's "additional serf" draw never follows it. */
   _serf.s.attacking_def_index = 0;
@@ -1057,8 +1122,13 @@ function knight_kick(_serf, _why) {
   }
 
   show_debug_message("serf: knight " + string(_serf.get_index()) + " kicked (" +
-                     _why + "), going home");
-  _serf.home_tries = 0;
+                     _why + "), going home after " + string(_serf.home_tries) +
+                     " tries");
+  /* home_tries is NOT reset here. It is what knight_pick_home skips by, so a
+     knight who has just given up on one destination is offered a different one
+     rather than the same best-ranked building he could not reach - and after
+     four of those, knight_send_home stands down and Freeserf's own lost walk
+     takes him. Resetting it here is what made that ladder a circle. */
   _serf.set_state(SerfState.lost);
   _serf.s.lost_field_B = 0;
   _serf.counter = 0;

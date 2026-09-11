@@ -747,6 +747,69 @@ function Building(_game, _index) : GameObject(_game, _index) constructor {
         stock[0].requested -= 1;
     };
 
+    /// How many knights this garrison actually WANTS right now.
+    ///
+    /// Not the same number as its capacity, and the difference is the whole
+    /// point of this function. A hut holds three, but what it asks for comes
+    /// from the player's knight-occupation setting for its threat level - one
+    /// for a hut well inside the country, three for one on a contested border -
+    /// and update_military turns a knight out again the moment it is holding
+    /// more than this.
+    ///
+    /// Anything that decides to SEND a knight somewhere has to read this rather
+    /// than the capacity, or it sends him to a garrison that will put him
+    /// straight back out of the door. Factored out of update_military, which is
+    /// where it used to be spelled out, so there is one answer to the question
+    /// rather than two that can drift apart.
+    ///
+    /// 0 for anything that is not a garrison.
+    static get_needed_occupants = function() {
+        var _player = game.get_player(get_owner());
+        var _max_occ_level = (_player.get_knight_occupation(threat_level) >> 4) & 0xf;
+        if (_player.reduced_knight_level()) {
+            _max_occ_level += 5;
+        }
+        if (_max_occ_level > 9) {
+            _max_occ_level = 9;
+        }
+
+        switch (get_type()) {
+            case BuildingType.hut:
+                return global.building_hut_occupants_from_level[_max_occ_level];
+            case BuildingType.tower:
+                return global.building_tower_occupants_from_level[_max_occ_level];
+            case BuildingType.fortress:
+                return global.building_fortress_occupants_from_level[_max_occ_level];
+        }
+
+        return 0;
+    };
+
+    /// Would this garrison take one more knight and keep him? Knights already
+    /// on their way count, or two of them arrive for the same bunk.
+    static wants_another_knight = function() {
+        if (is_burning() || !is_done()) {
+            return false;
+        }
+        return ((stock[0].requested + stock[0].available) <
+                get_needed_occupants());
+    };
+
+    /// Is this garrison still expecting the knight who has a place booked here?
+    ///
+    /// His booking is already sitting in stock[0].requested - that is what
+    /// knight_request_granted put there when it called him out - so it has to
+    /// come back out before the question is asked, or the last booking made
+    /// would always look like one too many and every knight would turn round
+    /// at the door he was invited to.
+    static still_expecting_knight = function() {
+        if (is_burning() || !is_done()) {
+            return false;
+        }
+        var _counted = stock[0].requested + stock[0].available - 1;
+        return (_counted < get_needed_occupants());
+    };
+
     static is_enough_place_for_knight = function() {
         var _max_capacity = -1;
         switch (get_type()) {
@@ -1524,33 +1587,21 @@ function Building(_game, _index) : GameObject(_game, _index) constructor {
     };
 
     static update_military = function() {
-        var _hut_occupants_from_level = global.building_hut_occupants_from_level;
-        var _tower_occupants_from_level = global.building_tower_occupants_from_level;
-        var _fortress_occupants_from_level = global.building_fortress_occupants_from_level;
+        /* The occupancy this garrison is aiming at now lives in
+           get_needed_occupants, because the knights deciding where to walk have
+           to read the same number - see the comment there. */
+        var _needed_occupants = get_needed_occupants();
 
         var _player = game.get_player(get_owner());
-        var _max_occ_level =
-            (_player.get_knight_occupation(threat_level) >> 4) & 0xf;
-        if (_player.reduced_knight_level()) {
-            _max_occ_level += 5;
-        }
-        if (_max_occ_level > 9) {
-            _max_occ_level = 9;
-        }
-
-        var _needed_occupants = -1;
         var _max_gold = -1;
         switch (get_type()) {
             case BuildingType.hut:
-                _needed_occupants = _hut_occupants_from_level[_max_occ_level];
                 _max_gold = 2;
                 break;
             case BuildingType.tower:
-                _needed_occupants = _tower_occupants_from_level[_max_occ_level];
                 _max_gold = 4;
                 break;
             case BuildingType.fortress:
-                _needed_occupants = _fortress_occupants_from_level[_max_occ_level];
                 _max_gold = 8;
                 break;
             default:
