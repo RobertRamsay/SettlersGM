@@ -837,6 +837,7 @@ function Game() constructor {
             game_stats_counter -= tick_diff;
         } else {
             game_stats_counter += 1500 - tick_diff;
+            game_stats_counter = game_rearm_timer(game_stats_counter, 1500);
 
             player_score_leader = 0;
 
@@ -937,6 +938,7 @@ function Game() constructor {
             history_counter -= tick_diff;
         } else {
             history_counter += 6000 - tick_diff;
+            history_counter = game_rearm_timer(history_counter, 6000);
 
             var _index = resource_history_index;
 
@@ -987,14 +989,14 @@ function Game() constructor {
         knight_morale_counter -= tick_diff;
         if (knight_morale_counter < 0) {
             update_knight_morale();
-            knight_morale_counter += 256;
+            knight_morale_counter = game_rearm_timer(knight_morale_counter, 256);
         }
 
         /* Schedule resources to go out of inventories */
         inventory_schedule_counter -= tick_diff;
         if (inventory_schedule_counter < 0) {
             update_inventories();
-            inventory_schedule_counter += 64;
+            inventory_schedule_counter = game_rearm_timer(inventory_schedule_counter, 64);
         }
         prof_end(ProfSec.stats);
 
@@ -1021,7 +1023,7 @@ function Game() constructor {
         game_over_counter -= tick_diff;
         if (game_over_counter < 0) {
             check_game_over();
-            game_over_counter += TICKS_PER_SEC;
+            game_over_counter = game_rearm_timer(game_over_counter, TICKS_PER_SEC);
         }
         prof_end(ProfSec.stats);
     };
@@ -3032,4 +3034,16 @@ function Game() constructor {
 /// @function SettlersGame()
 /// @desc Alias kept for existing callers; identical to Game().
 function SettlersGame() : Game() constructor {
+}
+
+/// Rearm a periodic service after servicing it once. At extreme speed a
+/// single update can cross several deadlines. Coalesce those missed services
+/// instead of carrying negative timer debt into future normal-speed updates.
+/// Existing nonnegative values and normal-speed phase are preserved. Applies
+/// to loaded negative counters as well. No wall clock enters simulation state.
+function game_rearm_timer(_counter, _period) {
+    if (_counter >= 0) {
+        return _counter;
+    }
+    return _counter + ceil(-_counter / _period) * _period;
 }

@@ -10,9 +10,19 @@ prof_frame_begin();
 // ---- game ticks: one update per TICK_LENGTH_MS of real time (50 Hz)
 tick_accumulator += delta_time / 1000;   // delta_time is microseconds
 var _ticks = tick_accumulator div TICK_LENGTH_MS;
+// Offline overload sheds wall-time debt instead of chaining five expensive
+// updates before input/draw. At normal frame pacing this still runs at 50 Hz.
+// Network lockstep keeps its original tick allowance and catch-up policy.
+#macro OFFLINE_CATCHUP_TICKS 2
+#macro OFFLINE_UPDATE_BUDGET_US 10000
+var _offline_pacing = !net_is_active();
+var _catchup_cap = MAX_CATCHUP_TICKS;
+if (_offline_pacing) {
+    _catchup_cap = OFFLINE_CATCHUP_TICKS;
+}
 var _spiralled = false;
-if (_ticks > MAX_CATCHUP_TICKS) {
-    _ticks = MAX_CATCHUP_TICKS;          // never spiral after a stall
+if (_ticks > _catchup_cap) {
+    _ticks = _catchup_cap;          // never spiral after a stall
     _spiralled = true;
 }
 
@@ -38,6 +48,7 @@ if (_spiralled) {
     tick_accumulator -= _ticks * TICK_LENGTH_MS;
 }
 
+var _updates_started = get_timer();
 for (var _t = 0; _t < _ticks; _t++) {
     prof_tick_begin();
     prof_begin(ProfSec.net);
@@ -51,6 +62,13 @@ for (var _t = 0; _t < _ticks; _t++) {
     prof_end(ProfSec.fx);
     net_after_tick();
     prof_tick_end();
+    // Always finish a complete simulation update. Only skip additional
+    // catch-up work. The accumulator was already charged above, so skipped
+    // wall-time allowances cannot build a backlog. Simulation ticks are not
+    // advanced for work we did not run: under overload game time slows down.
+    if (_offline_pacing && get_timer() - _updates_started >= OFFLINE_UPDATE_BUDGET_US) {
+        break;
+    }
 }
 
 // The language question, on the first run only, before anything else can be

@@ -902,7 +902,7 @@ function prof_dump(_game, _interface) {
     }
     var _lines = [];
     array_push(_lines, "=== SettlersGM performance: " + date_datetime_string(_when) + " ===");
-    array_push(_lines, "Patch perf-01; base fa077a24; game " + game_version() + "; OS " + string(os_type));
+    array_push(_lines, "Patch perf-02-speed; base 48ca040a; game " + game_version() + "; OS " + string(os_type));
     array_push(_lines, "Map " + string(_game.map.geom.cols) + "x" + string(_game.map.geom.rows) +
         "; tick " + string(_game.get_tick()) + "; speed " + string(_game.game_speed));
     array_push(_lines, "Live serfs " + string(prof_live_count(_game.serfs)) +
@@ -919,6 +919,12 @@ function prof_dump(_game, _interface) {
         "/" + string(global.prof_session_frames));
     array_push(_lines, "Recent completed frames " + string(global.prof_frame_n) +
         "; recent ticks " + string(global.prof_tick_n) + "; budget 20 ms/frame");
+    array_push(_lines, "Scheduler counters: inventory " + string(_game.inventory_schedule_counter) +
+        "; morale " + string(_game.knight_morale_counter) +
+        "; game-over " + string(_game.game_over_counter) +
+        "; stats " + string(_game.game_stats_counter) +
+        "; history " + string(_game.history_counter));
+    array_push(_lines, "Offline catch-up: max 2 updates; stop adding updates after 10 ms.");
     array_push(_lines, "Times: average / p95 / maximum");
     array_push(_lines, "Frame wall (includes runner/vsync): " + prof_stat_line(global.prof_frame, global.prof_frame_n));
     array_push(_lines, "Step to draw: " + prof_stat_line(global.prof_step, global.prof_frame_n));
