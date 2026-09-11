@@ -177,6 +177,10 @@ if (global.net_ip_prompt) {
 // The lobby's own heartbeat: shout, and age out anyone who has stopped.
 net_lobby_step();
 
+// Before a game, a peer that has not said which build it is gets a few seconds
+// and is then turned away as an older build. See net_send_hello.
+net_hello_check();
+
 // F7's host starts mission 1 as soon as somebody connects, which is what made
 // two machines testable before there was any UI. The lobby does NOT auto-start:
 // there the host picks the mission and presses START, so the choice happens
@@ -188,7 +192,8 @@ net_lobby_step();
 if (global.net_autostart &&
     global.net_role == NetRole.host &&
     global.net_phase == NetPhase.listening &&
-    global.net_socket >= 0) {
+    global.net_socket >= 0 &&
+    global.net_peer_hello_ok) {
     global.net_autostart = false;
     net_host_start_game(interface, 0, 0, new RandomState(0, 0, 0));
 }

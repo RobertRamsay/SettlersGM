@@ -59,7 +59,8 @@ enum NetMsg {
     turn = 2,        // both ways: the commands for one turn
     check = 3,       // both ways: a world hash at a turn boundary
     chat = 4,        // both ways: a line of text, outside the simulation
-    bye = 5          // both ways: I am leaving - see net_send_bye
+    bye = 5,         // both ways: I am leaving - see net_send_bye
+    hello = 6        // both ways: my protocol and version - see net_send_hello
 }
 
 /// The commands that can cross the wire. Only build_flag is wired up in this
@@ -217,6 +218,17 @@ function net_init() {
 
     /* Who is on the other end, for the panel. */
     global.net_peer_ip = "";
+
+    /* What the other end said about itself - see net_send_hello. */
+    net_hello_reset();
+}
+
+/// Forget what the peer told us about its build. Called wherever the peer
+/// socket is set or cleared, so a hello can never be inherited by the next
+/// connection on the same slot.
+function net_hello_reset() {
+    global.net_peer_hello_ok = false;
+    global.net_peer_hello_since = 0;
 }
 
 #macro NET_STATUS_SHOW_FRAMES 600   // ten seconds at 60fps
@@ -425,6 +437,8 @@ function net_join(_ip) {
     ds_map_clear(global.net_turns);
     ds_map_clear(global.net_checks);
     global.net_outbox = [];
+    net_hello_reset();
+    net_send_hello();
     net_set_status("JOINED " + net_addr_label(string(_ip)) + " - you are player 2. The host"
                    + " CLICKS START");
     show_debug_message("net: " + global.net_status);
@@ -453,6 +467,7 @@ function net_close(_why) {
     global.net_dialling = "";
     global.net_peer_ip = "";
     global.net_autostart = false;
+    net_hello_reset();
     net_set_status(_why);
 
     ds_map_clear(global.net_turns);
@@ -487,6 +502,7 @@ function net_drop_to_lobby(_why) {
     global.net_dialling = "";
     global.net_peer_ip = "";
     global.net_autostart = false;
+    net_hello_reset();
     net_set_status(_why);
 
     ds_map_clear(global.net_turns);
@@ -515,6 +531,8 @@ function net_become_client(_socket, _their_ip) {
     ds_map_clear(global.net_turns);
     ds_map_clear(global.net_checks);
     global.net_outbox = [];
+    net_hello_reset();
+    net_send_hello();
     net_set_status(net_addr_label(string(_their_ip)) + " connected to you - you are player 2."
                    + " They CLICK START");
     net_log(global.net_status);
@@ -593,6 +611,7 @@ function net_peer_left(_why) {
             global.net_socket = -1;
         }
         global.net_peer_ip = "";
+        net_hello_reset();
         net_set_status(L("player 2 left - still hosting, waiting for another"));
         net_log(global.net_status);
         return;
@@ -719,7 +738,7 @@ function net_peer_socket() {
 /// builds that differ anywhere in the simulation will desync, and a desync
 /// twenty minutes in is a far worse way to find out than a line of text before
 /// anybody has built a road.
-#macro NET_PROTOCOL 1
+#macro NET_PROTOCOL 2
 
 function net_send_start(_mission_index, _size, _base, _rnd) {
     var _b = global.net_send;
@@ -744,6 +763,131 @@ function net_send_start(_mission_index, _size, _base, _rnd) {
     buffer_write(_b, buffer_string, game_version());
 
     network_send_packet(net_peer_socket(), _b, buffer_tell(_b));
+}
+
+/// The version check the other way round. The start packet lets a CLIENT
+/// refuse a host it cannot follow, but the host learned nothing about the
+/// client and would start against a build too old to even know it was being
+/// asked - which then ignored the appended fields and played on, into a
+/// desync. So the moment a connection is made, BOTH machines say what they
+/// are, and nobody starts until the other machine has been heard and matched.
+///
+/// A build from before this message existed logs it as unknown and says
+/// nothing back. That silence is the answer: net_hello_check gives it
+/// NET_HELLO_MS and then names it as an older build.
+#macro NET_HELLO_MS 3000
+
+function net_send_hello() {
+    if (net_peer_socket() < 0) {
+        return;
+    }
+    global.net_peer_hello_since = current_time;
+
+    var _b = global.net_send;
+    buffer_seek(_b, buffer_seek_start, 0);
+    buffer_write(_b, buffer_u8,     NetMsg.hello);
+    buffer_write(_b, buffer_u16,    NET_PROTOCOL);
+    buffer_write(_b, buffer_string, game_version());
+    network_send_packet(net_peer_socket(), _b, buffer_tell(_b));
+    net_log("sent hello - protocol " + string(NET_PROTOCOL) +
+            " version " + game_version());
+}
+
+/// The one sentence a mismatch gets, from where the reader is standing.
+function net_hello_mismatch_text(_proto, _their_version) {
+    var _who = "player 2";
+    if (global.net_role == NetRole.client) {
+        _who = "the host";
+    }
+    if (_proto < NET_PROTOCOL) {
+        return _who + " is running an older build - both need version " +
+               game_version();
+    }
+    if (_proto > NET_PROTOCOL) {
+        return _who + " is running a newer build (" + string(_their_version) +
+               ") - both need the same version";
+    }
+    return _who + " is running " + string(_their_version) +
+           " and you are running " + game_version() +
+           " - both need the same version";
+}
+
+function net_receive_hello(_b) {
+    var _proto = buffer_read(_b, buffer_u16);
+    var _their_version = buffer_read(_b, buffer_string);
+    net_log("hello from the peer - protocol " + string(_proto) +
+            " version '" + string(_their_version) + "'");
+
+    if (net_is_running()) {
+        /* Nothing to decide any more; the start already settled it. */
+        return;
+    }
+
+    if (_proto != NET_PROTOCOL || _their_version != game_version()) {
+        net_refuse_peer(net_hello_mismatch_text(_proto, _their_version));
+        return;
+    }
+
+    global.net_peer_hello_ok = true;
+    net_log("peer build matches - ok to start");
+}
+
+/// Called once a frame before a game. A peer that has been on the line for
+/// NET_HELLO_MS without introducing itself is a build from before hellos
+/// existed, and the only thing to do with it is say so. A client on an old
+/// host is covered too: the old host's start packet is refused in
+/// net_receive_start, so this is for the wait before it arrives.
+function net_hello_check() {
+    if (net_is_running() || global.net_phase == NetPhase.dead) {
+        return;
+    }
+    if (net_peer_socket() < 0 || global.net_peer_hello_ok) {
+        return;
+    }
+    if (global.net_peer_hello_since <= 0) {
+        return;
+    }
+    if (current_time - global.net_peer_hello_since < NET_HELLO_MS) {
+        return;
+    }
+    net_refuse_peer(net_hello_mismatch_text(0, ""));
+}
+
+/// Whether the host may send a start: the client has said what it is and it
+/// matched. The reason it may not is put on the panel, so a START that does
+/// nothing at least says why.
+function net_host_may_start() {
+    if (global.net_peer_hello_ok) {
+        return true;
+    }
+    var _why = "waiting for player 2's version - not started";
+    if (global.net_peer_hello_since > 0 &&
+        current_time - global.net_peer_hello_since >= NET_HELLO_MS) {
+        _why = net_hello_mismatch_text(0, "");
+    }
+    net_set_status(_why);
+    net_log("start refused - " + _why);
+    return false;
+}
+
+/// Turn the peer away before a game for a reason that is theirs to fix. A host
+/// stays a host - the door stays open for a matching build - and a joiner is
+/// closed the same way a refused start closes it.
+function net_refuse_peer(_why) {
+    show_debug_message("net: refusing peer - " + string(_why));
+    if (global.net_role == NetRole.host) {
+        net_send_bye();
+        if (global.net_socket >= 0) {
+            network_destroy(global.net_socket);
+            global.net_socket = -1;
+        }
+        global.net_peer_ip = "";
+        net_hello_reset();
+        net_set_status(_why);
+        net_log("refused player 2 - " + string(_why));
+        return;
+    }
+    net_close(_why);
 }
 
 /* In-game message text: how wide it may run, how far apart the lines sit, and
@@ -956,6 +1100,8 @@ function net_handle_async(_async) {
             global.net_socket < 0) {
             global.net_socket = _their_socket;
             global.net_peer_ip = string(_their_ip);
+            net_hello_reset();
+            net_send_hello();
             /* Somebody has arrived and the host may well be looking at
                something else - say so out loud, not only on the panel. */
             play_sfx(Sfx.accepted);
@@ -1061,6 +1207,9 @@ function net_handle_async(_async) {
            out that its host has gone. */
         net_log("peer said bye");
         net_peer_left("");
+        break;
+    case NetMsg.hello:
+        net_receive_hello(_b);
         break;
     default:
         show_debug_message("net: unknown message " + string(_msg));
@@ -2392,6 +2541,10 @@ function net_game_info_for(_mission_index, _size, _base) {
 /// _size and _base are the custom map's; for a mission they are ignored, and
 /// the caller may pass 0 and any RandomState (they still travel, as zeros).
 function net_host_start_game(_interface, _mission_index, _size, _base) {
+    if (!net_host_may_start()) {
+        return;
+    }
+
     var _game = new Game();
     var _mission = net_game_info_for(_mission_index, _size, _base);
     if (_mission.instantiate(_game) == undefined) {
@@ -2636,6 +2789,7 @@ function net_lobby_host() {
     global.net_autostart = false;
     global.net_dialling = "";
     global.net_peer_ip = "";
+    net_hello_reset();
     if (global.net_socket >= 0) {
         network_destroy(global.net_socket);
         global.net_socket = -1;

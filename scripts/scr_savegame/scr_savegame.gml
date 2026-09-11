@@ -411,6 +411,25 @@ function savegame_decode_game(_data, _repair = true) {
 ///
 /// Deterministic: it walks collections in index order and every comparison is
 /// integer, so two machines loading the same file make the same corrections.
+/// Cut a garrison's knight list where the audit stopped trusting it. _prev is
+/// the last knight the walk accepted, or undefined when the very first link
+/// was the bad one - then the building's own head pointer is what goes.
+///
+/// Stopping the walk was never enough on its own: the list is still there
+/// afterwards, and every other walker in the game - update_military, the
+/// defender call-out, knight_occupy - follows it with no such check, so a
+/// loop that the audit had merely noticed would be the same hang a few
+/// seconds later. Whatever sat past the cut was unreachable as a knight
+/// anyway; if it is a real serf he is still in the collection, still typed
+/// as a knight, and the count corrected below no longer claims him.
+function savegame_sever_knight_link(_b, _prev) {
+    if (_prev == undefined) {
+        _b.set_first_knight(0);
+        return;
+    }
+    _prev.set_next(0);
+}
+
 function savegame_audit_garrisons(_game) {
     var _buildings = _game.buildings.objects;
     var _serfs = _game.serfs.objects;
@@ -436,13 +455,15 @@ function savegame_audit_garrisons(_game) {
            else can see. */
         var _inside = 0;
         var _in_list = [];
+        var _prev = undefined;
         var _index = _b.get_first_knight();
         while (_index != 0) {
             var _serf = _game.get_serf(_index);
             if (_serf == undefined) {
                 fault_note("garrison.knight_list.broken",
                            "building " + string(_b.get_index()) +
-                           " link to serf " + string(_index));
+                           " link to serf " + string(_index) + " - severed");
+                savegame_sever_knight_link(_b, _prev);
                 break;
             }
 
@@ -460,12 +481,14 @@ function savegame_audit_garrisons(_game) {
             if (_seen) {
                 fault_note("garrison.knight_list.loop",
                            "building " + string(_b.get_index()) +
-                           " serf " + string(_index) + " appears twice");
+                           " serf " + string(_index) + " appears twice - severed");
+                savegame_sever_knight_link(_b, _prev);
                 break;
             }
 
             _inside += 1;
             array_push(_in_list, _index);
+            _prev = _serf;
             _index = _serf.get_next();
         }
 

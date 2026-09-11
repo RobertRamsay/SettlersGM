@@ -1429,6 +1429,12 @@ function GameInitBox(_interface) : GuiObject() constructor {
                     if (global.net_role != NetRole.host || global.net_socket < 0) {
                         break;
                     }
+                    /* And only once player 2 has said which build it is and it
+                       matched ours - the reason goes on the panel, and the
+                       panel stays open to show it. */
+                    if (!net_host_may_start()) {
+                        break;
+                    }
                     net_lobby_close();
                     if (netplay_custom) {
                         net_host_start_game(interface, NET_CUSTOM_MISSION,
