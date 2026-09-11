@@ -149,7 +149,9 @@ function pathfinder_map(_map, _start, _end, _building_road) {
 
     // Open list kept heapified with the manual heap primitives above.
     var _open = [];
-    var _closed = [];
+    // Membership only: iteration order is never used. Keep the original
+    // open heap and score-update operations, including all tie-breaking.
+    var _closed = {};
 
     /* Create start node */
     var _node = new PathfinderSearchNode();
@@ -179,7 +181,7 @@ function pathfinder_map(_map, _start, _end, _building_road) {
         }
 
         /* Put current node on closed list. */
-        array_insert(_closed, 0, _node);
+        _closed[$ string(_node.pos)] = true;
 
         // cycle_directions_cw(): DirectionRight .. DirectionUp
         for (var _d = Direction.right; _d <= Direction.up; _d++) {
@@ -198,17 +200,7 @@ function pathfinder_map(_map, _start, _end, _building_road) {
             }
 
             /* Check if neighbour is in closed list. */
-            var _in_closed = false;
-            var _closed_len = array_length(_closed);
-            for (var _c = 0; _c < _closed_len; _c++) {
-                var _closed_node = _closed[_c];
-                if (_closed_node.pos == _new_pos) {
-                    _in_closed = true;
-                    break;
-                }
-            }
-
-            if (_in_closed) {
+            if (variable_struct_exists(_closed, string(_new_pos))) {
                 continue;
             }
 

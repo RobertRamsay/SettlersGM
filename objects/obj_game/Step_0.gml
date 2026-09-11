@@ -471,6 +471,6 @@ if (net_exit_pending() && !global.net_chat_open) {
 
 if (keyboard_check_pressed(vk_f3)) {
     show_debug = !show_debug;
-    /* The profiler only measures while it can be seen. */
-    prof_set(show_debug);
+    // Export after drawing; keep collecting when the overlay is hidden.
+    global.prof_dump_pending = true;
 }

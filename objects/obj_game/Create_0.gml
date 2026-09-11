@@ -63,7 +63,7 @@ alarm[0] = 1;   // centre window next frame (size change must settle first)
 // window is in the background. See fullscreen_step in scr_gfx.
 fullscreen_init();
 
-// The F3 profiler - see scr_gfx. Off until the overlay is up.
+// The rolling profiler - F3 exports timings even if the overlay was hidden.
 prof_init();
 
 // Game: Tutorial 1 from the mission table (player 0 = "You", no castle yet —

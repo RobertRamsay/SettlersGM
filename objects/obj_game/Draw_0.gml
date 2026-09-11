@@ -8,19 +8,20 @@ interface.handle_event(gui_make_event(EventType.draw, 0, 0, 0, 0, 0));
 prof_draw_end();
 
 if (show_debug) {
+    var _debug_game = interface.get_game();
     var _pos = interface.get_map_cursor_pos();
-    var _map = game.get_map();
+    var _map = _debug_game.get_map();
     var _g = _map.geom;
     draw_set_color(c_white);
-    draw_text(4, 4, "fps " + string(fps) + "  tick " + string(game.get_tick())
+    draw_text(4, 4, "fps " + string(fps) + "  tick " + string(_debug_game.get_tick())
         + "  cursor " + string(_g.pos_col(_pos)) + "," + string(_g.pos_row(_pos))
         + " h=" + string(_map.get_height(_pos))
         + " obj=" + string(_map.get_obj(_pos))
         + " owner=" + string(_map.get_owner(_pos))
-        + "  flags=" + string(game.flags.size()) + " bld=" + string(game.buildings.size()) + " serfs=" + string(game.serfs.size()));
+        + "  flags=" + string(_debug_game.flags.size()) + " bld=" + string(_debug_game.buildings.size()) + " serfs=" + string(_debug_game.serfs.size()));
     /* Where the time goes - see the profiler in scr_gfx. Rebuilt a few times
        a second, drawn every frame. */
-    prof_refresh(game, interface);
+    prof_refresh(_debug_game, interface);
     prof_draw_overlay(4, 16);
 }
 
@@ -175,3 +176,12 @@ if (global.crash_notice != "") {
 /* The language question, over everything, until it has been answered once.
    Draws nothing at all after that. */
 locale_prompt_draw();
+
+if (global.prof_dump_pending) {
+    global.prof_dump_pending = false;
+    prof_dump(interface.get_game(), interface);
+}
+if (current_time < global.prof_notice_until) {
+    draw_set_color(c_white);
+    draw_text(4, SCREEN_H - 16, global.prof_notice);
+}

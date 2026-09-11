@@ -422,9 +422,20 @@ function ai_next_building_type(_game, _player) {
     var _plan = global.ai_build_plan;
     var _n = array_length(_plan);
 
+    // One snapshot of counts per decision, including construction exactly
+    // as ai_building_count does. No persistent state or cache invalidation.
+    var _counts = array_create(32, 0);
+    var _buildings = _game.buildings.objects;
+    for (var _b = 0; _b < array_length(_buildings); _b++) {
+        var _building = _buildings[_b];
+        if (_building != undefined && _building.get_owner() == _player.get_index()) {
+            _counts[_building.get_type()] += 1;
+        }
+    }
+
     for (var _i = 0; _i < _n; _i++) {
         var _entry = _plan[_i];
-        if (ai_building_count(_game, _player, _entry.type) < _entry.want) {
+        if (_counts[_entry.type] < _entry.want) {
             return _entry.type;
         }
     }

@@ -323,9 +323,11 @@ function FlagSearch(_game) constructor {
     };
 
     static execute = function(_callback, _land, _transporter, _data) {
-        for (var _i = 0; _i < FLAG_SEARCH_MAX_DEPTH && array_length(queue) > 0; _i++) {
-            var _flag = queue[0];
-            array_delete(queue, 0, 1);
+        // Consume in FIFO order without shifting the frontier on every pop.
+        var _head = 0;
+        for (var _i = 0; _i < FLAG_SEARCH_MAX_DEPTH && _head < array_length(queue); _i++) {
+            var _flag = queue[_head];
+            _head += 1;
 
             if (_callback(_flag, _data)) {
                 /* Clean up */

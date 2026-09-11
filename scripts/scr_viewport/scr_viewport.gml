@@ -673,6 +673,12 @@ function Viewport(_interface, _map) : GuiObject() constructor {
     offset_x = 0;
     offset_y = 0;
     last_tick = 0;
+    // Cosmetic suggestions only; actual placement always uses live rules.
+    // Expire even while paused, since the player can edit a paused world.
+    placement_cache = {};
+    placement_cache_until = 0;
+    placement_cache_player = -1;
+    placement_cache_castle = false;
 
     /* Trees and water visible, counted as the map objects are drawn and read
        once a frame by ambient_step. */
@@ -2682,6 +2688,7 @@ function Viewport(_interface, _map) : GuiObject() constructor {
     // Viewport::draw_map_cursor_possible_build(). Local coordinates
     // (draw_game_sprite takes screen coordinates, so the gfx origin is added).
     static draw_map_cursor_possible_build = function() {
+        var _profile_start = get_timer();
         var _off = get_offset();
         var _x_off = _off[0];
         var _y_off = _off[1];
@@ -2703,6 +2710,19 @@ function Viewport(_interface, _map) : GuiObject() constructor {
         var _has_castle = false;
         if (_player != undefined) {
             _has_castle = _player.has_castle();
+        }
+
+        if (_player == undefined) {
+            prof_placement_end(_profile_start);
+            return;
+        }
+        if (current_time >= placement_cache_until ||
+            placement_cache_player != _player.get_index() ||
+            placement_cache_castle != _has_castle) {
+            placement_cache = {};
+            placement_cache_until = current_time + 200;
+            placement_cache_player = _player.get_index();
+            placement_cache_castle = _has_castle;
         }
 
         for (var _x_base = _x_off; _x_base < width + MAP_TILE_WIDTH; _x_base += MAP_TILE_WIDTH) {
@@ -2736,7 +2756,11 @@ function Viewport(_interface, _map) : GuiObject() constructor {
                    Both are already inside the predicates that follow, so
                    nothing new is being decided here - it is the same question
                    asked before the expensive one instead of after it. */
+                var _key = string(_pos);
                 var _sprite = -1;
+                if (variable_struct_exists(placement_cache, _key)) {
+                    _sprite = placement_cache[$ _key];
+                } else {
                 if (_space[map.get_obj(_pos)] == Space.open &&
                     map.get_paths(_pos) == 0) {
 
@@ -2762,6 +2786,8 @@ function Viewport(_interface, _map) : GuiObject() constructor {
                         }
                     }
                 }
+                    placement_cache[$ _key] = _sprite;
+                }
 
                 if (_sprite >= 0) {
                     draw_game_sprite(global.gfx_ox + _lx, global.gfx_oy + _ly, _sprite);
@@ -2779,6 +2805,7 @@ function Viewport(_interface, _map) : GuiObject() constructor {
 
             _base_pos = map.move_right(_base_pos);
         }
+        prof_placement_end(_profile_start);
     };
 
     // Viewport::draw_map_cursor(). (_ox, _oy) = screen origin of the viewport.
@@ -3324,6 +3351,12 @@ function Viewport(_interface, _map) : GuiObject() constructor {
             set_redraw();
         }
 
+        // A paused game can still be edited. Do not leave a cached hint
+        // painted forever if the edit landed inside the 200 ms cache window.
+        if (_tick_xor == 0 && (layers & ViewportLayer.builds) != 0 &&
+            current_time >= placement_cache_until) {
+            set_redraw();
+        }
         ambient_step();
     };
 

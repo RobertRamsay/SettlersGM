@@ -565,9 +565,9 @@ function fullscreen_toggle() {
    none by net_ticks_available is counted as WAIT and shown as a percentage of
    frames, never folded into any timing.
 
-   Cheap by construction: nothing runs unless the overlay is up, samples live
+   Sampling remains on with the overlay hidden so F3 can export recent data. Samples live
    in bounded rings, and the text is rebuilt PROF_REFRESH_FRAMES apart, not
-   every frame. No file logging. */
+   every frame. File logging happens only on an F3 request. */
 #macro PROF_SAMPLES        300   // six seconds of frames at 50 fps
 #macro PROF_REFRESH_FRAMES 15    // rebuild the overlay text ~3 times a second
 
@@ -585,7 +585,21 @@ enum ProfSec {
 }
 
 function prof_init() {
-    global.prof_on = false;
+    global.prof_on = true;
+    global.prof_dump_pending = false;
+    global.prof_notice_until = 0;
+    global.prof_notice = "";
+    global.prof_placement = array_create(PROF_SAMPLES, 0);
+    global.prof_placement_us = 0;
+    global.prof_pending_step = 0;
+    global.prof_pending_draw = 0;
+    global.prof_session_frames = 0;
+    global.prof_session_wait = 0;
+    global.prof_sec_ring = [];
+    global.prof_sec_tick_sum = array_create(ProfSec.count, 0);
+    for (var _sec = 0; _sec < ProfSec.count; _sec++) {
+        array_push(global.prof_sec_ring, array_create(PROF_SAMPLES, 0));
+    }
     global.prof_sec_names = ["map", "players", "ai", "flags", "bld", "serfs",
                              "stats", "net", "fx"];
     global.prof_sec_start = array_create(ProfSec.count, 0);
@@ -638,12 +652,17 @@ function prof_frame_begin() {
     var _now = get_timer();
     if (global.prof_frame_start > 0) {
         var _ms = (_now - global.prof_frame_start) / 1000;
+        global.prof_step[@ global.prof_frame_head] = global.prof_pending_step;
+        global.prof_draw[@ global.prof_frame_head] = global.prof_pending_draw;
+        global.prof_placement[@ global.prof_frame_head] = global.prof_placement_us / 1000;
+        global.prof_session_frames += 1;
         global.prof_frame_n = prof_push(global.prof_frame, global.prof_frame_head,
                                         global.prof_frame_n, _ms);
         global.prof_frame_head = (global.prof_frame_head + 1) mod PROF_SAMPLES;
         global.prof_win_frames += 1;
     }
     global.prof_frame_start = _now;
+    global.prof_placement_us = 0;
     global.prof_ticks_frame = 0;
 }
 
@@ -654,12 +673,16 @@ function prof_note_ticks(_wanted, _allowed) {
     }
     if (_wanted > 0 && _allowed == 0) {
         global.prof_win_wait += 1;
+        global.prof_session_wait += 1;
     }
 }
 
 function prof_tick_begin() {
     if (!global.prof_on) {
         return;
+    }
+    for (var _s = 0; _s < ProfSec.count; _s++) {
+        global.prof_sec_tick_sum[@ _s] = 0;
     }
     global.prof_tick_start = get_timer();
 }
@@ -669,6 +692,10 @@ function prof_tick_end() {
         return;
     }
     var _ms = (get_timer() - global.prof_tick_start) / 1000;
+    for (var _s = 0; _s < ProfSec.count; _s++) {
+        var _ring = global.prof_sec_ring[_s];
+        _ring[@ global.prof_tick_head] = global.prof_sec_tick_sum[_s] / 1000;
+    }
     global.prof_tick_n = prof_push(global.prof_tick, global.prof_tick_head,
                                    global.prof_tick_n, _ms);
     global.prof_tick_head = (global.prof_tick_head + 1) mod PROF_SAMPLES;
@@ -684,7 +711,7 @@ function prof_draw_begin() {
     }
     var _now = get_timer();
     if (global.prof_frame_start > 0) {
-        global.prof_step[@ global.prof_frame_head] = (_now - global.prof_frame_start) / 1000;
+        global.prof_pending_step = (_now - global.prof_frame_start) / 1000;
     }
     global.prof_draw_start = _now;
 }
@@ -693,7 +720,7 @@ function prof_draw_end() {
     if (!global.prof_on) {
         return;
     }
-    global.prof_draw[@ global.prof_frame_head] = (get_timer() - global.prof_draw_start) / 1000;
+    global.prof_pending_draw = (get_timer() - global.prof_draw_start) / 1000;
 }
 
 /// A section inside a tick. Cheap enough to leave in place: one comparison
@@ -709,7 +736,9 @@ function prof_end(_sec) {
     if (!global.prof_on) {
         return;
     }
-    global.prof_sec_sum[@ _sec] += get_timer() - global.prof_sec_start[_sec];
+    var _elapsed = get_timer() - global.prof_sec_start[_sec];
+    global.prof_sec_sum[@ _sec] += _elapsed;
+    global.prof_sec_tick_sum[@ _sec] += _elapsed;
 }
 
 /// avg / 95th / max of the first _n entries of a ring, as one string.
@@ -724,7 +753,7 @@ function prof_stat_line(_ring, _n) {
         _sum += _ring[_i];
     }
     array_sort(_copy, true);
-    var _p95 = _copy[min(_n - 1, floor(_n * 0.95))];
+    var _p95 = _copy[min(_n - 1, ceil(_n * 0.95) - 1)];
     return string_format(_sum / _n, 1, 2) + " / " +
            string_format(_p95, 1, 2) + " / " +
            string_format(_copy[_n - 1], 1, 2) + " ms";
@@ -809,4 +838,73 @@ function prof_draw_overlay(_x, _y) {
     for (var _i = 0; _i < array_length(global.prof_lines); _i++) {
         draw_text(_x, _y + _i * 12, global.prof_lines[_i]);
     }
+}
+
+// Placement timing is part of draw, not additional simulation time.
+function prof_placement_end(_start) {
+    global.prof_placement_us += get_timer() - _start;
+}
+
+function prof_live_count(_collection) {
+    var _count = 0;
+    for (var _i = 0; _i < array_length(_collection.objects); _i++) {
+        if (_collection.objects[_i] != undefined && _collection.objects[_i].get_index() != 0) {
+            _count += 1;
+        }
+    }
+    return _count;
+}
+
+// Append snapshots, so overlay-on/off comparisons live in one shareable file.
+// No save data, player names, addresses, or automatic upload.
+function prof_dump(_game, _interface) {
+    var _path = "settlers_performance.txt";
+    var _file = file_text_open_append(_path);
+    if (_file < 0) {
+        global.prof_notice = "Could not write performance report";
+        global.prof_notice_until = current_time + 5000;
+        show_debug_message(global.prof_notice);
+        return;
+    }
+    var _lines = [];
+    array_push(_lines, "=== SettlersGM performance: " + date_datetime_string(date_current_datetime()) + " ===");
+    array_push(_lines, "Patch perf-01; base fa077a24; game " + game_version() + "; OS " + string(os_type));
+    array_push(_lines, "Map " + string(_game.map.geom.cols) + "x" + string(_game.map.geom.rows) +
+        "; tick " + string(_game.get_tick()) + "; speed " + string(_game.game_speed));
+    array_push(_lines, "Live serfs " + string(prof_live_count(_game.serfs)) +
+        "; buildings " + string(prof_live_count(_game.buildings)) +
+        "; flags " + string(prof_live_count(_game.flags)) +
+        "; inventories " + string(prof_live_count(_game.inventories)));
+    var _vp = _interface.get_viewport();
+    if (_vp != undefined) {
+        array_push(_lines, "Zoom " + string(_vp.get_zoom()) +
+            "; placement overlay " + string((_vp.layers & ViewportLayer.builds) != 0));
+    }
+    array_push(_lines, "Network active " + string(net_is_active()) +
+        "; lockstep-starved frames since startup " + string(global.prof_session_wait) +
+        "/" + string(global.prof_session_frames));
+    array_push(_lines, "Recent completed frames " + string(global.prof_frame_n) +
+        "; recent ticks " + string(global.prof_tick_n) + "; budget 20 ms/frame");
+    array_push(_lines, "Times: average / p95 / maximum");
+    array_push(_lines, "Frame wall (includes runner/vsync): " + prof_stat_line(global.prof_frame, global.prof_frame_n));
+    array_push(_lines, "Step to draw: " + prof_stat_line(global.prof_step, global.prof_frame_n));
+    array_push(_lines, "Interface draw CPU submission: " + prof_stat_line(global.prof_draw, global.prof_frame_n));
+    array_push(_lines, "Placement overlay (subset of draw): " + prof_stat_line(global.prof_placement, global.prof_frame_n));
+    array_push(_lines, "Simulation loop per tick: " + prof_stat_line(global.prof_tick, global.prof_tick_n));
+    for (var _s = 0; _s < ProfSec.count; _s++) {
+        array_push(_lines, "  " + global.prof_sec_names[_s] + ": " +
+            prof_stat_line(global.prof_sec_ring[_s], global.prof_tick_n));
+    }
+    array_push(_lines, "Frame and tick samples have separate rolling windows (up to 300 each).");
+    array_push(_lines, "Draw excludes profiler/status text; CPU timers do not measure GPU completion.");
+    array_push(_lines, "First report may include loading. Wait 10 seconds in each test condition before F3.");
+    array_push(_lines, "");
+    for (var _i = 0; _i < array_length(_lines); _i++) {
+        file_text_write_string(_file, _lines[_i]);
+        file_text_writeln(_file);
+    }
+    file_text_close(_file);
+    global.prof_notice = "Saved settlers_performance.txt";
+    global.prof_notice_until = current_time + 5000;
+    show_debug_message("Performance report: " + working_directory + _path);
 }
