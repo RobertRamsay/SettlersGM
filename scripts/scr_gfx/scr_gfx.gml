@@ -479,6 +479,10 @@ function gfx_wrap_string(_str, _cols) {
      in the middle of pushing behind something else. */
 #macro FULLSCREEN_AT_START      true
 #macro FULLSCREEN_SETTLE_FRAMES 8
+// Bottom-taskbar workaround for the current Windows setup (48px taskbar).
+// This is a configurable reserve, not automatic work-area detection.
+// Keep 64px clear; if the taskbar is taller, increase this setting.
+#macro FULLSCREEN_TASKBAR_RESERVE 64
 
 function fullscreen_init() {
     global.fullscreen_wanted = FULLSCREEN_AT_START;
@@ -519,8 +523,14 @@ function fullscreen_set(_on) {
     global.fullscreen_on = _on;
     if (_on) {
         window_set_showborder(false);
-        window_set_position(0, 0);
-        window_set_size(display_get_width(), display_get_height() - 1);
+        var _reserve = 1;
+        if (os_type == os_windows) {
+            _reserve = FULLSCREEN_TASKBAR_RESERVE;
+        }
+        // Set size and position together. The game surface scales to fit,
+        // bringing the entire control panel above the reserved bottom strip.
+        window_set_rectangle(0, 0, display_get_width(),
+                             max(1, display_get_height() - _reserve));
         return;
     }
     window_set_showborder(true);
