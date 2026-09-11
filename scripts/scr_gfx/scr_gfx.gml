@@ -442,11 +442,41 @@ function gfx_wrap_string(_str, _cols) {
 }
 
 /* ---------------------------------------------------------------------------
-   Startup keeps the existing borderless-window workaround: native fullscreen
-   has crashed this runtime when focus changes during swap-chain recreation.
-   F10 and the Fullscreen menu row explicitly opt into native fullscreen.
-   A focus check avoids background requests but cannot fix that runtime race.
-   No native fullscreen transition is made automatically on startup. */
+   Fullscreen - as a borderless window the size of the display, NOT the
+   runtime's own fullscreen mode.
+
+   window_set_fullscreen(true) makes the runtime tear down and recreate its
+   swap chain, and if the window is not in the foreground at that moment it
+   faults inside that recreation:
+
+     Fullscreen state changed (was: 0, want: 1) - need to recreate swap chain
+     Runner.exe exited with non-zero status (-1073741819)
+
+   0xC0000005, every time the game was launched and then clicked away from
+   before it finished loading. Waiting for window_has_focus() before asking
+   was not enough: the focus can go again during the recreation itself, and
+   the same fault came back as a heavy flicker followed by the crash.
+
+   A window with no border, moved to the top-left corner and sized to the
+   display, looks the same to the player and never touches the swap chain: it
+   is an ordinary resize, which the runtime already survives while
+   unfocused. The application surface stays SCREEN_W x SCREEN_H and is scaled
+   into the window by the project's keep-aspect-ratio setting, exactly as it
+   is for a dragged window edge. The platform's "start fullscreen" option and
+   "allow fullscreen switching" stay off on every target, so nothing else can
+   ask for the real thing.
+
+   Two more rules, both learned from building and then alt-tabbing away:
+
+   - The window is one pixel SHORT of the display. A borderless window that
+     covers the monitor exactly is promoted by DXGI to its "fullscreen
+     optimisation" path - the same swap-chain dance as real fullscreen, with
+     the same fault when the window is in the background. One pixel short and
+     it stays an ordinary window.
+   - The switch only happens on a frame when this window has the focus. It
+     costs nothing - the game just stays windowed until the player comes back
+     to it - and it means the resize never lands on a window that Windows is
+     in the middle of pushing behind something else. */
 #macro FULLSCREEN_AT_START      true
 #macro FULLSCREEN_SETTLE_FRAMES 8
 
@@ -456,9 +486,10 @@ function fullscreen_init() {
     global.fullscreen_on = false;
 }
 
-/* The Fullscreen menu describes native fullscreen, not the startup window. */
+/* What the options popup and F10 read. window_get_fullscreen() would answer
+   false here forever, because the runtime's own mode is never entered. */
 function fullscreen_is_on() {
-    return window_get_fullscreen();
+    return global.fullscreen_on;
 }
 
 /* Called once a frame from obj_game's Step. The settling frames let the Create
@@ -501,25 +532,13 @@ function fullscreen_set(_on) {
     }
 }
 
-/* F10: native fullscreen <-> normal window. The first press from the
-   startup borderless window enters native fullscreen, rather than shrinking. */
+/* F10 and the options popup's Fullscreen row both come through here. */
 function fullscreen_toggle() {
-    if (!window_has_focus()) {
-        return;
-    }
+    /* A deliberate toggle cancels the pending start-up switch: if the player
+       got there first, honour what they asked for rather than overriding it a
+       few frames later. */
     global.fullscreen_wanted = false;
-    if (window_get_fullscreen()) {
-        window_set_fullscreen(false);
-        fullscreen_set(false);
-        return;
-    }
-
-    // Explicitly disable GameMaker's own borderless fullscreen option.
-    // Supported on Windows and macOS; other targets use their native default.
-    if (os_type == os_windows || os_type == os_macosx) {
-        window_enable_borderless_fullscreen(false);
-    }
-    window_set_fullscreen(true);
+    fullscreen_set(!global.fullscreen_on);
 }
 
 /* ---------------------------------------------------------------------------
