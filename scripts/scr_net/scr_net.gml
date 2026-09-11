@@ -2230,6 +2230,7 @@ function net_flag_line(_game, _i) {
                 " path_con=" + string(_f.path_con) +
                 " endpoint=" + string(_f.endpoint) +
                 " transporter=" + string(_f.transporter) +
+                " length=" + string(_f.length) +
                 " bld_flags=" + string(_f.bld_flags) +
                 " search_num=" + string(_f.search_num) +
                 " search_dir=" + string(_f.search_dir);

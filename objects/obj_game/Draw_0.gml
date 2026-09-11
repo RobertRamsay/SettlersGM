@@ -3,7 +3,9 @@
 // between pixels" game option is on by default and would blur the x2 upscale
 // of the application surface, muddying the Amiga palette.
 gpu_set_texfilter(false);
+prof_draw_begin();
 interface.handle_event(gui_make_event(EventType.draw, 0, 0, 0, 0, 0));
+prof_draw_end();
 
 if (show_debug) {
     var _pos = interface.get_map_cursor_pos();
@@ -16,6 +18,10 @@ if (show_debug) {
         + " obj=" + string(_map.get_obj(_pos))
         + " owner=" + string(_map.get_owner(_pos))
         + "  flags=" + string(game.flags.size()) + " bld=" + string(game.buildings.size()) + " serfs=" + string(game.serfs.size()));
+    /* Where the time goes - see the profiler in scr_gfx. Rebuilt a few times
+       a second, drawn every frame. */
+    prof_refresh(game, interface);
+    prof_draw_overlay(4, 16);
 }
 
 // ---- networking status, drawn last so nothing covers it.

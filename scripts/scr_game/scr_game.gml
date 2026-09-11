@@ -968,17 +968,22 @@ function Game() constructor {
         tick_diff = tick - last_tick;
 
         clear_serf_request_failure();
+        prof_begin(ProfSec.map);
         map.update(tick, init_map_rnd);
+        prof_end(ProfSec.map);
 
         /* Update players */
+        prof_begin(ProfSec.players);
         for (var _pi = 0; _pi < array_length(players.objects); _pi++) {
             var _player = players.objects[_pi];
             if (_player != undefined) {
                 _player.update();
             }
         }
+        prof_end(ProfSec.players);
 
         /* Update knight morale */
+        prof_begin(ProfSec.stats);
         knight_morale_counter -= tick_diff;
         if (knight_morale_counter < 0) {
             update_knight_morale();
@@ -991,14 +996,25 @@ function Game() constructor {
             update_inventories();
             inventory_schedule_counter += 64;
         }
+        prof_end(ProfSec.stats);
 
         /* Freeserf's block here is #if 0 around two TODOs, so this is new
            code rather than a port. See scr_ai. */
+        prof_begin(ProfSec.ai);
         ai_update_players(self);
+        prof_end(ProfSec.ai);
 
+        prof_begin(ProfSec.flags);
         update_flags();
+        prof_end(ProfSec.flags);
+        prof_begin(ProfSec.buildings);
         update_buildings();
+        prof_end(ProfSec.buildings);
+        prof_begin(ProfSec.serfs);
         update_serfs();
+        prof_end(ProfSec.serfs);
+
+        prof_begin(ProfSec.stats);
         update_game_stats();
 
         /* Win / loss, once a second. Not in Freeserf; see check_game_over. */
@@ -1007,6 +1023,7 @@ function Game() constructor {
             check_game_over();
             game_over_counter += TICKS_PER_SEC;
         }
+        prof_end(ProfSec.stats);
     };
 
     /// Has anyone won or lost?

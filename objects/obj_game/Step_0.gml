@@ -5,6 +5,8 @@
 // at all once it has fired, or once the player has toggled it themselves.
 fullscreen_step();
 
+prof_frame_begin();
+
 // ---- game ticks: one update per TICK_LENGTH_MS of real time (50 Hz)
 tick_accumulator += delta_time / 1000;   // delta_time is microseconds
 var _ticks = tick_accumulator div TICK_LENGTH_MS;
@@ -20,6 +22,7 @@ if (_ticks > MAX_CATCHUP_TICKS) {
 // it does not apply and the tick budget is whatever real time earned.
 if (net_is_active()) {
     var _allowed = net_ticks_available();
+    prof_note_ticks(_ticks, _allowed);
     if (_ticks > _allowed) {
         _ticks = _allowed;
     }
@@ -36,12 +39,18 @@ if (_spiralled) {
 }
 
 for (var _t = 0; _t < _ticks; _t++) {
+    prof_tick_begin();
+    prof_begin(ProfSec.net);
     net_before_tick(interface.get_game());
+    prof_end(ProfSec.net);
     interface.handle_event(gui_make_event(EventType.update, 0, 0, 0, 0, 0));
     // "borntodie" effects age on the game tick, so tracers and flames keep
     // pace with the fight that spawned them at every game speed.
+    prof_begin(ProfSec.fx);
     cf_fx_update();
+    prof_end(ProfSec.fx);
     net_after_tick();
+    prof_tick_end();
 }
 
 // The language question, on the first run only, before anything else can be
@@ -462,4 +471,6 @@ if (net_exit_pending() && !global.net_chat_open) {
 
 if (keyboard_check_pressed(vk_f3)) {
     show_debug = !show_debug;
+    /* The profiler only measures while it can be seen. */
+    prof_set(show_debug);
 }

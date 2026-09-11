@@ -540,3 +540,273 @@ function fullscreen_toggle() {
     global.fullscreen_wanted = false;
     fullscreen_set(!global.fullscreen_on);
 }
+
+/* ---------------------------------------------------------------------------
+   Profiler - where a frame's time goes, on the F3 overlay.
+
+   Measures at the boundaries that matter, which are not all inside
+   Game.update:
+
+     frame   wall time between one Step and the next. Includes the runner's
+             own vsync wait, so it reads ~20 ms at 50 fps whatever the game
+             is doing; a frame OVER the budget is the only interesting kind.
+     step    Step event start to Draw event start: every tick that ran this
+             frame, input, networking bookkeeping.
+     draw    the interface's draw event, viewport included.
+     tick    one simulation tick, measured in the Step loop around
+             net_before_tick + Game.update + cf_fx_update + net_after_tick.
+             Reported PER TICK, separately from the frame, because a frame
+             that catches up runs several and would otherwise look slow.
+     sections inside a tick: map, players, ai, flags, buildings, serfs,
+             stats (morale / inventories / game stats / game over), net
+             (turn boundary: commands, hashes, digests), fx.
+
+   Lockstep waiting is not CPU work. A frame that wanted ticks and was given
+   none by net_ticks_available is counted as WAIT and shown as a percentage of
+   frames, never folded into any timing.
+
+   Cheap by construction: nothing runs unless the overlay is up, samples live
+   in bounded rings, and the text is rebuilt PROF_REFRESH_FRAMES apart, not
+   every frame. No file logging. */
+#macro PROF_SAMPLES        300   // six seconds of frames at 50 fps
+#macro PROF_REFRESH_FRAMES 15    // rebuild the overlay text ~3 times a second
+
+enum ProfSec {
+    map = 0,
+    players = 1,
+    ai = 2,
+    flags = 3,
+    buildings = 4,
+    serfs = 5,
+    stats = 6,
+    net = 7,
+    fx = 8,
+    count = 9
+}
+
+function prof_init() {
+    global.prof_on = false;
+    global.prof_sec_names = ["map", "players", "ai", "flags", "bld", "serfs",
+                             "stats", "net", "fx"];
+    global.prof_sec_start = array_create(ProfSec.count, 0);
+    global.prof_sec_sum   = array_create(ProfSec.count, 0);   // us, since refresh
+    global.prof_sec_ticks = 0;                                 // ticks since refresh
+
+    global.prof_frame = array_create(PROF_SAMPLES, 0);   // ms, wall
+    global.prof_step  = array_create(PROF_SAMPLES, 0);   // ms
+    global.prof_draw  = array_create(PROF_SAMPLES, 0);   // ms
+    global.prof_tick  = array_create(PROF_SAMPLES, 0);   // ms per tick
+    global.prof_frame_n = 0;     // samples written (capped at PROF_SAMPLES)
+    global.prof_tick_n  = 0;
+    global.prof_frame_head = 0;
+    global.prof_tick_head  = 0;
+
+    global.prof_frame_start = 0;   // get_timer at the top of this Step
+    global.prof_draw_start  = 0;
+    global.prof_tick_start  = 0;
+    global.prof_ticks_frame = 0;   // ticks run this frame
+
+    global.prof_win_frames = 0;    // frames since refresh
+    global.prof_win_wait   = 0;    // of which lockstep-starved
+    global.prof_win_ticks  = 0;
+    global.prof_refresh    = 0;
+    global.prof_lines      = [];
+}
+
+function prof_set(_on) {
+    if (_on == global.prof_on) {
+        return;
+    }
+    prof_init();
+    global.prof_on = _on;
+}
+
+/// Push a value on to a ring; returns the new count.
+function prof_push(_ring, _head, _n, _v) {
+    _ring[@ _head] = _v;
+    if (_n < PROF_SAMPLES) {
+        return _n + 1;
+    }
+    return _n;
+}
+
+/// Top of Step. The gap since the previous Step is the last frame's wall time.
+function prof_frame_begin() {
+    if (!global.prof_on) {
+        return;
+    }
+    var _now = get_timer();
+    if (global.prof_frame_start > 0) {
+        var _ms = (_now - global.prof_frame_start) / 1000;
+        global.prof_frame_n = prof_push(global.prof_frame, global.prof_frame_head,
+                                        global.prof_frame_n, _ms);
+        global.prof_frame_head = (global.prof_frame_head + 1) mod PROF_SAMPLES;
+        global.prof_win_frames += 1;
+    }
+    global.prof_frame_start = _now;
+    global.prof_ticks_frame = 0;
+}
+
+/// Called from Step with what real time wanted and what lockstep allowed.
+function prof_note_ticks(_wanted, _allowed) {
+    if (!global.prof_on) {
+        return;
+    }
+    if (_wanted > 0 && _allowed == 0) {
+        global.prof_win_wait += 1;
+    }
+}
+
+function prof_tick_begin() {
+    if (!global.prof_on) {
+        return;
+    }
+    global.prof_tick_start = get_timer();
+}
+
+function prof_tick_end() {
+    if (!global.prof_on) {
+        return;
+    }
+    var _ms = (get_timer() - global.prof_tick_start) / 1000;
+    global.prof_tick_n = prof_push(global.prof_tick, global.prof_tick_head,
+                                   global.prof_tick_n, _ms);
+    global.prof_tick_head = (global.prof_tick_head + 1) mod PROF_SAMPLES;
+    global.prof_sec_ticks += 1;
+    global.prof_win_ticks += 1;
+    global.prof_ticks_frame += 1;
+}
+
+/// Top of Draw: closes the step measurement and opens the draw one.
+function prof_draw_begin() {
+    if (!global.prof_on) {
+        return;
+    }
+    var _now = get_timer();
+    if (global.prof_frame_start > 0) {
+        global.prof_step[@ global.prof_frame_head] = (_now - global.prof_frame_start) / 1000;
+    }
+    global.prof_draw_start = _now;
+}
+
+function prof_draw_end() {
+    if (!global.prof_on) {
+        return;
+    }
+    global.prof_draw[@ global.prof_frame_head] = (get_timer() - global.prof_draw_start) / 1000;
+}
+
+/// A section inside a tick. Cheap enough to leave in place: one comparison
+/// when the overlay is off.
+function prof_begin(_sec) {
+    if (!global.prof_on) {
+        return;
+    }
+    global.prof_sec_start[@ _sec] = get_timer();
+}
+
+function prof_end(_sec) {
+    if (!global.prof_on) {
+        return;
+    }
+    global.prof_sec_sum[@ _sec] += get_timer() - global.prof_sec_start[_sec];
+}
+
+/// avg / 95th / max of the first _n entries of a ring, as one string.
+function prof_stat_line(_ring, _n) {
+    if (_n <= 0) {
+        return "-";
+    }
+    var _copy = array_create(_n, 0);
+    var _sum = 0;
+    for (var _i = 0; _i < _n; _i++) {
+        _copy[_i] = _ring[_i];
+        _sum += _ring[_i];
+    }
+    array_sort(_copy, true);
+    var _p95 = _copy[min(_n - 1, floor(_n * 0.95))];
+    return string_format(_sum / _n, 1, 2) + " / " +
+           string_format(_p95, 1, 2) + " / " +
+           string_format(_copy[_n - 1], 1, 2) + " ms";
+}
+
+/// Rebuild the overlay text every PROF_REFRESH_FRAMES frames. The section
+/// totals and the wait count are windowed - they cover the frames since the
+/// last rebuild - while the rings cover the last PROF_SAMPLES frames.
+function prof_refresh(_game, _interface) {
+    if (!global.prof_on) {
+        return;
+    }
+    global.prof_refresh += 1;
+    if (global.prof_refresh < PROF_REFRESH_FRAMES && array_length(global.prof_lines) > 0) {
+        return;
+    }
+    global.prof_refresh = 0;
+
+    var _lines = [];
+    array_push(_lines, "avg / p95 / max   frame " + prof_stat_line(global.prof_frame, global.prof_frame_n)
+               + "   step " + prof_stat_line(global.prof_step, global.prof_frame_n)
+               + "   draw " + prof_stat_line(global.prof_draw, global.prof_frame_n));
+
+    var _ticks_per_frame = 0;
+    var _wait_pct = 0;
+    if (global.prof_win_frames > 0) {
+        _ticks_per_frame = global.prof_win_ticks / global.prof_win_frames;
+        _wait_pct = 100 * global.prof_win_wait / global.prof_win_frames;
+    }
+    var _budget = string(TICK_LENGTH_MS) + " ms";
+    array_push(_lines, "per tick " + prof_stat_line(global.prof_tick, global.prof_tick_n)
+               + "   ticks/frame " + string_format(_ticks_per_frame, 1, 2)
+               + "   budget " + _budget
+               + "   lockstep wait " + string_format(_wait_pct, 1, 0) + "% of frames");
+
+    var _sec = "per tick:";
+    if (global.prof_sec_ticks > 0) {
+        for (var _s = 0; _s < ProfSec.count; _s++) {
+            var _avg_ms = (global.prof_sec_sum[_s] / global.prof_sec_ticks) / 1000;
+            _sec += "  " + global.prof_sec_names[_s] + " " + string_format(_avg_ms, 1, 2);
+        }
+    }
+    array_push(_lines, _sec);
+
+    var _zoom = "-";
+    var _vp = _interface.get_viewport();
+    if (_vp != undefined) {
+        _zoom = string(_vp.get_zoom());
+    }
+    var _net = "off";
+    if (net_is_active()) {
+        _net = "on";
+        if (net_is_running()) {
+            _net = "running";
+        }
+    }
+    array_push(_lines, "serfs " + string(_game.serfs.size())
+               + "  bld " + string(_game.buildings.size())
+               + "  flags " + string(_game.flags.size())
+               + "  inv " + string(_game.inventories.size())
+               + "  zoom x" + _zoom
+               + "  speed " + string(_game.game_speed)
+               + "  net " + _net
+               + "  samples " + string(global.prof_frame_n));
+    global.prof_lines = _lines;
+
+    /* Windowed counters start again; the rings keep rolling. */
+    for (var _s2 = 0; _s2 < ProfSec.count; _s2++) {
+        global.prof_sec_sum[_s2] = 0;
+    }
+    global.prof_sec_ticks = 0;
+    global.prof_win_frames = 0;
+    global.prof_win_wait = 0;
+    global.prof_win_ticks = 0;
+}
+
+function prof_draw_overlay(_x, _y) {
+    if (!global.prof_on) {
+        return;
+    }
+    draw_set_color(c_white);
+    for (var _i = 0; _i < array_length(global.prof_lines); _i++) {
+        draw_text(_x, _y + _i * 12, global.prof_lines[_i]);
+    }
+}
