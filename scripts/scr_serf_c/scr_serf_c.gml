@@ -1129,7 +1129,24 @@ function serf_handle_state_knight_free_walking(_serf) {
         }
         if (_serf.get_owner() != _other.get_owner()) {
           if (_other.state == SerfState.knight_free_walking) {
-            _serf.pos = map.move_left(pos_);
+            /* pos_, NOT _serf.pos. Freeserf moves the LOCAL position here -
+               "is the tile left of him one I could fight on" - and the port
+               wrote the serf's own field instead, which teleported him one
+               tile without telling the map.
+
+               That is where the knights with mirror images came from. The tile
+               he was standing on still named him, so the draw code kept drawing
+               him there: a copy that shadowboxes, because it is the same serf
+               struct and therefore the same animation, and that vanishes the
+               moment he dies. When the fight sent him walking again, free
+               walking cleared the tile he THOUGHT he was on and claimed the
+               next one, so the tile he really came from was never cleared and
+               the ghost stayed for good. Every engagement left another one,
+               which is why there were sometimes three or four.
+
+               The branch below, for a knight in the walking state, has always
+               done this correctly - that asymmetry is what gave it away. */
+            pos_ = map.move_left(pos_);
             if (_serf.can_pass_map_pos(pos_)) {
               var dist_col = _serf.s.free_walking_dist_col;
               var dist_row = _serf.s.free_walking_dist_row;
