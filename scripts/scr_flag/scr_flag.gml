@@ -118,9 +118,7 @@ function flag_wake_transporter_on_path(_game, _pos) {
 /// Port of static Flag::fill_path_serf_info(game, pos, dir, data).
 /// _data is a SerfPathInfo struct which is filled in place.
 function flag_fill_path_serf_info(_game, _pos, _dir, _data) {
-    if (_data == undefined) {
-        _data = new SerfPathInfo();
-    }
+    _data = _data ?? new SerfPathInfo();
     var _map = _game.get_map();
     var _pos_ = _pos;
     var _dir_ = _dir;
@@ -610,7 +608,7 @@ function Flag(_game, _index) : GameObject(_game, _index) constructor {
     };
 
     static drop_resource = function(_res, _dest) {
-        if (_res < ResourceType.none || _res > ResourceType.group_food) {
+        if (!resource_is_concrete(_res)) {
             /* Not a resource. Refused the same way a full flag is refused, so
                the caller's own "it would not go down" path takes it. */
             fault_note("flag.drop.resource_type",

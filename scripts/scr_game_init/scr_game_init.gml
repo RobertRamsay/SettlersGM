@@ -79,7 +79,7 @@ function game_build_version() {
         }
         _out += _c;
     }
-    return _out + "-speedfix1";
+    return _out + "-speedfix1-toolfix1";
 }
 
 /// Everything the update check owns, laid out before anything can read it.
@@ -1896,13 +1896,17 @@ function GameInitBox(_interface) : GuiObject() constructor {
         gen_map = new Map(new MapGeometry(_size));
 
         if (game_type == GameType.mission) {
-            gen_generator = new ClassicMissionMapGenerator(gen_map,
-                                                           mission.get_random_base());
-            gen_generator.init();
+            // Initialise through distinct locals so Feather resolves each
+            // constructor's init signature before storing the shared generator.
+            var _mission_generator = new ClassicMissionMapGenerator(gen_map,
+                                                       mission.get_random_base());
+            _mission_generator.init();
+            gen_generator = _mission_generator;
         } else {
-            gen_generator = new ClassicMapGenerator(gen_map,
-                                                    mission.get_random_base());
-            gen_generator.init(HeightGenerator.midpoints, true);
+            var _custom_generator = new ClassicMapGenerator(gen_map,
+                                                       mission.get_random_base());
+            _custom_generator.init(HeightGenerator.midpoints, true);
+            gen_generator = _custom_generator;
         }
 
         gen_generator.generate_begin();

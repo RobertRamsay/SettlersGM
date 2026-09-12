@@ -562,7 +562,7 @@ function Player(_game, _index) : GameObject(_game, _index) constructor {
             case BuildingType.hut: _min_level = global.player_min_level_hut; break;
             case BuildingType.tower: _min_level = global.player_min_level_tower; break;
             case BuildingType.fortress: _min_level = global.player_min_level_fortress; break;
-            default: return _index; break;
+            default: return _index;
         }
 
         if (_index >= 64) {
@@ -651,10 +651,7 @@ function Player(_game, _index) : GameObject(_game, _index) constructor {
                    so look on the knight layer first - otherwise a transporter
                    sharing the flag would hide him and the hut would be treated
                    as free to attack from. */
-                var _s = game.get_knight_at_pos(_flag_pos);
-                if (_s == undefined) {
-                    _s = game.get_serf_at_pos(_flag_pos);
-                }
+                var _s = game.get_knight_at_pos(_flag_pos) ?? game.get_serf_at_pos(_flag_pos);
                 if (_s != undefined && _s.get_owner() != index) {
                     continue;
                 }
@@ -665,7 +662,7 @@ function Player(_game, _index) : GameObject(_game, _index) constructor {
                 case BuildingType.hut: _min_level = global.player_min_level_hut; break;
                 case BuildingType.tower: _min_level = global.player_min_level_tower; break;
                 case BuildingType.fortress: _min_level = global.player_min_level_fortress; break;
-                default: continue; break;
+                default: continue;
             }
 
             var _state = _b.get_threat_level();
@@ -914,9 +911,19 @@ function Player(_game, _index) : GameObject(_game, _index) constructor {
     };
 
     static increase_res_count = function(_type) {
+        if (!resource_is_concrete(_type)) {
+            fault_note("player.increase_res_count.resource_type",
+                       "index " + string(index) + " res " + string(_type));
+            return;
+        }
         resource_count[_type]++;
     };
     static decrease_res_count = function(_type) {
+        if (!resource_is_concrete(_type)) {
+            fault_note("player.decrease_res_count.resource_type",
+                       "index " + string(index) + " res " + string(_type));
+            return;
+        }
         resource_count[_type]--;
     };
 

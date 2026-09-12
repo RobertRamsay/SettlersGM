@@ -840,10 +840,7 @@ function cf_find_target(_serf) {
             continue;
         }
         /* Knight layer first: the target is always a knight. */
-        var _other = _serf.game.get_knight_at_pos(_p);
-        if (_other == undefined) {
-            _other = _serf.game.get_serf_at_pos(_p);
-        }
+        var _other = _serf.game.get_knight_at_pos(_p) ?? _serf.game.get_serf_at_pos(_p);
         if (_other == undefined) {
             continue;
         }

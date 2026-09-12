@@ -639,10 +639,7 @@ function viewport_watch_stuck_knight(_serf, _map, _game) {
                 string(_map.get_serf_index(_ahead)) +
                 " knight=" + string(_map.get_knight_index(_ahead));
 
-        var _blocker = _game.peek_knight_at_pos(_ahead);
-        if (_blocker == undefined) {
-            _blocker = _game.peek_serf_at_pos(_ahead);
-        }
+        var _blocker = _game.peek_knight_at_pos(_ahead) ?? _game.peek_serf_at_pos(_ahead);
         if (_blocker == undefined) {
             _msg += " (nobody there)";
         } else {
@@ -2273,7 +2270,8 @@ function Viewport(_interface, _map) : GuiObject() constructor {
             if (_t < 0x80) {
                 if (_serf.get_state() == SerfState.leaving_building &&
                     _serf.get_leaving_building_next_state() == SerfState.drop_resource_out) {
-                    switch (_serf.get_leaving_building_field_B() - 1) {
+                    var _tool_res = _serf.get_leaving_building_field_B() - 1;
+                    switch (_tool_res) {
                     case ResourceType.shovel: _t += 0x5a00; break;
                     case ResourceType.hammer: _t += 0x5b00; break;
                     case ResourceType.rod: _t += 0x5c00; break;
@@ -2285,7 +2283,7 @@ function Viewport(_interface, _map) : GuiObject() constructor {
                     case ResourceType.pincer: _t += 0x6400; break;
                     default:
                         fault_note("viewport.serf_body.toolmaker_res",
-                                   "res " + string(_res));
+                                   "res " + string(_tool_res));
                         break;
                     }
                 } else {

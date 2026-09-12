@@ -1543,7 +1543,6 @@ function Interface(_game = undefined) : GuiObject() constructor {
 
             default:
                 return gui_handle_event(_event);
-                break;
         }
 
         return true;
