@@ -2729,9 +2729,7 @@ function Game() constructor {
     /* ---------------------------------------------------------------- */
 
     static create_serf = function(_index = -1) {
-        if (_index == undefined) {
-            _index = -1;
-        }
+        _index = _index ?? -1;
         if (_index == -1) {
             return serfs.allocate();
         } else {
@@ -2784,9 +2782,7 @@ function Game() constructor {
     };
 
     static create_flag = function(_index = -1) {
-        if (_index == undefined) {
-            _index = -1;
-        }
+        _index = _index ?? -1;
         if (_index == -1) {
             return flags.allocate();
         } else {
@@ -2795,9 +2791,7 @@ function Game() constructor {
     };
 
     static create_inventory = function(_index = -1) {
-        if (_index == undefined) {
-            _index = -1;
-        }
+        _index = _index ?? -1;
         if (_index == -1) {
             return inventories.allocate();
         } else {
@@ -2811,9 +2805,7 @@ function Game() constructor {
     };
 
     static create_building = function(_index = -1) {
-        if (_index == undefined) {
-            _index = -1;
-        }
+        _index = _index ?? -1;
         if (_index == -1) {
             return buildings.allocate();
         } else {

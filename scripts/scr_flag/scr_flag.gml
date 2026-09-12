@@ -118,9 +118,7 @@ function flag_wake_transporter_on_path(_game, _pos) {
 /// Port of static Flag::fill_path_serf_info(game, pos, dir, data).
 /// _data is a SerfPathInfo struct which is filled in place.
 function flag_fill_path_serf_info(_game, _pos, _dir, _data) {
-    if (_data == undefined) {
-        _data = new SerfPathInfo();
-    }
+    _data = _data ?? new SerfPathInfo();
     var _map = _game.get_map();
     var _pos_ = _pos;
     var _dir_ = _dir;

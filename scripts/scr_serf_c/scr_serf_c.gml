@@ -1186,10 +1186,7 @@ function serf_handle_state_knight_free_walking(_serf) {
            first: a knight sharing a tile with a transporter must not be
            hidden behind him. The fall-back is the ordinary layer, which is
            where every knight lives while MAP_KNIGHTS_PHANTOM is off. */
-        var _other = _serf.game.get_knight_at_pos(pos_);
-        if (_other == undefined) {
-          _other = _serf.game.get_serf_at_pos(pos_);
-        }
+        var _other = _serf.game.get_knight_at_pos(pos_) ?? _serf.game.get_serf_at_pos(pos_);
         if (_other == undefined) {
           /* Belt and braces. Game.delete_serf now clears the map tile it is
              leaving, so a tile should never point at a serf that is gone -
