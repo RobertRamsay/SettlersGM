@@ -914,9 +914,19 @@ function Player(_game, _index) : GameObject(_game, _index) constructor {
     };
 
     static increase_res_count = function(_type) {
+        if (!resource_is_concrete(_type)) {
+            fault_note("player.increase_res_count.resource_type",
+                       "index " + string(index) + " res " + string(_type));
+            return;
+        }
         resource_count[_type]++;
     };
     static decrease_res_count = function(_type) {
+        if (!resource_is_concrete(_type)) {
+            fault_note("player.decrease_res_count.resource_type",
+                       "index " + string(index) + " res " + string(_type));
+            return;
+        }
         resource_count[_type]--;
     };
 

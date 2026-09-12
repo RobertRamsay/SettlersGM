@@ -156,6 +156,11 @@ function Inventory(_game, _index) : GameObject(_game, _index) constructor {
     };
 
     static get_count_of = function(_resource) {
+        if (!resource_is_concrete(_resource)) {
+            fault_note("inventory.get_count_of.resource_type",
+                       "index " + string(index) + " res " + string(_resource));
+            return 0;
+        }
         return resources[_resource];
     };
     /// Returns the resources array itself (C++ returns a copy of the map).
@@ -163,9 +168,19 @@ function Inventory(_game, _index) : GameObject(_game, _index) constructor {
         return resources;
     };
     static pop_resource = function(_resource) {
+        if (!resource_is_concrete(_resource)) {
+            fault_note("inventory.pop_resource.resource_type",
+                       "index " + string(index) + " res " + string(_resource));
+            return;
+        }
         resources[_resource]--;
     };
     static push_resource = function(_resource) {
+        if (!resource_is_concrete(_resource)) {
+            fault_note("inventory.push_resource.resource_type",
+                       "index " + string(index) + " res " + string(_resource));
+            return;
+        }
         /* resources[resource] += (resources[resource] < 50000) ? 1 : 0; */
         if (resources[_resource] < 50000) {
             resources[_resource] += 1;
@@ -232,6 +247,12 @@ function Inventory(_game, _index) : GameObject(_game, _index) constructor {
             } else {
                 _type = ResourceType.fish;
             }
+        }
+
+        if (!resource_is_concrete(_type)) {
+            fault_note("inventory.queue.resource_type",
+                       "inv " + string(index) + " res " + string(_type));
+            return;
         }
 
         if (resources[_type] == 0) {

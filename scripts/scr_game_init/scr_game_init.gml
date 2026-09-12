@@ -79,7 +79,7 @@ function game_build_version() {
         }
         _out += _c;
     }
-    return _out + "-speedfix1";
+    return _out + "-speedfix1-toolfix1";
 }
 
 /// Everything the update check owns, laid out before anything can read it.

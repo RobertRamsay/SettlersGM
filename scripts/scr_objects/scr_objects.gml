@@ -34,6 +34,12 @@ enum ResourceType {
     types_count
 }
 
+/// Physical cargo and resource counters exclude none and search categories.
+function resource_is_concrete(_resource) {
+    return _resource >= ResourceType.fish && _resource <= ResourceType.shield
+        && _resource == floor(_resource);
+}
+
 function GameObject(_game, _index) constructor {
     game = _game;
     index = _index;

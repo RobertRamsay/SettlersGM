@@ -610,7 +610,7 @@ function Flag(_game, _index) : GameObject(_game, _index) constructor {
     };
 
     static drop_resource = function(_res, _dest) {
-        if (_res < ResourceType.none || _res > ResourceType.group_food) {
+        if (!resource_is_concrete(_res)) {
             /* Not a resource. Refused the same way a full flag is refused, so
                the caller's own "it would not go down" path takes it. */
             fault_note("flag.drop.resource_type",

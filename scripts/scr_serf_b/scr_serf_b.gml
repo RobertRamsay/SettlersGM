@@ -1876,6 +1876,28 @@ function serf_handle_serf_making_weapon_state(_serf) {
     }
 }
 
+/// Use the same rounded weights for both the total and the selection.
+/// The caller supplies exactly one simulation RNG draw (0..65535).
+function serf_choose_tool(_player, _random) {
+    var _total = 0;
+    for (var _i = 0; _i < 9; _i++) {
+        _total += max(0, _player.get_tool_prio(_i) >> 4);
+    }
+    if (_total == 0) {
+        return ResourceType.shovel + floor(9 * _random / 65536);
+    }
+    var _offset = floor(_total * _random / 65536);
+    for (var _j = 0; _j < 9; _j++) {
+        _offset -= max(0, _player.get_tool_prio(_j) >> 4);
+        if (_offset < 0) {
+            return ResourceType.shovel + _j;
+        }
+    }
+    // Unreachable with a valid RNG draw; never put the none sentinel in cargo.
+    fault_note("serf.tool.selection", "rng " + string(_random));
+    return ResourceType.shovel;
+}
+
 /// @function serf_handle_serf_making_tool_state(_serf)
 function serf_handle_serf_making_tool_state(_serf) {
     var _building = _serf.game.get_building(_serf.game.get_map().get_obj_index(_serf.pos));
@@ -1901,27 +1923,7 @@ function serf_handle_serf_making_tool_state(_serf) {
                 _serf.game.get_map().clear_serf_index(_serf.pos, _serf);
 
                 var _player = _serf.game.get_player(_serf.get_owner());
-                var _total_tool_prio = 0;
-                for (var _i = 0; _i < 9; _i++) {
-                    _total_tool_prio += _player.get_tool_prio(_i);
-                }
-                _total_tool_prio = _total_tool_prio >> 4;
-
-                var _res = -1;
-                if (_total_tool_prio > 0) {
-                    /* Use defined tool priorities. */
-                    var _prio_offset = (_total_tool_prio * _serf.game.random_int()) >> 16;
-                    for (var _j = 0; _j < 9; _j++) {
-                        _prio_offset -= _player.get_tool_prio(_j) >> 4;
-                        if (_prio_offset < 0) {
-                            _res = ResourceType.shovel + _j;
-                            break;
-                        }
-                    }
-                } else {
-                    /* Completely random. */
-                    _res = ResourceType.shovel + ((9 * _serf.game.random_int()) >> 16);
-                }
+                var _res = serf_choose_tool(_player, _serf.game.random_int());
 
                 _serf.set_state(SerfState.move_resource_out);
                 _serf.s.move_resource_out_res = 1 + _res;

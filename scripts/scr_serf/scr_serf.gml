@@ -2727,6 +2727,16 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
     };
 
     static handle_serf_move_resource_out_state = function() {
+        // Older toolmaker crash saves have encoded cargo 0 here: inputs were
+        // already consumed, but tool selection failed before stats increased.
+        // Complete that paid-for tool once, even if the exit remains blocked.
+        if (get_type() == SerfType.toolmaker && s.move_resource_out_res == 0) {
+            var _tool_player = game.get_player(get_owner());
+            var _tool = serf_choose_tool(_tool_player, game.random_int());
+            s.move_resource_out_res = _tool + 1;
+            _tool_player.increase_res_count(_tool);
+            fault_note("serf.tool.recovered", "serf " + string(index));
+        }
         tick = game.get_tick();
         counter = 0;
 
