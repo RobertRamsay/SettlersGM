@@ -1348,6 +1348,37 @@ function popup_game_end_can_continue(_result) {
     return (_result == 1) || (_result == 2);
 }
 
+/// Original opponent scenes occupy art_box 3..13 in face order 1..11:
+/// Amalie, Kumpy, Balduin, Frollin, Kallina, Rasparuk, Aldaba, Rolph,
+/// Homen, Sollok, and the final enemy. This is character, not player colour.
+/// A one-on-one mission has one unambiguous opponent; other games retain
+/// their general result art. Read-only presentation: no simulation changes.
+function popup_game_end_art(_game, _mission) {
+    if (_game == undefined) {
+        return GAME_END_ART_VICTORY;
+    }
+    var _result = _game.game_over;
+    if (_result == 2) {
+        return GAME_END_ART_DEFEAT;
+    }
+    if (_mission && (_result == 1 || _result == 3)) {
+        var _opponents = _game.collect_opponents(0);
+        if (array_length(_opponents) == 1) {
+            var _opponent = _game.get_player(_opponents[0]);
+            if (_opponent != undefined) {
+                var _face = _opponent.get_face();
+                if (_face >= 1 && _face <= 11 && _face == floor(_face)) {
+                    return _face + 2;
+                }
+            }
+        }
+    }
+    if (_result == 3) {
+        return GAME_END_ART_SUPREME;
+    }
+    return GAME_END_ART_VICTORY;
+}
+
 function popup_draw_game_end_box(_popup) {
     var _game = _popup.interface.get_game();
     var _result = 0;
@@ -1357,12 +1388,7 @@ function popup_draw_game_end_box(_popup) {
         _mission = (progress_index_for_game(_game) >= 0);
     }
 
-    var _art = GAME_END_ART_VICTORY;
-    if (_result == 2) {
-        _art = GAME_END_ART_DEFEAT;
-    } else if (_result == 3) {
-        _art = GAME_END_ART_SUPREME;
-    }
+    var _art = popup_game_end_art(_game, _mission);
 
     /* The picture fills the content area: origin (8, 9), as draw_popup_icon
        places column 0 row 0. */
