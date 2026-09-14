@@ -1351,8 +1351,16 @@ function popup_game_end_can_continue(_result) {
 /// Original opponent scenes occupy art_box 3..13 in face order 1..11:
 /// Amalie, Kumpy, Balduin, Frollin, Kallina, Rasparuk, Aldaba, Rolph,
 /// Homen, Sollok, and the final enemy. This is character, not player colour.
-/// A one-on-one mission has one unambiguous opponent; other games retain
-/// their general result art. Read-only presentation: no simulation changes.
+///
+/// A mission win shows the scene of its HIGHEST-numbered opponent. The
+/// campaign introduces one new character per mission, so the highest face
+/// is the newest enemy, the one the level is about; with three opponents in
+/// a mission and eleven scenes for thirty missions, every scene is reused
+/// two to six times across the campaign either way. Decided from the
+/// opponents captured when the game ended (game_over_opponents), because
+/// beaten players can be gone from the collection by the time the box is
+/// drawn. Custom games keep the general result art. Read-only presentation:
+/// no simulation changes.
 function popup_game_end_art(_game, _mission) {
     if (_game == undefined) {
         return GAME_END_ART_VICTORY;
@@ -1362,15 +1370,23 @@ function popup_game_end_art(_game, _mission) {
         return GAME_END_ART_DEFEAT;
     }
     if (_mission && (_result == 1 || _result == 3)) {
-        var _opponents = _game.collect_opponents(0);
-        if (array_length(_opponents) == 1) {
-            var _opponent = _game.get_player(_opponents[0]);
-            if (_opponent != undefined) {
-                var _face = _opponent.get_face();
-                if (_face >= 1 && _face <= 11 && _face == floor(_face)) {
-                    return _face + 2;
-                }
+        var _opponents = _game.game_over_opponents;
+        if (array_length(_opponents) == 0) {
+            _opponents = _game.collect_opponents(0);
+        }
+        var _best = 0;
+        for (var _i = 0; _i < array_length(_opponents); _i++) {
+            var _opponent = _game.get_player(_opponents[_i]);
+            if (_opponent == undefined) {
+                continue;
             }
+            var _face = _opponent.get_face();
+            if (_face >= 1 && _face <= 11 && _face == floor(_face) && _face > _best) {
+                _best = _face;
+            }
+        }
+        if (_best > 0) {
+            return _best + 2;
         }
     }
     if (_result == 3) {
