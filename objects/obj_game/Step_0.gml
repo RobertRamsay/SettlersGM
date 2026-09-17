@@ -304,10 +304,20 @@ var _my = floor(_my_raw);
 var _buttons = [mb_left, mb_middle, mb_right];
 
 // Left + right held together == "both buttons" on a two-button Amiga mouse.
+//
+// Only when it started as a chord. A second button pressed in the middle of
+// a pan is a slip of the finger, not the Amiga gesture: the release used to
+// arrive as a "both buttons" click at wherever the pointer happened to be,
+// and on a flag that is the send-a-geologist question. Panning is a drag
+// that has moved (drag_moved), so while it is under way the extra button
+// only cancels the clicks. A chord that then wanders is still a chord, which
+// is how the original treated it.
 if (mouse_check_button(mb_left) && mouse_check_button(mb_right)) {
-    both_buttons_active = true;
     suppress_click[EventButton.left] = true;
     suppress_click[EventButton.right] = true;
+    if (!(drag_button != 0 && drag_moved)) {
+        both_buttons_active = true;
+    }
 }
 
 for (var _b = 1; _b <= 3; _b++) {
@@ -345,6 +355,7 @@ for (var _b = 1; _b <= 3; _b++) {
             drag_button = _b;
             drag_x = _mx_raw;
             drag_y = _my_raw;
+            drag_moved = false;
             drag_sent_x = 0;
             drag_sent_y = 0;
             break;
@@ -367,6 +378,9 @@ for (var _b = 1; _b <= 3; _b++) {
             //     of being swallowed by whatever is under the cursor now.
             var _want_x = round(_mx_raw - drag_x);
             var _want_y = round(_my_raw - drag_y);
+            if (abs(_want_x) > MOUSE_MOVE_SENSITIVITY || abs(_want_y) > MOUSE_MOVE_SENSITIVITY) {
+                drag_moved = true;
+            }
             var _dx = _want_x - drag_sent_x;
             var _dy = _want_y - drag_sent_y;
             if (_dx != 0 || _dy != 0) {

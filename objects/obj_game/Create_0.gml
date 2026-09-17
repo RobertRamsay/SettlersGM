@@ -89,6 +89,10 @@ drag_button = 0;
 // drag cannot lose the fraction of a pixel it makes each frame.
 drag_x = 0;
 drag_y = 0;
+// Whether the held button has travelled further than a click is allowed to
+// wander (MOUSE_MOVE_SENSITIVITY) since it went down - i.e. this is a pan,
+// not a press. Read by the both-buttons chord below.
+drag_moved = false;
 drag_sent_x = 0;
 drag_sent_y = 0;
 last_click_time = array_create(4, -100000);
