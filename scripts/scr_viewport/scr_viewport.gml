@@ -57,7 +57,7 @@
    taste, not mechanism.
 
    Setting all three back to the Amiga column restores its exact behaviour. */
-#macro AMBIENT_BIRD_MASK   0x1FFF    /* Amiga 0x3FF:  trees out of 1024; ours 8192 */
+#macro AMBIENT_BIRD_MASK   0x3FFF    /* Amiga 0x3FF:  trees out of 1024; ours 8192 */
 
 /* Birds again, by ear this time: at a quarter of the original's rate they
    were still too frequent and too loud against the rest of the mix, so one
