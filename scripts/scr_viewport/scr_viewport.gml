@@ -45,8 +45,8 @@
 #macro AMBIENT_WIND_GAP_MS       4500
 #macro AMBIENT_WIND_GAP_RAND_MS  5000
 /* How often ambience fires. The Amiga's own values are in the right-hand
-   column; each of ours is a QUARTER as often, which is two more bits in the
-   mask. The original runs at the Amiga's frame rate and through its own
+   column; water and wind are each a QUARTER as often, which is two more
+   bits in the mask, and the birds an EIGHTH. The original runs at the Amiga's frame rate and through its own
    four-slot queue, and at our rate its numbers came out busier than they
    should - so these are a deliberate departure, kept in the original's idiom
    so the difference is a bit count and visible.
@@ -57,7 +57,13 @@
    taste, not mechanism.
 
    Setting all three back to the Amiga column restores its exact behaviour. */
-#macro AMBIENT_BIRD_MASK   0xFFF     /* Amiga 0x3FF:  trees out of 1024 */
+#macro AMBIENT_BIRD_MASK   0x1FFF    /* Amiga 0x3FF:  trees out of 1024; ours 8192 */
+
+/* Birds again, by ear this time: at a quarter of the original's rate they
+   were still too frequent and too loud against the rest of the mix, so one
+   more bit on the mask (an eighth of the Amiga's chance) and the chirp's
+   level is scaled by this on top of the table's own variation. */
+#macro AMBIENT_BIRD_GAIN   0.5
 #macro AMBIENT_WATER_MASK  0x3F00    /* Amiga 0xF00:  one frame in 16   */
 #macro AMBIENT_WIND_MASK   0xF000    /* Amiga 0x3000: one frame in 4    */
 
@@ -3421,7 +3427,7 @@ function Viewport(_interface, _map) : GuiObject() constructor {
            is a tweet with a bite out of it. */
         if (ambient_trees > 0 && (_rnd & AMBIENT_BIRD_MASK) <= ambient_trees) {
             var _chirp = Sfx.bird_chirp0 + (_rnd & 0x0C);
-            play_sound_at_view(_chirp, sfx_amiga_level_for(_chirp));
+            play_sound_at_view(_chirp, sfx_amiga_level_for(_chirp) * AMBIENT_BIRD_GAIN);
         }
 
         /* Water: one in sixteen, louder the more water is in view - which is
