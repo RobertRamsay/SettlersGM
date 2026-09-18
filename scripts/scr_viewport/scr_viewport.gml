@@ -450,7 +450,8 @@ function viewport_init_tables() {
         64, 0
     ];
 
-    // Viewport::serf_get_body: transporter_type[]
+    // Viewport::serf_get_body: transporter_type[] - read through
+    // viewport_carried_offset(), never indexed directly.
     global.viewport_transporter_type = [
         0, 0x3000, 0x3500, 0x3b00, 0x4100, 0x4600, 0x4b00, 0x1400,
         0x700, 0x5100, 0x800, 0x1c00, 0x1d00, 0x1e00, 0x1a00, 0x1b00,
@@ -761,6 +762,10 @@ function Viewport(_interface, _map) : GuiObject() constructor {
     // away up to a pixel of every event, which is most of a slow drag.
     drag_carry_x = 0;
     drag_carry_y = 0;
+
+    // Delivery values already reported by carried_offset(), so each is
+    // logged once. A plain array: it only ever holds a handful of values.
+    carried_offset_warned = [];
 
     tri_spr = [
         32, 32, 32, 32, 32, 32, 32, 32,
@@ -1928,8 +1933,44 @@ function Viewport(_interface, _map) : GuiObject() constructor {
 
     /* Extracted from obsolete update_map_serf_rows(). */
     /* Translate serf type into the corresponding sprite code. */
+    /// The sprite offset for a carried resource, or 0 for "carrying nothing".
+    ///
+    /// Serf.get_delivery() hands back whatever sits in the state's field_B,
+    /// and that field is a resource only while the serf is actually carrying
+    /// one. For a serf going through a door on an errand the same field is
+    /// the MODE he was sent with, -2 or -3, so the table was being read at
+    /// transporter_type[-2] - garbage in Freeserf, where the C++ quietly
+    /// picks up the two ints before the array, and a dead session here:
+    ///
+    ///     Variable Index [-2] out of range [32] - _transporter_type
+    ///     in serf_get_body, mission 28, 18/09/2026 (crash report)
+    ///
+    /// Same family as serf_anim_counter and flag_prio[-1]. Anything outside
+    /// the table draws as empty-handed, which is what the serf is, and is
+    /// reported once per distinct value so the sender can be found.
+    static carried_offset = function(_res) {
+        var _table = global.viewport_transporter_type;
+        if (_res >= 0 && _res < array_length(_table)) {
+            return _table[_res];
+        }
+        var _seen = false;
+        for (var _i = 0; _i < array_length(carried_offset_warned); _i++) {
+            if (carried_offset_warned[_i] == _res) {
+                _seen = true;
+                break;
+            }
+        }
+        if (!_seen) {
+            array_push(carried_offset_warned, _res);
+            show_debug_message("viewport: delivery " + string(_res) +
+                               " is outside transporter_type (0.." +
+                               string(array_length(_table) - 1) +
+                               ") - drawn empty-handed");
+        }
+        return 0;
+    };
+
     static serf_get_body = function(_serf) {
-        var _transporter_type = global.viewport_transporter_type;
         var _sailor_type = global.viewport_sailor_type;
 
         var _animation = get_animation(_serf.get_animation(), _serf.get_counter(), _serf);
@@ -1943,7 +1984,7 @@ function Viewport(_interface, _map) : GuiObject() constructor {
             } else if ((_serf.get_state() == SerfState.transporting ||
                         _serf.get_state() == SerfState.delivering) &&
                        _serf.get_delivery() != 0) {
-                _t += _transporter_type[_serf.get_delivery()];
+                _t += carried_offset(_serf.get_delivery());
             }
             break;
         case SerfType.sailor:
@@ -2010,7 +2051,7 @@ function Viewport(_interface, _map) : GuiObject() constructor {
                 return -1;
             } else {
                 var _res = _serf.get_delivery();
-                _t += _transporter_type[_res];
+                _t += carried_offset(_res);
             }
             break;
         case SerfType.lumberjack:
