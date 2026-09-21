@@ -143,25 +143,37 @@ function ai_init_tables() {
         return;
     }
 
+    /* `needs` is a building type that must already exist - standing or under
+       construction - before this entry is worth anything.
+
+       Without it the plan is only an ORDER, and order is not enough once an
+       entry can be skipped for want of a site: the AI put up a third
+       woodcutter while it still had no sawmill, so the logs piled up at the
+       flags with nothing able to turn them into planks. Same shape further
+       down the chain - a steel smelter with no iron mine, a baker with no
+       mill - each one a building whose input nothing produces.
+
+       BuildingType.none means no prerequisite. The FIRST woodcutter has
+       none, deliberately: wood comes before the sawmill that cuts it. */
     global.ai_build_plan = [
-        { type: BuildingType.lumberjack,    want: 2 },
-        { type: BuildingType.sawmill,       want: 1 },
-        { type: BuildingType.forester,      want: 2 },
-        { type: BuildingType.stonecutter,   want: 1 },
-        { type: BuildingType.lumberjack,    want: 3 },
-        { type: BuildingType.sawmill,       want: 2 },
-        { type: BuildingType.farm,          want: 2 },
-        { type: BuildingType.mill,          want: 1 },
-        { type: BuildingType.baker,         want: 1 },
-        { type: BuildingType.coal_mine,     want: 2 },
-        { type: BuildingType.iron_mine,     want: 1 },
-        { type: BuildingType.steel_smelter, want: 1 },
-        { type: BuildingType.tool_maker,    want: 1 },
-        { type: BuildingType.weapon_smith,  want: 1 },
-        { type: BuildingType.farm,          want: 4 },
-        { type: BuildingType.coal_mine,     want: 3 },
-        { type: BuildingType.gold_mine,     want: 1 },
-        { type: BuildingType.gold_smelter,  want: 1 },
+        { type: BuildingType.lumberjack,    want: 2, needs: BuildingType.none },
+        { type: BuildingType.sawmill,       want: 1, needs: BuildingType.lumberjack },
+        { type: BuildingType.forester,      want: 2, needs: BuildingType.lumberjack },
+        { type: BuildingType.stonecutter,   want: 1, needs: BuildingType.none },
+        { type: BuildingType.lumberjack,    want: 3, needs: BuildingType.sawmill },
+        { type: BuildingType.sawmill,       want: 2, needs: BuildingType.lumberjack },
+        { type: BuildingType.farm,          want: 2, needs: BuildingType.none },
+        { type: BuildingType.mill,          want: 1, needs: BuildingType.farm },
+        { type: BuildingType.baker,         want: 1, needs: BuildingType.mill },
+        { type: BuildingType.coal_mine,     want: 2, needs: BuildingType.baker },
+        { type: BuildingType.iron_mine,     want: 1, needs: BuildingType.baker },
+        { type: BuildingType.steel_smelter, want: 1, needs: BuildingType.iron_mine },
+        { type: BuildingType.tool_maker,    want: 1, needs: BuildingType.sawmill },
+        { type: BuildingType.weapon_smith,  want: 1, needs: BuildingType.steel_smelter },
+        { type: BuildingType.farm,          want: 4, needs: BuildingType.mill },
+        { type: BuildingType.coal_mine,     want: 3, needs: BuildingType.steel_smelter },
+        { type: BuildingType.gold_mine,     want: 1, needs: BuildingType.baker },
+        { type: BuildingType.gold_smelter,  want: 1, needs: BuildingType.gold_mine },
     ];
 }
 
@@ -849,6 +861,12 @@ function ai_wanted_building_types(_game, _player) {
             continue;
         }
         if (_counts[_entry.type] >= _entry.want) {
+            continue;
+        }
+        /* Nothing produces this one's input yet. Skipped WITHOUT marking the
+           type as added, so a later entry for the same type - with a
+           prerequisite that is met - can still offer it. */
+        if (_entry.needs != BuildingType.none && _counts[_entry.needs] <= 0) {
             continue;
         }
         _added[_entry.type] = true;
