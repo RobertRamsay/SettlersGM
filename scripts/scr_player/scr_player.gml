@@ -104,6 +104,10 @@ function Player(_game, _index) : GameObject(_game, _index) constructor {
     /// the AI is asked to think - see ai_expand.
     ai_next_expand_tick = 0;
 
+    /// Consecutive AI decisions that did nothing at all, for ai_report_stuck.
+    /// Reset by anything the AI actually builds.
+    ai_stuck_count = 0;
+
     messages = [];   // std::queue<Message> -> array (front = index 0)
     timers = [];     // std::vector<PosTimer> -> array of {timeout, pos}
 

@@ -91,6 +91,10 @@
 /// flag is usually a perfectly good join.
 #macro AI_CONNECT_TRIES 5
 
+/// After the first report that an AI decision did nothing, say so again only
+/// every this many further decisions.
+#macro AI_STUCK_REPEAT 25
+
 /// A candidate this far from the target or worse is not worth the walk.
 #macro AI_SCORE_REJECT 999999
 
@@ -198,9 +202,71 @@ function ai_update_players(_game) {
         // Economy first: a settlement that cannot make planks cannot expand
         // anyway. Only push the border when there is nothing to build.
         if (!ai_build_economy(_game, _player)) {
-            ai_expand(_game, _player);
+            if (!ai_expand(_game, _player)) {
+                ai_report_stuck(_game, _player);
+            }
         }
     }
+}
+
+
+/// Say why a decision did nothing at all.
+///
+/// Three unrelated gates produce the same symptom - an AI that builds four
+/// things and then stops - and from the outside they are indistinguishable:
+/// the plan may have nothing it can site, the hut search may find nowhere
+/// legal, or expansion may simply be waiting out its interval. Rather than
+/// guess, the AI now states the case the first time it happens and then
+/// every AI_STUCK_REPEAT decisions, so a long game does not fill the log.
+///
+/// Reported per player: what the plan wants next and how many of the wanted
+/// types had nowhere to go, the military count against the cap, whether a
+/// hut site exists at all, and how long until expansion is allowed again.
+function ai_report_stuck(_game, _player) {
+    _player.ai_stuck_count += 1;
+    if (_player.ai_stuck_count != 1 &&
+        (_player.ai_stuck_count mod AI_STUCK_REPEAT) != 0) {
+        return;
+    }
+
+    var _wanted = ai_wanted_building_types(_game, _player);
+    var _wanted_n = array_length(_wanted);
+    var _first = -1;
+    if (_wanted_n > 0) {
+        _first = _wanted[0];
+    }
+
+    var _military = array_length(ai_military_buildings(_game, _player));
+    var _civilian = ai_civilian_count(_game, _player);
+    var _orphans = array_length(ai_orphan_flags(_game, _player));
+
+    var _home = ai_home_position(_game, _player);
+    var _hut_site = BAD_MAP_POS;
+    if (_home != BAD_MAP_POS) {
+        _hut_site = ai_find_hut_site(_game, _player,
+                                     ai_enemy_target(_game, _player), _home);
+    }
+    var _hut_text = "none in reach";
+    if (_hut_site != BAD_MAP_POS) {
+        _hut_text = string(_hut_site);
+    }
+
+    var _wait = _player.ai_next_expand_tick - _game.const_tick;
+    if (_wait < 0) {
+        _wait = 0;
+    }
+
+    show_debug_message("ai: player " + string(_player.get_index()) +
+                       " did nothing (" + string(_player.ai_stuck_count) +
+                       " in a row)" +
+                       " - wants " + string(_wanted_n) + " types, first=" +
+                       string(_first) +
+                       "; civilian=" + string(_civilian) +
+                       " military=" + string(_military) + "/" +
+                       string(AI_MAX_MILITARY) +
+                       "; hut site " + _hut_text +
+                       "; expand in " + string(_wait) + " const_ticks" +
+                       "; orphan flags " + string(_orphans));
 }
 
 
@@ -832,6 +898,8 @@ function ai_build_economy(_game, _player) {
             continue;
         }
 
+        _player.ai_stuck_count = 0;
+
         show_debug_message("ai: player " + string(_player.get_index()) +
                            " built type " + string(_type) + " at " + string(_pos));
         return true;
@@ -904,21 +972,23 @@ function ai_expand_interval(_game, _player) {
 }
 
 
-/// One expansion step: place a hut and wire it up.
+/// One expansion step: place a hut and wire it up. Returns true if it built
+/// something, so the caller can tell a decision that acted from one that
+/// found every door closed.
 function ai_expand(_game, _player) {
     var _map = _game.get_map();
 
     if (!_player.has_castle()) {
         // Let the human choose their spot first, then settle away from it.
         if (ai_human_has_castle(_game)) {
-            ai_place_castle(_game, _player);
+            return ai_place_castle(_game, _player);
         }
-        return;
+        return false;
     }
 
     var _home = ai_home_position(_game, _player);
     if (_home == BAD_MAP_POS) {
-        return;
+        return false;
     }
 
     // Its own clock, and its own ratio against the economy. Both are here
@@ -927,27 +997,31 @@ function ai_expand(_game, _player) {
     // use up the interval, or a player hemmed in on one side would stop
     // expanding altogether.
     if (_game.const_tick < _player.ai_next_expand_tick) {
-        return;
+        return false;
     }
 
     if (!ai_may_expand(_game, _player)) {
-        return;
+        return false;
     }
 
     var _target = ai_enemy_target(_game, _player);
     var _pos = ai_find_hut_site(_game, _player, _target, _home);
     if (_pos == BAD_MAP_POS) {
-        return;
+        return false;
     }
 
     if (!ai_place_building(_game, _player, _pos, BuildingType.hut)) {
-        return;
+        return false;
     }
 
     _player.ai_next_expand_tick =
         _game.const_tick +
         ai_scaled_interval(_game, ai_expand_interval(_game, _player));
 
+    _player.ai_stuck_count = 0;
+
     show_debug_message("ai: player " + string(_player.get_index()) +
                        " placed a hut at " + string(_pos));
+
+    return true;
 }
