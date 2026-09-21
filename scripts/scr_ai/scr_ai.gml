@@ -18,10 +18,18 @@
 /// the critical path and stops all the opponents moving in lockstep.
 #macro AI_UPDATE_INTERVAL 400
 
-/// How far out from an existing military building to look for a hut site.
+/// How far out from an existing military building to look for a site.
 /// The spiral pattern holds 295 entries; 1 + 6 + 12 + 18 + 24 covers the first
 /// four rings, which is roughly the radius a hut claims.
 #macro AI_SCAN_POSITIONS 61
+
+/// The same for a HUT, where four rings is not enough. can_build_military
+/// refuses anything within two rings of another military building, so as the
+/// border fills the legal ground moves outward faster than the search does -
+/// and the AI reports "hut site none in reach" while sitting on plenty of its
+/// own land. Seven rings (1 + 6 + 12 + ... + 42) is still well inside the
+/// 295-entry pattern.
+#macro AI_HUT_SCAN_POSITIONS 169
 
 /// Cap on military buildings. Stage 1 held this at 8 because the AI could only
 /// spend the castle's opening stock; with an economy behind it there is more
@@ -399,7 +407,7 @@ function ai_find_hut_site(_game, _player, _target, _home) {
     for (var _s = 0; _s < _source_count; _s++) {
         var _origin = _sources[_s].get_position();
 
-        for (var _i = 1; _i < AI_SCAN_POSITIONS; _i++) {
+        for (var _i = 1; _i < AI_HUT_SCAN_POSITIONS; _i++) {
             var _pos = _map.pos_add_spirally(_origin, _i);
 
             // Must be ground we already hold, or the hut cannot be placed.
@@ -803,9 +811,20 @@ function ai_count_mineral(_game, _pos, _mineral) {
 function ai_site_value(_game, _player, _pos, _type) {
     switch (_type) {
         case BuildingType.lumberjack: {
+            // A thin wood still beats no wood at all. AI_MIN_RESOURCE used to
+            // REJECT anything below it, and because the plan is tried in
+            // order and skipped when it cannot be sited, an opening position
+            // with no dense stand meant the lumberjack was passed over
+            // entirely - the AI built a sawmill, two foresters, a stonecutter
+            // and two farms before its first woodcutter, and ran out of
+            // planks. The threshold now only decides the SCORE, so a dense
+            // stand still wins wherever one exists.
             var _trees = ai_count_trees(_game, _pos);
-            if (_trees < AI_MIN_RESOURCE) {
+            if (_trees <= 0) {
                 return 0;
+            }
+            if (_trees < AI_MIN_RESOURCE) {
+                return 1;
             }
             return _trees;
         }
