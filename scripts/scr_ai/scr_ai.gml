@@ -41,18 +41,28 @@
 /// Three times the thinking interval, so at most one hut in three decisions.
 #macro AI_EXPAND_INTERVAL 1200
 
+/// The interval used instead when the economy is behind its plan. Expansion
+/// is slowed, never stopped - see ai_expand_interval.
+#macro AI_EXPAND_SLOW_INTERVAL 4800
+
 /// Military buildings allowed per civilian one, once past the opening few.
 /// The original's opponents grew their economy and their border together;
 /// this keeps the ratio honest without freezing expansion early, when there
 /// is nothing built yet and the castle has to push out to find room.
 ///
-/// The ratio only governs an economy still being built. The plan tops out at
-/// 23 civilian buildings, which at one hut per two would allow 14 - so a
-/// player that finished its whole plan could never reach AI_MAX_MILITARY and
-/// simply stopped growing, which is not what the ratio is for. Once there is
-/// nothing left in the plan to build, the hard cap is the only limit and the
-/// AI spends its output on the border, as the original's opponents do in a
-/// long game.
+/// The ratio SLOWS expansion; it does not stop it. As a veto it deadlocked a
+/// player whose plan contained something its ground could not support - no
+/// mountain inside the border for a coal mine, say. The plan then stayed
+/// incomplete for ever, so the ratio applied for ever, and the AI could
+/// neither finish the economy nor expand to find the ground that would let
+/// it: it stalled at around a dozen military buildings and stopped, which is
+/// the enemy that quietly gives up partway through a mission.
+///
+/// The pace limiter is AI_EXPAND_INTERVAL, which is what actually prevents
+/// the burst of huts this was first written for. The ratio now only chooses
+/// between the normal interval and the slow one, so an AI that is behind on
+/// industry keeps growing, just more slowly - and growing is how it reaches
+/// the resources it was missing.
 #macro AI_EXPAND_FREE 3
 #macro AI_CIVILIAN_PER_MILITARY 2
 
@@ -860,8 +870,8 @@ function ai_civilian_count(_game, _player) {
 }
 
 
-/// Whether another military building is allowed yet: the hard cap, then the
-/// ratio against the economy. See AI_EXPAND_FREE.
+/// Whether another military building is allowed at all. The hard cap is the
+/// only veto; how fast they go up is ai_expand_interval's business.
 function ai_may_expand(_game, _player) {
     var _military = array_length(ai_military_buildings(_game, _player));
 
@@ -869,18 +879,28 @@ function ai_may_expand(_game, _player) {
         return false;
     }
 
-    // Plan finished: nothing else to spend on, so the hard cap governs.
+    return true;
+}
+
+
+/// How long to wait after placing a military building before placing the
+/// next. Normal pace while the economy keeps up with its plan; the slow one
+/// while it is behind, so industry gets the output without expansion ever
+/// coming to a halt. See AI_EXPAND_FREE.
+function ai_expand_interval(_game, _player) {
+    // Plan finished: nothing else to spend on, so grow at full pace.
     if (array_length(ai_wanted_building_types(_game, _player)) == 0) {
-        return true;
+        return AI_EXPAND_INTERVAL;
     }
 
+    var _military = array_length(ai_military_buildings(_game, _player));
     var _allowed = AI_EXPAND_FREE +
                    floor(ai_civilian_count(_game, _player) / AI_CIVILIAN_PER_MILITARY);
     if (_military >= _allowed) {
-        return false;
+        return AI_EXPAND_SLOW_INTERVAL;
     }
 
-    return true;
+    return AI_EXPAND_INTERVAL;
 }
 
 
@@ -924,8 +944,9 @@ function ai_expand(_game, _player) {
         return;
     }
 
-    _player.ai_next_expand_tick = _game.const_tick +
-                                  ai_scaled_interval(_game, AI_EXPAND_INTERVAL);
+    _player.ai_next_expand_tick =
+        _game.const_tick +
+        ai_scaled_interval(_game, ai_expand_interval(_game, _player));
 
     show_debug_message("ai: player " + string(_player.get_index()) +
                        " placed a hut at " + string(_pos));
