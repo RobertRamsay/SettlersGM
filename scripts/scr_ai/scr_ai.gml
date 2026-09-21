@@ -1113,9 +1113,27 @@ function ai_expand_wait(_game, _player) {
 }
 
 
-/// Military buildings of this player's that are finished but still short of
-/// the knights they want. Buildings under construction are not counted: they
-/// have not asked for anybody yet.
+/// Military buildings of this player's that are not yet holding the border:
+/// still being built, or finished with NOBODY INSIDE.
+///
+/// Both halves were wrong in the first version, and between them they let the
+/// brake off almost always:
+///
+///  - Buildings under construction were skipped, on the grounds that they had
+///    not asked for anybody yet. But that is exactly the window the AI builds
+///    in: at three decisions per hut it can put up half a dozen before the
+///    first one is finished, and none of them counted.
+///  - It asked wants_another_knight(), which is (requested + available) <
+///    needed - so a hut with a knight merely BOOKED reads as manned. A
+///    booking that never arrives, because there is no knight to send or he
+///    cannot get there, leaves the hut empty for good while still counting as
+///    satisfied.
+///
+/// Counting what is actually in the building answers the question the
+/// screenshot asks: is anyone in these huts? get_knight_count() is the
+/// occupancy (stock 0 holds planks while building and knights afterwards),
+/// so it is only meaningful once the building is done - which is why the
+/// unfinished ones are counted separately above it rather than measured.
 function ai_unmanned_count(_game, _player) {
     var _military = ai_military_buildings(_game, _player);
     var _n = array_length(_military);
@@ -1123,17 +1141,18 @@ function ai_unmanned_count(_game, _player) {
 
     for (var _i = 0; _i < _n; _i++) {
         var _building = _military[_i];
-        if (!_building.is_done()) {
-            continue;
-        }
         if (_building.is_burning()) {
             continue;
         }
         if (_building.get_type() == BuildingType.castle) {
             continue;
         }
-        if (_building.wants_another_knight()) {
-            _count += 1;
+        if (!_building.is_done()) {
+            _count += 1;   // still going up, and already spoken for
+            continue;
+        }
+        if (_building.get_knight_count() <= 0) {
+            _count += 1;   // finished and empty
         }
     }
 
