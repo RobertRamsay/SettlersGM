@@ -73,6 +73,14 @@
 /// game. Each decision now walks down the plan until something is placeable.
 #macro AI_PLAN_TRIES 6
 
+/// How many nearby flags to try joining a new one to before giving up for
+/// now. One was not enough: the nearest flag can be unreachable - water or a
+/// cliff between them, another flag sitting where the road would have to
+/// pass - and the AI then left the building standing with no road at all,
+/// which is why unconnected buildings appear on the map. The second-nearest
+/// flag is usually a perfectly good join.
+#macro AI_CONNECT_TRIES 5
+
 /// A candidate this far from the target or worse is not worth the walk.
 #macro AI_SCORE_REJECT 999999
 
@@ -170,6 +178,12 @@ function ai_update_players(_game) {
         // Stagger the players so they do not all think on the same tick.
         _player.ai_next_tick = _game.const_tick + ai_update_interval(_game) +
                                _player.get_index() * 37;
+
+        // A building with no road is worth less than no building at all, so
+        // reconnecting one comes before putting up another.
+        if (ai_repair_roads(_game, _player)) {
+            continue;
+        }
 
         // Economy first: a settlement that cannot make planks cannot expand
         // anyway. Only push the border when there is nothing to build.
@@ -348,21 +362,125 @@ function ai_nearest_flag(_game, _player, _pos) {
 }
 
 
-/// Join a new building's flag to the existing network. Returns true on success.
+/// The closest owned flags to a position, nearest first, up to _max of them.
+/// Selection rather than a sort: _max is small and this avoids allocating a
+/// comparator per call.
+function ai_nearest_flags(_game, _player, _pos, _max) {
+    var _map = _game.get_map();
+    var _flags = _game.flags.objects;
+    var _n = array_length(_flags);
+
+    var _cand = [];
+    var _dists = [];
+    for (var _i = 0; _i < _n; _i++) {
+        var _flag = _flags[_i];
+        if (_flag == undefined) {
+            continue;
+        }
+        if (_flag.get_owner() != _player.get_index()) {
+            continue;
+        }
+        var _flag_pos = _flag.get_position();
+        if (_flag_pos == _pos) {
+            continue;
+        }
+        array_push(_cand, _flag_pos);
+        array_push(_dists, abs(_map.dist_x(_pos, _flag_pos)) +
+                           abs(_map.dist_y(_pos, _flag_pos)));
+    }
+
+    var _out = [];
+    var _count = array_length(_cand);
+    for (var _k = 0; _k < _max; _k++) {
+        var _best = -1;
+        var _best_dist = AI_SCORE_REJECT;
+        for (var _j = 0; _j < _count; _j++) {
+            if (_dists[_j] < _best_dist) {
+                _best_dist = _dists[_j];
+                _best = _j;
+            }
+        }
+        if (_best < 0) {
+            break;
+        }
+        array_push(_out, _cand[_best]);
+        _dists[_best] = AI_SCORE_REJECT;   // taken
+    }
+
+    return _out;
+}
+
+
+/// Join a flag to the existing network. Returns true on success.
 function ai_connect_flag(_game, _player, _flag_pos) {
     var _map = _game.get_map();
-    var _target = ai_nearest_flag(_game, _player, _flag_pos);
+    var _targets = ai_nearest_flags(_game, _player, _flag_pos, AI_CONNECT_TRIES);
+    var _n = array_length(_targets);
 
-    if (_target == BAD_MAP_POS) {
-        return false;
+    for (var _i = 0; _i < _n; _i++) {
+        var _road = pathfinder_map(_map, _flag_pos, _targets[_i], undefined);
+        if (_road.get_length() == 0) {
+            continue;
+        }
+        if (_game.build_road(_road, _player)) {
+            return true;
+        }
     }
 
-    var _road = pathfinder_map(_map, _flag_pos, _target, undefined);
-    if (_road.get_length() == 0) {
-        return false;
+    return false;
+}
+
+
+/// Every flag of this player's that has no road at all. A building whose
+/// flag is in this list is standing idle: no carrier can reach it, so it is
+/// never staffed and never delivers. They arise whenever a road could not be
+/// built at the moment the building went up - the ground was not ours yet,
+/// or the only neighbour was across water - and nothing used to go back for
+/// them, so they stayed orphaned for the rest of the game.
+function ai_orphan_flags(_game, _player) {
+    var _flags = _game.flags.objects;
+    var _n = array_length(_flags);
+    var _out = [];
+
+    for (var _i = 0; _i < _n; _i++) {
+        var _flag = _flags[_i];
+        if (_flag == undefined) {
+            continue;
+        }
+        if (_flag.get_owner() != _player.get_index()) {
+            continue;
+        }
+        if (_flag.land_paths() != 0) {
+            continue;
+        }
+        if (_flag.has_inventory()) {
+            continue;   // the castle's own flag is the network's root
+        }
+        array_push(_out, _flag.get_position());
     }
 
-    return _game.build_road(_road, _player);
+    return _out;
+}
+
+
+/// Try to rescue one orphaned flag. Runs before anything else the AI does,
+/// because a building already standing and doing nothing is worth more than
+/// a new one, and territory won since it was built often makes the road
+/// possible now. One per decision keeps the cost flat.
+function ai_repair_roads(_game, _player) {
+    var _orphans = ai_orphan_flags(_game, _player);
+    var _n = array_length(_orphans);
+
+    for (var _i = 0; _i < _n; _i++) {
+        if (ai_connect_flag(_game, _player, _orphans[_i])) {
+            show_debug_message("ai: player " + string(_player.get_index()) +
+                               " connected an orphaned flag at " +
+                               string(_orphans[_i]));
+            return true;
+        }
+    }
+
+    return false;
 }
 
 
@@ -671,7 +789,14 @@ function ai_place_building(_game, _player, _pos, _type) {
         _game.build_flag(_flag_pos, _player);
     }
 
-    ai_connect_flag(_game, _player, _flag_pos);
+    if (!ai_connect_flag(_game, _player, _flag_pos)) {
+        /* The building stays: demolishing it would waste what it cost, and
+           ai_repair_roads goes back for the flag on a later decision, by
+           which time the border has usually moved. */
+        show_debug_message("ai: player " + string(_player.get_index()) +
+                           " could not connect " + string(_flag_pos) +
+                           " yet - left for the road repair pass");
+    }
     return true;
 }
 
