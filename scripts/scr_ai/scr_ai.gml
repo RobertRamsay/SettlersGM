@@ -45,6 +45,14 @@
 /// The original's opponents grew their economy and their border together;
 /// this keeps the ratio honest without freezing expansion early, when there
 /// is nothing built yet and the castle has to push out to find room.
+///
+/// The ratio only governs an economy still being built. The plan tops out at
+/// 23 civilian buildings, which at one hut per two would allow 14 - so a
+/// player that finished its whole plan could never reach AI_MAX_MILITARY and
+/// simply stopped growing, which is not what the ratio is for. Once there is
+/// nothing left in the plan to build, the hard cap is the only limit and the
+/// AI spends its output on the border, as the original's opponents do in a
+/// long game.
 #macro AI_EXPAND_FREE 3
 #macro AI_CIVILIAN_PER_MILITARY 2
 
@@ -734,6 +742,11 @@ function ai_may_expand(_game, _player) {
 
     if (_military >= AI_MAX_MILITARY) {
         return false;
+    }
+
+    // Plan finished: nothing else to spend on, so the hard cap governs.
+    if (array_length(ai_wanted_building_types(_game, _player)) == 0) {
+        return true;
     }
 
     var _allowed = AI_EXPAND_FREE +
