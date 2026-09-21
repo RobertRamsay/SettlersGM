@@ -865,7 +865,7 @@ function serf_handle_serf_planning_logging_state(_serf) {
             _serf.s.leaving_building_dest2 = -_sp[2 * _dist] + 1;
             _serf.s.leaving_building_dir = -_sp[2 * _dist + 1] + 1;
             _serf.s.leaving_building_next_state = SerfState.free_walking;
-            show_debug_message("serf: planning logging: tree found, dist " +
+            sim_log("serf: planning logging: tree found, dist " +
                                string(_serf.s.leaving_building_field_B) + ", " +
                                string(_serf.s.leaving_building_dest) + ".");
             return;
@@ -898,7 +898,7 @@ function serf_handle_serf_planning_planting_state(_serf) {
             _serf.s.leaving_building_dest2 = -_sp[2 * _dist] + 1;
             _serf.s.leaving_building_dir = -_sp[2 * _dist + 1] + 1;
             _serf.s.leaving_building_next_state = SerfState.free_walking;
-            show_debug_message("serf: planning planting: free space found, dist " +
+            sim_log("serf: planning planting: free space found, dist " +
                                string(_serf.s.leaving_building_field_B) + ", " +
                                string(_serf.s.leaving_building_dest) + ".");
             return;
@@ -958,7 +958,7 @@ function serf_handle_serf_planning_stonecutting(_serf) {
             _serf.s.leaving_building_dest2 = -_sp[2 * _dist] + 1;
             _serf.s.leaving_building_dir = -_sp[2 * _dist + 1] + 1;
             _serf.s.leaving_building_next_state = SerfState.stone_cutter_free_walking;
-            show_debug_message("serf: planning stonecutting: stone found, dist " +
+            sim_log("serf: planning stonecutting: stone found, dist " +
                                string(_serf.s.leaving_building_field_B) + ", " +
                                string(_serf.s.leaving_building_dest) + ".");
             return;
@@ -1274,7 +1274,7 @@ function serf_handle_serf_mining_state(_serf) {
            speed it is a steady stream of lines that says nothing unless you are
            actually debugging a mine. */
         if (global.serf_verbose_log) {
-            show_debug_message("serf: mining substate: " +
+            sim_log("serf: mining substate: " +
                                string(_serf.s.mining_substate) + ".");
         }
         switch (_serf.s.mining_substate) {
@@ -1470,7 +1470,7 @@ function serf_handle_serf_planning_fishing_state(_serf) {
             _serf.s.leaving_building_dest2 = -_sp[2 * _dist] + 1;
             _serf.s.leaving_building_dir = -_sp[2 * _dist + 1] + 1;
             _serf.s.leaving_building_next_state = SerfState.free_walking;
-            show_debug_message("serf: planning fishing: lake found, dist " +
+            sim_log("serf: planning fishing: lake found, dist " +
                                string(_serf.s.leaving_building_field_B) + "," +
                                string(_serf.s.leaving_building_dest));
             return;
@@ -1581,7 +1581,7 @@ function serf_handle_serf_planning_farming_state(_serf) {
             _serf.s.leaving_building_dest2 = -_sp[2 * _dist] + 1;
             _serf.s.leaving_building_dir = -_sp[2 * _dist + 1] + 1;
             _serf.s.leaving_building_next_state = SerfState.free_walking;
-            show_debug_message("serf: planning farming: field spot found, dist " +
+            sim_log("serf: planning farming: field spot found, dist " +
                                string(_serf.s.leaving_building_field_B) + ", " +
                                string(_serf.s.leaving_building_dest) + ".");
             return;

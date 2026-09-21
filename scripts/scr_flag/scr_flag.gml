@@ -687,7 +687,7 @@ function Flag(_game, _index) : GameObject(_game, _index) constructor {
 
             _search.execute(flag_schedule_unknown_dest_cb, false, true, _data);
             if (_data.flag != undefined) {
-                show_debug_message("game: dest for flag " + string(index) + " res " +
+                sim_log("game: dest for flag " + string(index) + " res " +
                                    string(_slot_num) + " found: flag " +
                                    string(_data.flag.get_index()));
                 var _dest_bld = _data.flag.other_endpoint[Direction.up_left];

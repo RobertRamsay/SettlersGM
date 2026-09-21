@@ -456,7 +456,7 @@ function serf_handle_serf_walking_state_search_cb(_flag, _data) {
     var _serf = _data;
     var _dest = _flag.get_game().get_flag(_serf.s.walking_dest);
     if (_flag == _dest) {
-        show_debug_message("serf:  dest found: " + string(_dest.get_search_dir()));
+        sim_log("serf:  dest found: " + string(_dest.get_search_dir()));
         _serf.change_direction(_dest.get_search_dir(), 0);
         return true;
     }
@@ -2456,7 +2456,7 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
         while (counter < 0) {
             s.digging_substate -= 1;
             if (s.digging_substate < 0) {
-                show_debug_message("serf: substate -1: wait for serf.");
+                sim_log("serf: substate -1: wait for serf.");
                 var _d = s.digging_dig_pos;
                 var _dir = 0;
                 if (_d == 0) {
@@ -2525,10 +2525,10 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
                 var _h = _map.get_height(pos);
                 if ((s.digging_h_index & 1) != 0) {
                     _h += -1;
-                    show_debug_message("serf: substate 1: change height down.");
+                    sim_log("serf: substate 1: change height down.");
                 } else {
                     _h += 1;
-                    show_debug_message("serf: substate 1: change height up.");
+                    sim_log("serf: substate 1: change height up.");
                 }
                 _map.set_height(pos, _h);
 
@@ -2539,13 +2539,13 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
                     start_walking(_dir1, 32, 1);
                 }
             } else if (s.digging_substate > 1) {
-                show_debug_message("serf: substate 2: dig.");
+                sim_log("serf: substate 2: dig.");
                 /* 34E89 */
                 animation = 88 - (s.digging_h_index & 1);
                 counter += 383;
             } else {
                 /* 34CDC: Looking for a place to dig */
-                show_debug_message("serf: substate 0: looking for place to dig "
+                sim_log("serf: substate 0: looking for place to dig "
                                    + string(s.digging_dig_pos) + ", " + string(s.digging_h_index));
                 do {
                     var _h2 = _h_diff[s.digging_h_index] + s.digging_target_h;

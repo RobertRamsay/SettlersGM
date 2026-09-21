@@ -21,6 +21,31 @@
 // Freeserf src/freeserf.h: #define TICK_LENGTH 20 (ms) ->
 // TICKS_PER_SEC = 1000/20 = 50 game updates per second.
 #macro TICK_LENGTH_MS 20
+
+/// Per-serf and per-tick trace lines from the port - "dest found", the
+/// digger's substates, the planning searches, the flag and inventory
+/// destination lines. Freeserf printed these under its own debug build and
+/// the port kept them unconditionally.
+///
+/// They are not free. A busy map raises thousands a second, each one a
+/// formatted string and a synchronous write to the IDE's output window, and
+/// at 80x that is most of what the process is doing - so every frame-time
+/// number measured with the console attached is measuring the logging, not
+/// the simulation. They also bury the lines that matter: the AI report, the
+/// knight watchdog, a crash.
+///
+/// Off by default; set true when tracing one of these systems on purpose.
+#macro SIM_LOG false
+
+/// The gate itself. Called instead of show_debug_message at the chatty
+/// sites; everything that reports a fault or a decision still prints
+/// unconditionally.
+function sim_log(_text) {
+    if (!SIM_LOG) {
+        return;
+    }
+    show_debug_message(_text);
+}
 #macro TICKS_PER_SEC 50
 #macro GAME_MAX_PLAYER_COUNT 4
 #macro GROUND_ANALYSIS_RADIUS 25
@@ -544,7 +569,7 @@ function Game() constructor {
 
                 for (var _i = 0; _i < _n; _i++) {
                     if (_max_prio[_i] > 0) {
-                        show_debug_message("game:  dest for inventory " + string(_i) + "found");
+                        sim_log("game: dest for inventory " + string(_i) + " found");
                         var _res = _arr[_a];
 
                         var _dest_bld = _flags_[_i].get_building();
