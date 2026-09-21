@@ -82,6 +82,34 @@ function ai_init_tables() {
 
 
 /// Called from Game.update, where Freeserf's disabled AI block sat.
+/// How long to wait before this player thinks again, in const_ticks.
+///
+/// const_tick counts simulation ticks and never changes with the speed
+/// setting, while the world runs on `tick`, which advances by game_speed. So
+/// the AI used to think a fixed number of times per tick while everything it
+/// reasons about moved up to 25 times faster between one decision and the
+/// next - it placed a building and only connected it a world-age later, and
+/// its expansion branch fired against a stock that had refilled many times
+/// over. Disconnected roads and a rash of knight huts are what that looks
+/// like on screen.
+///
+/// Dividing the interval by the speed multiple puts the AI back on game
+/// time, so fast-forward compresses time rather than changing how the
+/// enemies play. At DEFAULT_GAME_SPEED the division is by 1 and the result
+/// is exactly AI_UPDATE_INTERVAL - normal play is byte-identical to before,
+/// which is the point: the missions are balanced around the original's pace.
+///
+/// A paused game (game_speed 0) keeps the normal interval; nothing is
+/// updating anyway.
+function ai_update_interval(_game) {
+    var _speed = _game.game_speed;
+    if (_speed <= DEFAULT_GAME_SPEED) {
+        return AI_UPDATE_INTERVAL;
+    }
+    var _interval = AI_UPDATE_INTERVAL * DEFAULT_GAME_SPEED / _speed;
+    return max(1, floor(_interval));
+}
+
 function ai_update_players(_game) {
     var _players = _game.players.objects;
     var _n = array_length(_players);
@@ -99,7 +127,7 @@ function ai_update_players(_game) {
         }
 
         // Stagger the players so they do not all think on the same tick.
-        _player.ai_next_tick = _game.const_tick + AI_UPDATE_INTERVAL +
+        _player.ai_next_tick = _game.const_tick + ai_update_interval(_game) +
                                _player.get_index() * 37;
 
         // Economy first: a settlement that cannot make planks cannot expand
