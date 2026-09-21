@@ -467,13 +467,97 @@ function ai_nearest_flag(_game, _player, _pos) {
 }
 
 
-/// The closest owned flags to a position, nearest first, up to _max of them.
+/// Every flag of this player's that can be reached from one of its castles
+/// or stocks by following roads. Returned as a struct of flag index -> true.
+///
+/// "Connected" has to mean connected TO THE NETWORK, not merely having a
+/// road. ai_connect_flag joined each new flag to the nearest owned flag, and
+/// the nearest owned flag is quite often another new one that is not itself
+/// connected to anything - so two orphans join each other and form an island
+/// of road serving nobody. Worse, both then report land_paths() != 0, so the
+/// repair pass stopped seeing them and the island stayed on the map for the
+/// rest of the game. Those are the stray roads.
+///
+/// A breadth-first walk from the inventory flags answers it properly, and
+/// costs one pass over a few dozen flags. Returned as an array of bools
+/// indexed by flag index, sized up front and read with ai_flag_on_network.
+function ai_network_flags(_game, _player) {
+    var _flags = _game.flags.objects;
+    var _n = array_length(_flags);
+
+    var _seen = array_create(_n + 1, false);
+    var _queue = [];
+
+    for (var _i = 0; _i < _n; _i++) {
+        var _flag = _flags[_i];
+        if (_flag == undefined) {
+            continue;
+        }
+        if (_flag.get_owner() != _player.get_index()) {
+            continue;
+        }
+        if (!_flag.has_inventory()) {
+            continue;
+        }
+        var _root = _flag.get_index();
+        if (_root <= _n) {
+            _seen[_root] = true;
+        }
+        array_push(_queue, _flag);
+    }
+
+    var _head = 0;
+    while (_head < array_length(_queue)) {
+        var _at = _queue[_head];
+        _head += 1;
+
+        for (var _d = 0; _d < 6; _d++) {
+            if (!_at.has_path(_d)) {
+                continue;
+            }
+            if (_at.is_water_path(_d)) {
+                continue;   // a carrier cannot walk a water path
+            }
+            var _next_index = _at.get_other_end_flag(_d);
+            if (_next_index <= 0 || _next_index > _n) {
+                continue;
+            }
+            if (_seen[_next_index]) {
+                continue;
+            }
+            var _next = _game.get_flag(_next_index);
+            if (_next == undefined) {
+                continue;
+            }
+            _seen[_next_index] = true;
+            array_push(_queue, _next);
+        }
+    }
+
+    return _seen;
+}
+
+
+/// Read a network array built above. Out-of-range answers false, which is
+/// the safe way round: an unknown flag is treated as not connected, so the
+/// repair pass looks at it rather than skipping it.
+function ai_flag_on_network(_network, _index) {
+    if (_index < 0 || _index >= array_length(_network)) {
+        return false;
+    }
+    return _network[_index];
+}
+
+
+/// The closest flags to a position that are ON the network, nearest first,
+/// up to _max of them.
 /// Selection rather than a sort: _max is small and this avoids allocating a
 /// comparator per call.
 function ai_nearest_flags(_game, _player, _pos, _max) {
     var _map = _game.get_map();
     var _flags = _game.flags.objects;
     var _n = array_length(_flags);
+    var _network = ai_network_flags(_game, _player);
 
     var _cand = [];
     var _dists = [];
@@ -484,6 +568,9 @@ function ai_nearest_flags(_game, _player, _pos, _max) {
         }
         if (_flag.get_owner() != _player.get_index()) {
             continue;
+        }
+        if (!ai_flag_on_network(_network, _flag.get_index())) {
+            continue;   // joining this would only grow an island
         }
         var _flag_pos = _flag.get_position();
         if (_flag_pos == _pos) {
@@ -536,15 +623,20 @@ function ai_connect_flag(_game, _player, _flag_pos) {
 }
 
 
-/// Every flag of this player's that has no road at all. A building whose
-/// flag is in this list is standing idle: no carrier can reach it, so it is
-/// never staffed and never delivers. They arise whenever a road could not be
-/// built at the moment the building went up - the ground was not ours yet,
-/// or the only neighbour was across water - and nothing used to go back for
-/// them, so they stayed orphaned for the rest of the game.
+/// Every flag of this player's that cannot be reached from a castle or
+/// stock. A building whose flag is in this list is standing idle: no carrier
+/// can reach it, so it is never staffed and never delivers. They arise
+/// whenever a road could not be built at the moment the building went up -
+/// the ground was not ours yet, the only neighbour was across water - and
+/// nothing used to go back for them.
+///
+/// Flags on an ISLAND of road are in here too, which the old "no path at
+/// all" test missed entirely; a joined pair of orphans looked connected to
+/// it and was left alone for good.
 function ai_orphan_flags(_game, _player) {
     var _flags = _game.flags.objects;
     var _n = array_length(_flags);
+    var _network = ai_network_flags(_game, _player);
     var _out = [];
 
     for (var _i = 0; _i < _n; _i++) {
@@ -555,11 +647,11 @@ function ai_orphan_flags(_game, _player) {
         if (_flag.get_owner() != _player.get_index()) {
             continue;
         }
-        if (_flag.land_paths() != 0) {
-            continue;
-        }
         if (_flag.has_inventory()) {
             continue;   // the castle's own flag is the network's root
+        }
+        if (ai_flag_on_network(_network, _flag.get_index())) {
+            continue;
         }
         array_push(_out, _flag.get_position());
     }
