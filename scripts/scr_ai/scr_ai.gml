@@ -28,6 +28,26 @@
 /// room, though it is still bounded so huts do not crowd out the industry.
 #macro AI_MAX_MILITARY 24
 
+/// The least time between two military buildings, in const_ticks, scaled by
+/// the game speed exactly as AI_UPDATE_INTERVAL is.
+///
+/// Expansion is the fallback branch: ai_build_economy returns false both when
+/// the plan is complete AND when it is merely blocked - no site for the next
+/// mine, not enough planks yet, a placement refused. Blocked is the common
+/// case, so without a pace of its own every decision from then on put up
+/// another hut, and the AI ran to AI_MAX_MILITARY in a burst while its
+/// industry stood still. That is the ring of knight huts on screen.
+///
+/// Three times the thinking interval, so at most one hut in three decisions.
+#macro AI_EXPAND_INTERVAL 1200
+
+/// Military buildings allowed per civilian one, once past the opening few.
+/// The original's opponents grew their economy and their border together;
+/// this keeps the ratio honest without freezing expansion early, when there
+/// is nothing built yet and the castle has to push out to find room.
+#macro AI_EXPAND_FREE 3
+#macro AI_CIVILIAN_PER_MILITARY 2
+
 /// How far around a candidate site to count trees, stone and minerals when
 /// deciding whether it is worth putting a woodcutter or a mine there.
 #macro AI_RESOURCE_SCAN 37
@@ -102,12 +122,16 @@ function ai_init_tables() {
 /// A paused game (game_speed 0) keeps the normal interval; nothing is
 /// updating anyway.
 function ai_update_interval(_game) {
+    return ai_scaled_interval(_game, AI_UPDATE_INTERVAL);
+}
+
+/// The same scaling for any AI interval measured in const_ticks.
+function ai_scaled_interval(_game, _interval) {
     var _speed = _game.game_speed;
     if (_speed <= DEFAULT_GAME_SPEED) {
-        return AI_UPDATE_INTERVAL;
+        return _interval;
     }
-    var _interval = AI_UPDATE_INTERVAL * DEFAULT_GAME_SPEED / _speed;
-    return max(1, floor(_interval));
+    return max(1, floor(_interval * DEFAULT_GAME_SPEED / _speed));
 }
 
 function ai_update_players(_game) {
@@ -636,6 +660,51 @@ function ai_build_economy(_game, _player) {
 }
 
 
+/// Civilian buildings this player owns, construction included. The castle is
+/// military and is not counted here, which is what makes AI_EXPAND_FREE the
+/// allowance a player starts with rather than a number it already meets.
+function ai_civilian_count(_game, _player) {
+    var _buildings = _game.buildings.objects;
+    var _n = array_length(_buildings);
+    var _count = 0;
+
+    for (var _i = 0; _i < _n; _i++) {
+        var _building = _buildings[_i];
+        if (_building == undefined) {
+            continue;
+        }
+        if (_building.get_owner() != _player.get_index()) {
+            continue;
+        }
+        if (_building.is_military()) {
+            continue;
+        }
+        _count += 1;
+    }
+
+    return _count;
+}
+
+
+/// Whether another military building is allowed yet: the hard cap, then the
+/// ratio against the economy. See AI_EXPAND_FREE.
+function ai_may_expand(_game, _player) {
+    var _military = array_length(ai_military_buildings(_game, _player));
+
+    if (_military >= AI_MAX_MILITARY) {
+        return false;
+    }
+
+    var _allowed = AI_EXPAND_FREE +
+                   floor(ai_civilian_count(_game, _player) / AI_CIVILIAN_PER_MILITARY);
+    if (_military >= _allowed) {
+        return false;
+    }
+
+    return true;
+}
+
+
 /// One expansion step: place a hut and wire it up.
 function ai_expand(_game, _player) {
     var _map = _game.get_map();
@@ -653,7 +722,16 @@ function ai_expand(_game, _player) {
         return;
     }
 
-    if (array_length(ai_military_buildings(_game, _player)) >= AI_MAX_MILITARY) {
+    // Its own clock, and its own ratio against the economy. Both are here
+    // rather than in the caller so the placement below is the only thing that
+    // spends either of them: a decision that finds nowhere to build must not
+    // use up the interval, or a player hemmed in on one side would stop
+    // expanding altogether.
+    if (_game.const_tick < _player.ai_next_expand_tick) {
+        return;
+    }
+
+    if (!ai_may_expand(_game, _player)) {
         return;
     }
 
@@ -666,6 +744,9 @@ function ai_expand(_game, _player) {
     if (!ai_place_building(_game, _player, _pos, BuildingType.hut)) {
         return;
     }
+
+    _player.ai_next_expand_tick = _game.const_tick +
+                                  ai_scaled_interval(_game, AI_EXPAND_INTERVAL);
 
     show_debug_message("ai: player " + string(_player.get_index()) +
                        " placed a hut at " + string(_pos));

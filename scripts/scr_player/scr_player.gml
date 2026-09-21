@@ -99,6 +99,11 @@ function Player(_game, _index) : GameObject(_game, _index) constructor {
     /// so a loaded game does not have every opponent think on the same tick.
     ai_next_tick = 0;
 
+    /// Next const_tick this player may place a military building. Separate
+    /// from ai_next_tick so expansion keeps its own pace no matter how often
+    /// the AI is asked to think - see ai_expand.
+    ai_next_expand_tick = 0;
+
     messages = [];   // std::queue<Message> -> array (front = index 0)
     timers = [];     // std::vector<PosTimer> -> array of {timeout, pos}
 
