@@ -56,6 +56,15 @@
 /// that need a resource under them.
 #macro AI_MIN_RESOURCE 4
 
+/// How many entries of the build plan to try in one decision before giving
+/// up for this round. The plan is an order of PREFERENCE, not a queue: an
+/// entry that cannot be built yet - no trees left in reach for the second
+/// lumberjack, no mountain inside the border for a coal mine - used to stop
+/// everything behind it, so an AI whose territory lacked one resource built
+/// its first woodcutter and then nothing else at all, for the rest of the
+/// game. Each decision now walks down the plan until something is placeable.
+#macro AI_PLAN_TRIES 6
+
 /// A candidate this far from the target or worse is not worth the walk.
 #macro AI_SCORE_REJECT 999999
 
@@ -469,6 +478,18 @@ function ai_building_count(_game, _player, _type) {
 
 /// The next thing the plan says is missing, or none when it is all built.
 function ai_next_building_type(_game, _player) {
+    var _wanted = ai_wanted_building_types(_game, _player);
+    if (array_length(_wanted) == 0) {
+        return BuildingType.none;
+    }
+    return _wanted[0];
+}
+
+
+/// Every building type the plan still wants, in plan order and without
+/// repeats. The caller tries them in turn, so a type that cannot be sited
+/// costs one decision's search rather than the rest of the game.
+function ai_wanted_building_types(_game, _player) {
     ai_init_tables();
 
     var _plan = global.ai_build_plan;
@@ -485,14 +506,24 @@ function ai_next_building_type(_game, _player) {
         }
     }
 
+    // What the plan asks for, minus what is already standing or going up.
+    // A type appears once however many plan entries mention it, because the
+    // count is compared against the largest want for that type either way.
+    var _out = [];
+    var _added = array_create(32, false);
     for (var _i = 0; _i < _n; _i++) {
         var _entry = _plan[_i];
-        if (_counts[_entry.type] < _entry.want) {
-            return _entry.type;
+        if (_added[_entry.type]) {
+            continue;
         }
+        if (_counts[_entry.type] >= _entry.want) {
+            continue;
+        }
+        _added[_entry.type] = true;
+        array_push(_out, _entry.type);
     }
 
-    return BuildingType.none;
+    return _out;
 }
 
 
@@ -640,23 +671,33 @@ function ai_place_building(_game, _player, _pos, _type) {
 /// One economy step: build whatever the plan says is next. Returns true if it
 /// managed to place something.
 function ai_build_economy(_game, _player) {
-    var _type = ai_next_building_type(_game, _player);
-    if (_type == BuildingType.none) {
-        return false;
+    var _wanted = ai_wanted_building_types(_game, _player);
+    var _n = array_length(_wanted);
+    if (_n > AI_PLAN_TRIES) {
+        _n = AI_PLAN_TRIES;
     }
 
-    var _pos = ai_find_site(_game, _player, _type);
-    if (_pos == BAD_MAP_POS) {
-        return false;   // nowhere suitable yet; expansion may open somewhere up
+    for (var _i = 0; _i < _n; _i++) {
+        var _type = _wanted[_i];
+
+        var _pos = ai_find_site(_game, _player, _type);
+        if (_pos == BAD_MAP_POS) {
+            continue;   // nowhere for this one yet; the next entry may fit
+        }
+
+        if (!ai_place_building(_game, _player, _pos, _type)) {
+            continue;
+        }
+
+        show_debug_message("ai: player " + string(_player.get_index()) +
+                           " built type " + string(_type) + " at " + string(_pos));
+        return true;
     }
 
-    if (!ai_place_building(_game, _player, _pos, _type)) {
-        return false;
-    }
-
-    show_debug_message("ai: player " + string(_player.get_index()) +
-                       " built type " + string(_type) + " at " + string(_pos));
-    return true;
+    // Nothing in the plan could be placed. Either it is finished or the
+    // territory is too tight for what is left, and both are answered the
+    // same way: let the caller push the border out.
+    return false;
 }
 
 
