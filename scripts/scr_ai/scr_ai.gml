@@ -518,15 +518,24 @@ function ai_network_flags(_game, _player) {
             if (_at.is_water_path(_d)) {
                 continue;   // a carrier cannot walk a water path
             }
-            var _next_index = _at.get_other_end_flag(_d);
+            /* get_other_end_flag hands back the Flag ITSELF, not its index -
+               everywhere else in the port calls methods straight on it. Asking
+               for its index is what the array is keyed by. Comparing the
+               struct against a number does not throw in GML, it just answers
+               false, so a guard written against the wrong type let a struct
+               reference through as a subscript:
+
+                   Variable Index [174334336] out of range [8]
+                   in ai_network_flags, 21/09/2026 (crash report) */
+            var _next = _at.get_other_end_flag(_d);
+            if (_next == undefined) {
+                continue;
+            }
+            var _next_index = _next.get_index();
             if (_next_index <= 0 || _next_index > _n) {
                 continue;
             }
             if (_seen[_next_index]) {
-                continue;
-            }
-            var _next = _game.get_flag(_next_index);
-            if (_next == undefined) {
                 continue;
             }
             _seen[_next_index] = true;
