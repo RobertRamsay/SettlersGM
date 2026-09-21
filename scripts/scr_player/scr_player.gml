@@ -99,10 +99,11 @@ function Player(_game, _index) : GameObject(_game, _index) constructor {
     /// so a loaded game does not have every opponent think on the same tick.
     ai_next_tick = 0;
 
-    /// Next const_tick this player may place a military building. Separate
-    /// from ai_next_tick so expansion keeps its own pace no matter how often
-    /// the AI is asked to think - see ai_expand.
-    ai_next_expand_tick = 0;
+    /// Decisions taken since this player last placed a military building.
+    /// Counted in DECISIONS rather than ticks: decisions are already paced
+    /// by the game speed, so the expansion rate is the same at 1x and 80x.
+    /// See ai_expand.
+    ai_decisions_since_expand = 0;
 
     /// Consecutive AI decisions that did nothing at all, for ai_report_stuck.
     /// Reset by anything the AI actually builds.

@@ -28,8 +28,15 @@
 /// room, though it is still bounded so huts do not crowd out the industry.
 #macro AI_MAX_MILITARY 24
 
-/// The least time between two military buildings, in const_ticks, scaled by
-/// the game speed exactly as AI_UPDATE_INTERVAL is.
+/// The least number of AI DECISIONS between two military buildings.
+///
+/// This used to be a const_tick interval, and at speed it silently stopped
+/// working: the thinking interval scales with the speed but the per-player
+/// stagger (index * 37) does not, so at 80x a decision came every 42 ticks
+/// while the expansion interval had shrunk to 15. The clock was therefore
+/// always already expired and the AI placed a hut on EVERY decision - the
+/// seven in a row at the end of a mission-1 run, most of them never
+/// garrisoned. Counting decisions instead is speed-proof by construction.
 ///
 /// Expansion is the fallback branch: ai_build_economy returns false both when
 /// the plan is complete AND when it is merely blocked - no site for the next
@@ -38,12 +45,23 @@
 /// another hut, and the AI ran to AI_MAX_MILITARY in a burst while its
 /// industry stood still. That is the ring of knight huts on screen.
 ///
-/// Three times the thinking interval, so at most one hut in three decisions.
-#macro AI_EXPAND_INTERVAL 1200
+#macro AI_EXPAND_DECISIONS 3
 
-/// The interval used instead when the economy is behind its plan. Expansion
-/// is slowed, never stopped - see ai_expand_interval.
-#macro AI_EXPAND_SLOW_INTERVAL 4800
+/// The count used instead when the economy is behind its plan. Expansion is
+/// slowed, never stopped - see ai_expand_wait.
+#macro AI_EXPAND_SLOW_DECISIONS 12
+
+/// Military buildings allowed to be standing empty - built, finished, and
+/// still short of knights - before expansion pauses.
+///
+/// A hut only helps if somebody is in it. The AI was building to the cap
+/// regardless of whether it had knights to fill them, which is what makes a
+/// row of empty huts on the border: they claim no ground they can hold and
+/// the weapons that would have manned them went into buildings nobody
+/// reached either. Waiting until the ones already up are manned ties
+/// expansion to the actual output of the weapon smith, which is what limits
+/// it in the original.
+#macro AI_EXPAND_UNMANNED 2
 
 /// Military buildings allowed per civilian one, once past the opening few.
 /// The original's opponents grew their economy and their border together;
@@ -58,7 +76,7 @@
 /// it: it stalled at around a dozen military buildings and stopped, which is
 /// the enemy that quietly gives up partway through a mission.
 ///
-/// The pace limiter is AI_EXPAND_INTERVAL, which is what actually prevents
+/// The pace limiter is AI_EXPAND_DECISIONS, which is what actually prevents
 /// the burst of huts this was first written for. The ratio now only chooses
 /// between the normal interval and the slow one, so an AI that is behind on
 /// industry keeps growing, just more slowly - and growing is how it reaches
@@ -251,10 +269,12 @@ function ai_report_stuck(_game, _player) {
         _hut_text = string(_hut_site);
     }
 
-    var _wait = _player.ai_next_expand_tick - _game.const_tick;
+    var _wait = ai_expand_wait(_game, _player) - _player.ai_decisions_since_expand;
     if (_wait < 0) {
         _wait = 0;
     }
+
+    var _unmanned = ai_unmanned_count(_game, _player);
 
     show_debug_message("ai: player " + string(_player.get_index()) +
                        " did nothing (" + string(_player.ai_stuck_count) +
@@ -265,7 +285,8 @@ function ai_report_stuck(_game, _player) {
                        " military=" + string(_military) + "/" +
                        string(AI_MAX_MILITARY) +
                        "; hut site " + _hut_text +
-                       "; expand in " + string(_wait) + " const_ticks" +
+                       "; expand in " + string(_wait) + " decisions" +
+                       "; unmanned " + string(_unmanned) +
                        "; orphan flags " + string(_orphans));
 }
 
@@ -939,7 +960,7 @@ function ai_civilian_count(_game, _player) {
 
 
 /// Whether another military building is allowed at all. The hard cap is the
-/// only veto; how fast they go up is ai_expand_interval's business.
+/// only veto; how fast they go up is ai_expand_wait's business.
 function ai_may_expand(_game, _player) {
     var _military = array_length(ai_military_buildings(_game, _player));
 
@@ -955,20 +976,48 @@ function ai_may_expand(_game, _player) {
 /// next. Normal pace while the economy keeps up with its plan; the slow one
 /// while it is behind, so industry gets the output without expansion ever
 /// coming to a halt. See AI_EXPAND_FREE.
-function ai_expand_interval(_game, _player) {
+function ai_expand_wait(_game, _player) {
     // Plan finished: nothing else to spend on, so grow at full pace.
     if (array_length(ai_wanted_building_types(_game, _player)) == 0) {
-        return AI_EXPAND_INTERVAL;
+        return AI_EXPAND_DECISIONS;
     }
 
     var _military = array_length(ai_military_buildings(_game, _player));
     var _allowed = AI_EXPAND_FREE +
                    floor(ai_civilian_count(_game, _player) / AI_CIVILIAN_PER_MILITARY);
     if (_military >= _allowed) {
-        return AI_EXPAND_SLOW_INTERVAL;
+        return AI_EXPAND_SLOW_DECISIONS;
     }
 
-    return AI_EXPAND_INTERVAL;
+    return AI_EXPAND_DECISIONS;
+}
+
+
+/// Military buildings of this player's that are finished but still short of
+/// the knights they want. Buildings under construction are not counted: they
+/// have not asked for anybody yet.
+function ai_unmanned_count(_game, _player) {
+    var _military = ai_military_buildings(_game, _player);
+    var _n = array_length(_military);
+    var _count = 0;
+
+    for (var _i = 0; _i < _n; _i++) {
+        var _building = _military[_i];
+        if (!_building.is_done()) {
+            continue;
+        }
+        if (_building.is_burning()) {
+            continue;
+        }
+        if (_building.get_type() == BuildingType.castle) {
+            continue;
+        }
+        if (_building.wants_another_knight()) {
+            _count += 1;
+        }
+    }
+
+    return _count;
 }
 
 
@@ -991,16 +1040,22 @@ function ai_expand(_game, _player) {
         return false;
     }
 
-    // Its own clock, and its own ratio against the economy. Both are here
+    // Its own pace and its own ratio against the economy. Both are here
     // rather than in the caller so the placement below is the only thing that
     // spends either of them: a decision that finds nowhere to build must not
-    // use up the interval, or a player hemmed in on one side would stop
+    // use up the wait, or a player hemmed in on one side would stop
     // expanding altogether.
-    if (_game.const_tick < _player.ai_next_expand_tick) {
+    _player.ai_decisions_since_expand += 1;
+    if (_player.ai_decisions_since_expand < ai_expand_wait(_game, _player)) {
         return false;
     }
 
     if (!ai_may_expand(_game, _player)) {
+        return false;
+    }
+
+    // Man what is already built before building more.
+    if (ai_unmanned_count(_game, _player) > AI_EXPAND_UNMANNED) {
         return false;
     }
 
@@ -1014,10 +1069,7 @@ function ai_expand(_game, _player) {
         return false;
     }
 
-    _player.ai_next_expand_tick =
-        _game.const_tick +
-        ai_scaled_interval(_game, ai_expand_interval(_game, _player));
-
+    _player.ai_decisions_since_expand = 0;
     _player.ai_stuck_count = 0;
 
     show_debug_message("ai: player " + string(_player.get_index()) +
