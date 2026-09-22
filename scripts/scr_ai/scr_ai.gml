@@ -109,6 +109,26 @@
 /// game. Each decision now walks down the plan until something is placeable.
 #macro AI_PLAN_TRIES 6
 
+/// Stone left within AI_RESOURCE_SCAN of a working quarry, below which that
+/// quarry is treated as spent.
+///
+/// A quarry eats the stone around it and never grows any back, so one entry
+/// in the plan means the AI has stone for the opening and none afterwards -
+/// no towers, no large buildings, and a mason standing idle on a bare patch
+/// for the rest of the game. When every quarry it owns is down to this, it
+/// wants another somewhere with stone in it.
+#macro AI_STONE_SPENT 3
+
+/// Ceiling on quarries, so a stony map does not turn into nothing but.
+#macro AI_MAX_STONECUTTERS 4
+
+/// Knights come from swords and shields, and those come from one weapon
+/// smith at the end of a long chain. When garrisons are standing empty and
+/// the armoury is empty too, another smith is worth more than another hut -
+/// so the AI asks for one. The cap keeps it from answering every shortage
+/// this way when the real problem is upstream in coal or iron.
+#macro AI_MAX_WEAPON_SMITHS 2
+
 /// How many nearby flags to try joining a new one to before giving up for
 /// now. One was not enough: the nearest flag can be unreachable - water or a
 /// cliff between them, another flag sitting where the road would have to
@@ -830,6 +850,130 @@ function ai_next_building_type(_game, _player) {
 }
 
 
+/// Buildings this player owns of one type, construction included.
+function ai_buildings_of_type(_game, _player, _type) {
+    var _buildings = _game.buildings.objects;
+    var _n = array_length(_buildings);
+    var _out = [];
+
+    for (var _i = 0; _i < _n; _i++) {
+        var _building = _buildings[_i];
+        if (_building == undefined) {
+            continue;
+        }
+        if (_building.get_owner() != _player.get_index()) {
+            continue;
+        }
+        if (_building.is_burning()) {
+            continue;
+        }
+        if (_building.get_type() != _type) {
+            continue;
+        }
+        array_push(_out, _building);
+    }
+
+    return _out;
+}
+
+
+/// Has every quarry this player owns run out of stone within reach?
+/// False when it owns none - the plan asks for the first one itself.
+function ai_stone_exhausted(_game, _player) {
+    var _quarries = ai_buildings_of_type(_game, _player, BuildingType.stonecutter);
+    var _n = array_length(_quarries);
+
+    if (_n == 0) {
+        return false;
+    }
+
+    for (var _i = 0; _i < _n; _i++) {
+        if (ai_count_stone(_game, _quarries[_i].get_position()) >= AI_STONE_SPENT) {
+            return false;   // this one still has something to cut
+        }
+    }
+
+    return true;
+}
+
+
+/// Finished military buildings with nobody in them. Unlike ai_unmanned_count
+/// this ignores buildings still going up: those are empty because they are
+/// not finished, not because there is nobody to send, and counting them
+/// made "we are short of knights" true on every decision after every hut.
+function ai_empty_garrisons(_game, _player) {
+    var _military = ai_military_buildings(_game, _player);
+    var _n = array_length(_military);
+    var _count = 0;
+
+    for (var _i = 0; _i < _n; _i++) {
+        var _building = _military[_i];
+        if (_building.is_burning()) {
+            continue;
+        }
+        if (_building.get_type() == BuildingType.castle) {
+            continue;
+        }
+        if (!_building.is_done()) {
+            continue;
+        }
+        if (_building.get_knight_count() <= 0) {
+            _count += 1;
+        }
+    }
+
+    return _count;
+}
+
+
+/// Swords and shields sitting in this player's castles and stocks. Each pair
+/// is one knight the moment a serf is free to take them.
+function ai_weapon_stock(_game, _player) {
+    var _inventories = _game.inventories.objects;
+    var _n = array_length(_inventories);
+    var _pairs = 0;
+
+    for (var _i = 0; _i < _n; _i++) {
+        var _inventory = _inventories[_i];
+        if (_inventory == undefined) {
+            continue;
+        }
+        if (_inventory.get_owner() != _player.get_index()) {
+            continue;
+        }
+        _pairs += min(_inventory.get_count_of(ResourceType.sword),
+                      _inventory.get_count_of(ResourceType.shield));
+    }
+
+    return _pairs;
+}
+
+
+/// What the plan does not know to ask for: replacements and top-ups decided
+/// from what is actually happening on the map. These go at the FRONT of the
+/// wanted list, because both of them describe something already broken - a
+/// mason with nothing to cut, garrisons with nobody to put in them - rather
+/// than the next step of a build-out.
+function ai_dynamic_wants(_game, _player, _counts) {
+    var _out = [];
+
+    if (_counts[BuildingType.stonecutter] < AI_MAX_STONECUTTERS &&
+        ai_stone_exhausted(_game, _player)) {
+        array_push(_out, BuildingType.stonecutter);
+    }
+
+    /* Empty garrisons AND an empty armoury: the huts are not the problem. */
+    if (_counts[BuildingType.weapon_smith] >= 1 &&
+        _counts[BuildingType.weapon_smith] < AI_MAX_WEAPON_SMITHS &&
+        ai_empty_garrisons(_game, _player) > 0 &&
+        ai_weapon_stock(_game, _player) == 0) {
+        array_push(_out, BuildingType.weapon_smith);
+    }
+
+    return _out;
+}
+
+
 /// Every building type the plan still wants, in plan order and without
 /// repeats. The caller tries them in turn, so a type that cannot be sited
 /// costs one decision's search rather than the rest of the game.
@@ -853,8 +997,11 @@ function ai_wanted_building_types(_game, _player) {
     // What the plan asks for, minus what is already standing or going up.
     // A type appears once however many plan entries mention it, because the
     // count is compared against the largest want for that type either way.
-    var _out = [];
+    var _out = ai_dynamic_wants(_game, _player, _counts);
     var _added = array_create(32, false);
+    for (var _d = 0; _d < array_length(_out); _d++) {
+        _added[_out[_d]] = true;
+    }
     for (var _i = 0; _i < _n; _i++) {
         var _entry = _plan[_i];
         if (_added[_entry.type]) {
@@ -954,6 +1101,17 @@ function ai_site_value(_game, _player, _pos, _type) {
         case BuildingType.stonecutter: {
             var _stone = ai_count_stone(_game, _pos);
             if (_stone < 1) {
+                return 0;
+            }
+            /* A REPLACEMENT quarry must have more to cut than the threshold
+               that retires one. Otherwise a patch of one or two stones is
+               accepted, counts as spent the moment it is up, and asks for
+               yet another - marching to AI_MAX_STONECUTTERS on sites that
+               were never worth it. The first quarry keeps the old rule, so a
+               stone-poor start still gets something. */
+            if (_stone < AI_STONE_SPENT &&
+                array_length(ai_buildings_of_type(_game, _player,
+                                                  BuildingType.stonecutter)) > 0) {
                 return 0;
             }
             return _stone;
