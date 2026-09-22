@@ -129,6 +129,16 @@
 /// this way when the real problem is upstream in coal or iron.
 #macro AI_MAX_WEAPON_SMITHS 2
 
+/// Idle serfs of no trade the AI keeps back when promoting, so there is
+/// always someone to send when a new building needs a worker or a road a
+/// carrier.
+#macro AI_GENERIC_RESERVE 4
+
+/// Most serfs promoted in one decision. The same action as one press of the
+/// knight panel's promote button - the AI is given the button a human has,
+/// not a faster one.
+#macro AI_PROMOTE_PER_DECISION 5
+
 /// How many nearby flags to try joining a new one to before giving up for
 /// now. One was not enough: the nearest flag can be unreachable - water or a
 /// cliff between them, another flag sitting where the road would have to
@@ -250,6 +260,10 @@ function ai_update_players(_game) {
         // Stagger the players so they do not all think on the same tick.
         _player.ai_next_tick = _game.const_tick + ai_update_interval(_game) +
                                _player.get_index() * 37;
+
+        // Knights first: arming men for the huts already standing costs
+        // nothing and does not use up the decision.
+        ai_manage_knights(_game, _player);
 
         // A building with no road is worth less than no building at all, so
         // reconnecting one comes before putting up another.
@@ -926,6 +940,86 @@ function ai_empty_garrisons(_game, _player) {
 }
 
 
+/// This player's serfs idle in its castles and stocks: how many of no trade,
+/// and how many knights. One walk over the serf list for both.
+function ai_idle_serf_counts(_game, _player) {
+    var _serfs = _game.get_player_serfs(_player);
+    var _n = array_length(_serfs);
+    var _generic = 0;
+    var _knights = 0;
+
+    for (var _i = 0; _i < _n; _i++) {
+        var _serf = _serfs[_i];
+        if (_serf.get_state() != SerfState.idle_in_stock) {
+            continue;
+        }
+        var _type = _serf.get_type();
+        if (_type == SerfType.generic) {
+            _generic += 1;
+        } else if (_type >= SerfType.knight0 && _type <= SerfType.knight4) {
+            _knights += 1;
+        }
+    }
+
+    return { generic: _generic, knights: _knights };
+}
+
+
+/// Knights this player could send to a garrison right now or very soon:
+/// those idle in stock beyond what the castle keeps for itself, plus one per
+/// sword-and-shield pair that has an idle serf to take it. A pair with nobody
+/// to carry it is not a knight yet, however many of them there are.
+function ai_knight_supply(_game, _player) {
+    var _idle = ai_idle_serf_counts(_game, _player);
+    var _spare = _idle.knights - _player.get_castle_knights_wanted();
+    if (_spare < 0) {
+        _spare = 0;
+    }
+    var _takers = _idle.generic - AI_GENERIC_RESERVE;
+    if (_takers < 0) {
+        _takers = 0;
+    }
+    return _spare + min(ai_weapon_stock(_game, _player), _takers);
+}
+
+
+/// Turn waiting weapons into knights, the way a human does it: the knight
+/// panel's promote button.
+///
+/// The original makes a knight from a weapon pair in two ways - when a NEW
+/// serf is spawned (Player.update; about one spawn in three, and no more than
+/// two waiting at once) or when the player promotes idle serfs by hand. The
+/// AI only ever had the first, so once its smith was working the swords and
+/// shields piled up in the castle faster than spawning could use them, while
+/// the huts it had built stood empty at the border. This gives it the second.
+///
+/// Only when there is somewhere for the knights to go, and never below
+/// AI_GENERIC_RESERVE idle serfs, so it does not strip itself of workers.
+/// Does not use up the decision: pressing a button is not building anything.
+function ai_manage_knights(_game, _player) {
+    var _pairs = ai_weapon_stock(_game, _player);
+    if (_pairs <= 0) {
+        return;
+    }
+    if (ai_unmanned_count(_game, _player) <= 0) {
+        return;   // every garrison is holding; weapons can wait in stock
+    }
+
+    var _idle = ai_idle_serf_counts(_game, _player);
+    var _can = _idle.generic - AI_GENERIC_RESERVE;
+    if (_can <= 0) {
+        return;
+    }
+
+    var _want = min(_pairs, _can, AI_PROMOTE_PER_DECISION);
+    var _done = _player.promote_serfs_to_knights(_want);
+    if (_done > 0) {
+        show_debug_message("ai: player " + string(_player.get_index()) +
+                           " promoted " + string(_done) + " serf(s) to knights");
+    }
+}
+
+
 /// Swords and shields sitting in this player's castles and stocks. Each pair
 /// is one knight the moment a serf is free to take them.
 function ai_weapon_stock(_game, _player) {
@@ -1370,7 +1464,17 @@ function ai_expand(_game, _player) {
     }
 
     // Man what is already built before building more.
-    if (ai_unmanned_count(_game, _player) > AI_EXPAND_UNMANNED) {
+    var _unmanned = ai_unmanned_count(_game, _player);
+    if (_unmanned > AI_EXPAND_UNMANNED) {
+        return false;
+    }
+
+    // And only build a hut there is a knight for. Every hut already waiting
+    // has a claim on the supply first, so the new one needs one more than
+    // that. Without this the AI pushed its border toward the enemy with
+    // huts it had nobody to put in: each one claims ground it cannot hold,
+    // stands empty in the enemy's view, and is the first thing taken.
+    if (ai_knight_supply(_game, _player) <= _unmanned) {
         return false;
     }
 
