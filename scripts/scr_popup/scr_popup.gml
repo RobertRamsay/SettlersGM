@@ -2368,6 +2368,14 @@ function ListSavedFiles() : GuiObject() constructor {
             return false;
         }
 
+        /* A letter with Ctrl held is a shortcut, not text. Without this,
+           Ctrl+S pressed while the save panel is open typed an "s" into the
+           name; now it falls through to the interface like any other
+           shortcut. Shift still types, so names can have capitals. */
+        if ((_modifier & 1) != 0) {
+            return false;
+        }
+
         if (string_length(edit_text) >= max_name_length) {
             return true;
         }

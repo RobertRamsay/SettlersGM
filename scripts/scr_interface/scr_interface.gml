@@ -420,6 +420,21 @@ function Interface(_game = undefined) : GuiObject() constructor {
         }
     };
 
+    /// Ctrl+S: the save panel, exactly as the options menu's SAVE button
+    /// opens it (Action.show_save) - the slot list and name field shown and
+    /// the box switched to load_save - waiting for a slot to be picked.
+    ///
+    /// Not over the start screen: there is no game there to save, and the
+    /// start screen's own LOAD list is a different box.
+    static open_save_box = function() {
+        if (init_box != undefined && init_box.is_displayed()) {
+            return;
+        }
+        open_popup(PopupType.load_save);
+        popup.file_list.set_displayed(true);
+        popup.file_field.set_displayed(true);
+    };
+
     /* Close the current popup. */
     static close_popup = function() {
         if (popup == undefined) {
@@ -1475,6 +1490,10 @@ function Interface(_game = undefined) : GuiObject() constructor {
 
             /* Audio */
             case ord("s"): {
+                if ((_modifier & 1) != 0) {
+                    open_save_box();
+                    break;
+                }
                 // Audio sound player enable toggle: no sound-player object in the
                 // GML port (play_sfx is a plain function). TODO when scr_audio
                 // gains an enable flag.
