@@ -109,6 +109,10 @@ function Player(_game, _index) : GameObject(_game, _index) constructor {
     /// Reset by anything the AI actually builds.
     ai_stuck_count = 0;
 
+    /// Decisions since this player last ran its knight phase - see
+    /// ai_manage_knights, which the original runs one slot in six.
+    ai_knight_phase_counter = 0;
+
     messages = [];   // std::queue<Message> -> array (front = index 0)
     timers = [];     // std::vector<PosTimer> -> array of {timeout, pos}
 
@@ -508,13 +512,14 @@ function Player(_game, _index) : GameObject(_game, _index) constructor {
     /* Turn a number of serfs into knight for the given player. */
     /// Promote up to _number idle generic serfs into knights.
     ///
-    /// DELIBERATELY NOT FAITHFUL. Freeserf decrements `number` on every
-    /// promotion and then never reads it, so its loop runs to the end of the
-    /// serf list whatever you asked for: the 1, 5, 20 and 100 buttons in the
-    /// knight panel all promote everybody available. The count is plainly meant
-    /// to be a limit - there is no other reason for four buttons - so it is one
-    /// here. If matching the original bug ever matters more than the buttons
-    /// working, this is the line to take back out.
+    /// FAITHFUL TO THE AMIGA, not to Freeserf. Freeserf decrements `number` on
+    /// every promotion and then never reads it, so its loop runs to the end of
+    /// the serf list whatever you asked for: the 1, 5, 20 and 100 buttons all
+    /// promote everybody available. The original does not. Its routine
+    /// (data/TheSettlers, code offset 0x16940, called by the knight panel at
+    /// 0x16922 and by the AI at 0x29356) ends each promotion with
+    /// `subq.w #1,d4 / beq` - the count is a limit, and stopping at it is what
+    /// the game always did. The bug was Freeserf's.
     static promote_serfs_to_knights = function(_number) {
         var _promoted = 0;
 

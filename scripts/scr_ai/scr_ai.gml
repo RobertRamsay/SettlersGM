@@ -129,15 +129,25 @@
 /// this way when the real problem is upstream in coal or iron.
 #macro AI_MAX_WEAPON_SMITHS 2
 
-/// Idle serfs of no trade the AI keeps back when promoting, so there is
-/// always someone to send when a new building needs a worker or a road a
-/// carrier.
-#macro AI_GENERIC_RESERVE 4
+/// Idle serfs of no trade the AI keeps back when promoting.
+///
+/// Read off the Amiga executable (data/TheSettlers, code offset 0x292e8,
+/// the knight phase of the AI loop): it totals the generic serfs in every
+/// inventory it owns, does nothing with fewer than 10, and otherwise
+/// promotes as many as it can arm while leaving 10 behind.
+#macro AI_GENERIC_RESERVE 10
 
-/// Most serfs promoted in one decision. The same action as one press of the
-/// knight panel's promote button - the AI is given the button a human has,
-/// not a faster one.
-#macro AI_PROMOTE_PER_DECISION 5
+/// How many AI decisions apart the knight phase runs.
+///
+/// The original AI rotates through 16 phase slots (jump table at 0x27f26).
+/// The knight phase (0x2b906) holds one of them; the building phase
+/// (0x27f66), which is what one of our decisions corresponds to, holds six.
+/// So the original promotes once for every six building actions.
+#macro AI_KNIGHT_PHASE_DECISIONS 6
+
+/// ai_intelligence of the brightest opponent: 1300 * 40 + 13535, capped to
+/// the 16-bit roll it is compared against. See ai_update_interval.
+#macro AI_INTELLIGENCE_FULL 65535
 
 /// How many nearby flags to try joining a new one to before giving up for
 /// now. One was not enough: the nearest flag can be unreachable - water or a
@@ -228,8 +238,41 @@ function ai_init_tables() {
 ///
 /// A paused game (game_speed 0) keeps the normal interval; nothing is
 /// updating anyway.
-function ai_update_interval(_game) {
-    return ai_scaled_interval(_game, AI_UPDATE_INTERVAL);
+function ai_update_interval(_game, _player) {
+    return ai_scaled_interval(_game, ai_intelligence_interval(_player));
+}
+
+
+/// The thinking interval for this opponent's INTELLIGENCE.
+///
+/// Freeserf reads intelligence from the mission table, stores it as
+/// 1300 * intelligence + 13535 and never uses it; its comment calls it
+/// "AI only (unused)". The Amiga does use it, and for exactly this. Its
+/// scheduler (0x9864) gives each AI player four slots in every 49 passes of
+/// the main loop, and at each one draws a 16-bit random number (0x26826,
+/// the game's generator) and lets the AI think ONLY IF the roll is below
+/// that value (0x9912). So intelligence is how often the enemy thinks:
+///
+///     mission 1   intelligence 10   thinks on ~40% of its slots
+///     mission 30  intelligence 40   thinks on every slot
+///
+/// That is the campaign's whole difficulty curve, and the port had every
+/// opponent thinking at the top rate - the mission-1 enemy about two and a
+/// half times as busy as the original's.
+///
+/// This uses the expected value of the roll rather than rolling: the same
+/// average rate, without drawing from the game's generator, so turning it on
+/// changes no map, no serf and no multiplayer checksum - only how often the
+/// AI is consulted.
+function ai_intelligence_interval(_player) {
+    var _intel = _player.ai_intelligence;
+    if (_intel <= 0) {
+        return AI_UPDATE_INTERVAL;   // a player set up without one: old save
+    }
+    if (_intel > AI_INTELLIGENCE_FULL) {
+        _intel = AI_INTELLIGENCE_FULL;
+    }
+    return floor(AI_UPDATE_INTERVAL * AI_INTELLIGENCE_FULL / _intel);
 }
 
 /// The same scaling for any AI interval measured in const_ticks.
@@ -258,7 +301,7 @@ function ai_update_players(_game) {
         }
 
         // Stagger the players so they do not all think on the same tick.
-        _player.ai_next_tick = _game.const_tick + ai_update_interval(_game) +
+        _player.ai_next_tick = _game.const_tick + ai_update_interval(_game, _player) +
                                _player.get_index() * 37;
 
         // Knights first: arming men for the huts already standing costs
@@ -983,36 +1026,50 @@ function ai_knight_supply(_game, _player) {
 }
 
 
-/// Turn waiting weapons into knights, the way a human does it: the knight
-/// panel's promote button.
+/// The original AI's knight phase: promote every serf it can arm.
 ///
-/// The original makes a knight from a weapon pair in two ways - when a NEW
-/// serf is spawned (Player.update; about one spawn in three, and no more than
-/// two waiting at once) or when the player promotes idle serfs by hand. The
-/// AI only ever had the first, so once its smith was working the swords and
-/// shields piled up in the castle faster than spawning could use them, while
-/// the huts it had built stood empty at the border. This gives it the second.
+/// Confirmed against the Amiga executable rather than inferred. The AI's
+/// knight phase (0x29242) totals generic serfs and armable ones across its
+/// inventories and calls 0x16940 - which is promote_serfs_to_knights, the
+/// same routine the knight panel's buttons call (from 0x16922). Field for
+/// field it matches the port: serf state 1 (idle in stock), type 21
+/// (generic), one sword and one shield taken, the serf becomes type 22.
 ///
-/// Only when there is somewhere for the knights to go, and never below
-/// AI_GENERIC_RESERVE idle serfs, so it does not strip itself of workers.
+/// Its rule: nothing to arm, or fewer than 10 generic serfs, do nothing;
+/// otherwise promote all it can arm except enough to leave 10. It does not
+/// look at whether any garrison is waiting and it has no per-call limit -
+/// an earlier version of this function had both, and neither is original.
+///
+/// It runs one decision in AI_KNIGHT_PHASE_DECISIONS, as the knight phase
+/// holds one slot of the original's sixteen to the building phase's six.
 /// Does not use up the decision: pressing a button is not building anything.
 function ai_manage_knights(_game, _player) {
+    _player.ai_knight_phase_counter += 1;
+    if (_player.ai_knight_phase_counter < AI_KNIGHT_PHASE_DECISIONS) {
+        return;
+    }
+    _player.ai_knight_phase_counter = 0;
+
     var _pairs = ai_weapon_stock(_game, _player);
     if (_pairs <= 0) {
         return;
     }
-    if (ai_unmanned_count(_game, _player) <= 0) {
-        return;   // every garrison is holding; weapons can wait in stock
-    }
 
     var _idle = ai_idle_serf_counts(_game, _player);
-    var _can = _idle.generic - AI_GENERIC_RESERVE;
+    if (_idle.generic < AI_GENERIC_RESERVE) {
+        return;
+    }
+
+    var _can = min(_pairs, _idle.generic);
+    var _spare = _idle.generic - _can;
+    if (_spare < AI_GENERIC_RESERVE) {
+        _can -= AI_GENERIC_RESERVE - _spare;
+    }
     if (_can <= 0) {
         return;
     }
 
-    var _want = min(_pairs, _can, AI_PROMOTE_PER_DECISION);
-    var _done = _player.promote_serfs_to_knights(_want);
+    var _done = _player.promote_serfs_to_knights(_can);
     if (_done > 0) {
         show_debug_message("ai: player " + string(_player.get_index()) +
                            " promoted " + string(_done) + " serf(s) to knights");
