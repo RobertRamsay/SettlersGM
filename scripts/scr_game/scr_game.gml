@@ -696,6 +696,14 @@ function Game() constructor {
 
     /* Dispatch serf from (nearest?) inventory to flag. */
     static send_serf_to_flag = function(_dest, _type, _res1, _res2) {
+        /* No flag, no errand. Every caller should have checked, and the one
+           that did not has been fixed; this is the net under the rest, so a
+           stale flag reference refuses the request instead of ending the
+           session. */
+        if (_dest == undefined) {
+            return false;
+        }
+
         var _building = undefined;
         if (_dest.has_building()) {
             _building = _dest.get_building();

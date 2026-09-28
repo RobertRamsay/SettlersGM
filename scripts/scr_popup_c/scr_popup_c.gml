@@ -506,8 +506,31 @@ function popup_handle_send_geologist_confirm_clk(_popup, _cx, _cy) {
 
 /* PopupBox::handle_send_geologist */
 function popup_handle_send_geologist(_popup) {
-  var _pos = _popup.interface.get_map_cursor_pos();
-  var _flag = _popup.interface.get_game().get_flag_at_pos(_pos);
+  /* The flag the confirmation was OPENED for, not whatever the map cursor
+     points at now. The old code read the cursor at the moment YES was
+     pressed, and two things can change while the box is up: a click on the
+     map around the popup moves the cursor, and the flag itself can be
+     demolished, burnt or conquered - the game keeps running. Either one left
+     no flag at the position, and the single-player branch below passed that
+     straight to send_serf_to_flag:
+
+         Variable <unknown_object>.has_building cannot be resolved.
+         in send_serf_to_flag <- send_geologist, 28/09/2026 (crash report)
+
+     The multiplayer branch already checked; this one never did. Now both
+     answer a missing or lost flag with the refusal sound and close. */
+  var _pos = _popup.geologist_pos;
+  if (_pos < 0) {
+    _pos = _popup.interface.get_map_cursor_pos();   /* opened some other way */
+  }
+  var _game = _popup.interface.get_game();
+  var _flag = _game.get_flag_at_pos(_pos);
+  if (_flag == undefined ||
+      _flag.get_owner() != _popup.interface.get_player().get_index()) {
+    _popup.play_sound(Sfx.not_accepted);
+    _popup.interface.close_popup();
+    return;
+  }
 
   /* Dispatching a geologist calls the same send_serf_to_flag that every other
      serf request goes through - it runs a flag search and takes a serf out of an

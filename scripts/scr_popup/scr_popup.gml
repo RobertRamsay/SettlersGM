@@ -847,6 +847,11 @@ function PopupBox(_interface) : GuiObject() constructor {
     file_field = new TextInput();
     box = PopupType.none;
 
+    /// The flag a send-geologist confirmation was opened for. Remembered here
+    /// rather than read back off the map cursor when YES is pressed, because
+    /// the cursor moves with every click on the map around the popup.
+    geologist_pos = -1;
+
     current_sett_5_item = 8;
     current_sett_6_item = 15;
 
@@ -2123,6 +2128,12 @@ function PopupBox(_interface) : GuiObject() constructor {
     static set_box = function(_box) {
         box = _box;
         save_status = "";
+        /* A position remembered for one confirmation must not carry over to
+           the next box shown in the same popup. The viewport sets it after
+           opening the confirmation, so clearing it here is always first. */
+        if (box != PopupType.send_geologist_confirm) {
+            geologist_pos = -1;
+        }
         if (box == PopupType.map) {
             minimap.set_displayed(true);
         } else {

@@ -3181,11 +3181,13 @@ function Viewport(_interface, _map) : GuiObject() constructor {
             return false;
         }
 
-        /* Confirm first. The popup reads the flag back off the map cursor, so
-           move the cursor there before opening it. */
+        /* Confirm first. The cursor goes to the flag so the player can see
+           which one is meant, and the popup remembers the position itself -
+           see popup_handle_send_geologist. */
         interface.update_map_cursor_pos(_clk_pos);
         set_redraw();
         interface.open_popup(PopupType.send_geologist_confirm);
+        interface.popup.geologist_pos = _clk_pos;
 
         return true;
     };
