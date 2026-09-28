@@ -5,6 +5,9 @@
 // at all once it has fired, or once the player has toggled it themselves.
 fullscreen_step();
 
+// "30 min. passed since the last saving" and its hourly follow-up.
+save_reminder_step(interface);
+
 prof_frame_begin();
 
 // ---- game ticks: one update per TICK_LENGTH_MS of real time (50 Hz)

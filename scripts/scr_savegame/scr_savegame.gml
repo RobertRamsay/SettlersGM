@@ -888,7 +888,75 @@ function savegame_save_path(_path, _game, _label = "") {
 
     show_debug_message("savegame: wrote " + string(_path) + " (" +
                        string(string_length(_text)) + " chars)");
+    save_reminder_reset();
     return true;
+}
+
+
+/* ---------------------------------------------------------------------------
+   The original's "since the last saving" reminders.
+
+   The two messages have always been in the port - text and icon, from the
+   original's own message table: "30 min. passed since the last saving" and
+   "One hour passed since the last saving". Nothing ever sent them. Freeserf
+   never did either, and the port inherited the gap.
+
+   Timed on the REAL clock, not the game's. The reminder protects the player's
+   time, and at 10x a game-time half hour would come round every three minutes.
+   The pause does not stop it either: a paused game is still unsaved.
+
+   At 30 minutes, then the hour message at 60, 120, 180 and so on. Reset by
+   any save the player makes - both the save box and F5 come through
+   savegame_save_path - and by any game being set up, whether new or loaded.
+   NOT by the crash save, which is written straight through game_store_save:
+   that is a snapshot of a broken world, not the player's work being kept.
+
+   Raised on the player's own notification queue. Safe in multiplayer: the
+   net checksum skips the message bit and never reads the message list, so a
+   reminder on one machine is invisible to lockstep. */
+#macro SAVE_REMINDER_FIRST_MS  (30 * 60 * 1000)
+#macro SAVE_REMINDER_REPEAT_MS (60 * 60 * 1000)
+
+function save_reminder_init() {
+    global.save_reminder_since = current_time;
+    global.save_reminder_sent = 0;   /* how many reminders since that time */
+}
+
+function save_reminder_reset() {
+    global.save_reminder_since = current_time;
+    global.save_reminder_sent = 0;
+}
+
+/// Called once a frame. Cheap: one subtraction until a reminder is due.
+function save_reminder_step(_interface) {
+    if (_interface == undefined) {
+        return;
+    }
+    /* The start screen is not a game anybody could lose. */
+    if (_interface.init_box != undefined && _interface.init_box.is_displayed()) {
+        return;
+    }
+    var _player = _interface.get_player();
+    if (_player == undefined) {
+        return;
+    }
+
+    /* 30 minutes, then 60, 120, 180 ... - each message on the time it
+       states, so "One hour passed" is never said at ninety minutes. */
+    var _due = SAVE_REMINDER_FIRST_MS;
+    if (global.save_reminder_sent > 0) {
+        _due = global.save_reminder_sent * SAVE_REMINDER_REPEAT_MS;
+    }
+    if (current_time - global.save_reminder_since < _due) {
+        return;
+    }
+
+    var _type = MessageType.one_h_since_save;
+    if (global.save_reminder_sent == 0) {
+        _type = MessageType.thirty_m_since_save;
+    }
+    _player.add_notification(_type, 0, 0);
+    global.save_reminder_sent += 1;
 }
 
 /// Read a snapshot back. Returns a Game, or undefined.

@@ -63,6 +63,9 @@ alarm[0] = 1;   // centre window next frame (size change must settle first)
 // window is in the background. See fullscreen_step in scr_gfx.
 fullscreen_init();
 
+// The original's "since the last saving" reminders - see scr_savegame.
+save_reminder_init();
+
 // The rolling profiler - F3 exports timings even if the overlay was hidden.
 prof_init();
 

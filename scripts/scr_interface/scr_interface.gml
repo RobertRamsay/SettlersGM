@@ -844,6 +844,10 @@ function Interface(_game = undefined) : GuiObject() constructor {
 
         game = _new_game;
 
+        /* A game just loaded is exactly as saved, and a new one has nothing
+           to lose yet, so the save reminders start counting again from here. */
+        save_reminder_reset();
+
         /* Faults are stamped with the tick they happened on, and this is where
            the clock they read comes from - handed over rather than looked up,
            so reporting one never has to reach back through an interface that
