@@ -1619,6 +1619,20 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
         if (s.walking_dir1 < 0) {
             var _map = game.get_map();
             var _building = game.get_building_at_pos(_map.move_up_left(pos));
+            /* The destination can disappear while this serf is on the road,
+               or already be burning when he arrives. Use the normal lost
+               recovery without set_lost_state(): that helper tries to cancel
+               the request through the same missing building. */
+            if (_building == undefined || _building.is_burning()) {
+                fault_note("serf.walking.no_building_at_dest",
+                           "serf " + string(get_index()) +
+                           " at " + string(pos) +
+                           " dest " + string(s.walking_dest));
+                set_state(SerfState.lost);
+                s.lost_field_B = 0;
+                counter = 0;
+                return;
+            }
             _building.requested_serf_reached(self);
 
             /* A knight never waits at the door - see knight_enters_freely. */
