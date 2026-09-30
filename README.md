@@ -18,6 +18,7 @@ saved game, or NET PLAY.
 | Input | Action |
 |---|---|
 | Left click | Map cursor / UI buttons |
+| Left + right click, middle click, or Alt/Option + left click | Both-button action: on your flag, opens the send-geologist confirmation. Hold Alt (Windows) or Option (macOS) before clicking. |
 | Double click | Context popup for the clicked object |
 | Drag (any button) | Scroll the map (wraps, like the original) |
 | Arrow keys | Scroll by 32 px |

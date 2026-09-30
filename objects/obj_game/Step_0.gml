@@ -319,6 +319,9 @@ var _my = floor(_my_raw);
 var _buttons = [mb_left, mb_middle, mb_right];
 
 // Left + right held together == "both buttons" on a two-button Amiga mouse.
+// On a laptop, hold Alt (Option on macOS) before pressing the left button.
+// Latch that press so releasing the modifier first still gives one chord,
+// while pressing Alt partway through an ordinary drag cannot create one.
 //
 // Only when it started as a chord. A second button pressed in the middle of
 // a pan is a slip of the finger, not the Amiga gesture: the release used to
@@ -327,9 +330,14 @@ var _buttons = [mb_left, mb_middle, mb_right];
 // that has moved (drag_moved), so while it is under way the extra button
 // only cancels the clicks. A chord that then wanders is still a chord, which
 // is how the original treated it.
-if (!_update_mouse && mouse_check_button(mb_left) && mouse_check_button(mb_right)) {
+var _physical_chord = mouse_check_button(mb_left) && mouse_check_button(mb_right);
+var _alt_left = keyboard_check(vk_alt) && mouse_check_button_pressed(mb_left);
+if (!_update_mouse && (_physical_chord || _alt_left)) {
     suppress_click[EventButton.left] = true;
-    suppress_click[EventButton.right] = true;
+    // Alt-left does not involve the right button: do not swallow its next click.
+    if (_physical_chord) {
+        suppress_click[EventButton.right] = true;
+    }
     if (!(drag_button != 0 && drag_moved)) {
         both_buttons_active = true;
     }
