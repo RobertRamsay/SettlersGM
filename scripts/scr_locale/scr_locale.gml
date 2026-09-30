@@ -250,6 +250,13 @@ function locale_build_de() {
     locale_add("Load game", "Spiel laden");
     locale_add("Net play", "Netzspiel");
     locale_add("UPDATE {0} - CLICK HERE", "UPDATE {0} - HIER KLICKEN");
+    locale_add("UPDATE AVAILABLE - PLEASE UPDATE", "UPDATE VERFÜGBAR - BITTE AKTUALISIEREN");
+    locale_add("Your version: {0}", "Deine Version: {0}");
+    locale_add("Latest: {0}", "Aktuell: {0}");
+    locale_add("Older builds may crash. Save your game. Then update.",
+               "Alte Versionen können abstürzen. Erst speichern. Dann updaten.");
+    locale_add("F5 saves to your selected slot.", "F5 speichert im gewählten Speicherplatz.");
+    locale_add("OPEN UPDATE PAGE", "UPDATE-SEITE ÖFFNEN");
     locale_add("No save selected", "Kein Spielstand gewählt");
     locale_add("Slot {0} is empty", "Platz {0} ist leer");
     locale_add("Save could not be read", "Spielstand nicht lesbar");

@@ -160,6 +160,9 @@ if (global.crash_notice != "") {
     draw_set_colour(c_white);
 }
 
+// A confirmed update stays visible during play, including over game popups.
+update_notice_draw(interface);
+
 /* The language question, over everything, until it has been answered once.
    Draws nothing at all after that. */
 locale_prompt_draw();

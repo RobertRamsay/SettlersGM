@@ -4,6 +4,7 @@
 // focus before it asks the runtime to recreate the swap chain. Does nothing
 // at all once it has fired, or once the player has toggled it themselves.
 fullscreen_step();
+update_check_step();
 
 // "30 min. passed since the last saving" and its hourly follow-up.
 save_reminder_step(interface);
@@ -275,11 +276,22 @@ if (keyboard_check_pressed(vk_f11)) {
 }
 
 // ---- mouse wheel: zoom, half size / normal / double
+// The update warning owns mouse gestures over its panel, but keyboard save,
+// pause and other shortcuts still work. Clear pending map clicks and drags.
+var _update_mouse = update_notice_mouse_step(interface);
+if (_update_mouse) {
+    drag_button = 0;
+    drag_moved = false;
+    both_buttons_active = false;
+    suppress_click = array_create(4, false);
+    last_click_time = array_create(4, -100000);
+}
+
 // The steps are not evenly spaced, so this walks the viewport's own table
 // rather than adding to the scale factor. Wheel up goes in, wheel down goes
 // out, and out is the useful direction: it is how you see enough of the map to
 // plan where the next road is going.
-if (mouse_wheel_up() || mouse_wheel_down()) {
+if (!_update_mouse && (mouse_wheel_up() || mouse_wheel_down())) {
     var _viewport = interface.get_viewport();
     if (_viewport != undefined) {
         var _step = 0;
@@ -315,7 +327,7 @@ var _buttons = [mb_left, mb_middle, mb_right];
 // that has moved (drag_moved), so while it is under way the extra button
 // only cancels the clicks. A chord that then wanders is still a chord, which
 // is how the original treated it.
-if (mouse_check_button(mb_left) && mouse_check_button(mb_right)) {
+if (!_update_mouse && mouse_check_button(mb_left) && mouse_check_button(mb_right)) {
     suppress_click[EventButton.left] = true;
     suppress_click[EventButton.right] = true;
     if (!(drag_button != 0 && drag_moved)) {
@@ -323,7 +335,7 @@ if (mouse_check_button(mb_left) && mouse_check_button(mb_right)) {
     }
 }
 
-for (var _b = 1; _b <= 3; _b++) {
+for (var _b = 1; !_update_mouse && _b <= 3; _b++) {
     var _mb = _buttons[_b - 1];
     if (mouse_check_button_released(_mb)) {
         if (drag_button == _b) {
@@ -351,7 +363,7 @@ for (var _b = 1; _b <= 3; _b++) {
 }
 
 // ---- dragging (any held button): drag events carry the delta since the press
-for (var _b = 1; _b <= 3; _b++) {
+for (var _b = 1; !_update_mouse && _b <= 3; _b++) {
     var _mb = _buttons[_b - 1];
     if (mouse_check_button(_mb)) {
         if (drag_button == 0) {

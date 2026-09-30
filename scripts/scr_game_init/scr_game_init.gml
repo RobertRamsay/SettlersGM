@@ -32,7 +32,7 @@
 // where it belongs, and nothing here has to be kept in step with it by hand.
 //
 // The latest available version is one line of text in the repository, fetched
-// over HTTP at startup. A plain text file rather than JSON on purpose: there is
+// over HTTP at startup and every five minutes. A plain text file rather than JSON: there is
 // nothing to parse, nothing to go wrong with a struct that turned out not to
 // have the field, and it is one keystroke to edit. Only the FIRST line is read,
 // so notes, a download URL or anything else can be added underneath later
@@ -50,6 +50,18 @@
    Two colours rather than on and off, so it is never invisible at the moment
    somebody goes to click it. */
 #macro UPDATE_FLASH_MS  400
+#macro UPDATE_RECHECK_MS (5 * 60 * 1000)
+#macro UPDATE_TIMEOUT_MS (30 * 1000)
+
+// Room coordinates, shared by the in-game warning and its input handling.
+#macro UPDATE_NOTICE_X 16
+#macro UPDATE_NOTICE_Y 28
+#macro UPDATE_NOTICE_W 608
+#macro UPDATE_NOTICE_H 112
+#macro UPDATE_NOTICE_LINK_X 176
+#macro UPDATE_NOTICE_LINK_Y 104
+#macro UPDATE_NOTICE_LINK_W 288
+#macro UPDATE_NOTICE_LINK_H 24
 
 /// The version this build reports, from Game Options.
 function game_version() {
@@ -89,6 +101,9 @@ function update_check_init() {
     global.update_latest = "";
     global.update_available = false;
     global.update_checked = false;
+    global.update_last_attempt = current_time;
+    global.update_notice_link_armed = false;
+    global.update_notice_mouse_captured = false;
 }
 
 /// Fire the request. Nothing waits on it: the answer turns up in obj_game's
@@ -98,7 +113,103 @@ function update_check_init() {
 /// start.
 function update_check_start() {
     update_check_init();
+    update_check_request();
+}
+
+// Refresh without clearing a confirmed update if the next request fails.
+function update_check_request() {
+    global.update_last_attempt = current_time;
     global.update_request_id = http_get(UPDATE_CHECK_URL);
+}
+
+// Real time only: checking for updates must never change the simulation or
+// pause just one side of a network game. Retry after an offline startup too.
+function update_check_step() {
+    var _elapsed = current_time - global.update_last_attempt;
+    if (global.update_request_id >= 0 && _elapsed >= UPDATE_TIMEOUT_MS) {
+        global.update_request_id = -1; // late replies are ignored by their id
+    }
+    if (global.update_request_id < 0 && _elapsed >= UPDATE_RECHECK_MS) {
+        update_check_request();
+    }
+}
+
+function update_notice_shown(_interface) {
+    return global.update_available && _interface != undefined &&
+           _interface.get_game_init_box() == undefined &&
+           !global.locale_asking && !global.crash_asking && !global.net_ip_prompt;
+}
+
+function update_notice_hit(_x, _y, _w, _h) {
+    return mouse_x >= _x && mouse_x < _x + _w &&
+           mouse_y >= _y && mouse_y < _y + _h;
+}
+
+// Return true while the warning owns the mouse. Keep the whole gesture,
+// including a release outside the box, away from roads and buildings below.
+function update_notice_mouse_step(_interface) {
+    if (!update_notice_shown(_interface)) {
+        global.update_notice_link_armed = false;
+        global.update_notice_mouse_captured = false;
+        return false;
+    }
+    var _over = update_notice_hit(UPDATE_NOTICE_X, UPDATE_NOTICE_Y,
+                                 UPDATE_NOTICE_W, UPDATE_NOTICE_H);
+    var _link = update_notice_hit(UPDATE_NOTICE_LINK_X, UPDATE_NOTICE_LINK_Y,
+                                 UPDATE_NOTICE_LINK_W, UPDATE_NOTICE_LINK_H);
+    var _held = mouse_check_button(mb_left) || mouse_check_button(mb_middle) ||
+                mouse_check_button(mb_right);
+    if (_over && _held) {
+        global.update_notice_mouse_captured = true;
+    }
+    if (mouse_check_button_pressed(mb_left)) {
+        global.update_notice_link_armed = _link;
+    }
+    if (mouse_check_button_released(mb_left)) {
+        if (global.update_notice_link_armed && _link) {
+            url_open(UPDATE_PAGE_URL);
+        }
+        global.update_notice_link_armed = false;
+    }
+    var _capture = _over || global.update_notice_mouse_captured;
+    if (!_held) {
+        global.update_notice_mouse_captured = false;
+    }
+    return _capture;
+}
+
+// Deliberately persistent: opening the download page is not installing it.
+// F5 and the normal save controls remain available while the warning is up.
+function update_notice_draw(_interface) {
+    if (!update_notice_shown(_interface)) {
+        return;
+    }
+    gfx_set_origin(0, 0);
+    draw_set_alpha(1);
+    gfx_fill_rect(UPDATE_NOTICE_X, UPDATE_NOTICE_Y, UPDATE_NOTICE_W,
+                  UPDATE_NOTICE_H, make_colour_rgb(35, 12, 8));
+    gfx_draw_rect(UPDATE_NOTICE_X, UPDATE_NOTICE_Y, UPDATE_NOTICE_W,
+                  UPDATE_NOTICE_H, c_yellow);
+    gfx_draw_string(28, 40, L("UPDATE AVAILABLE - PLEASE UPDATE"), c_yellow, -1);
+    var _versions = LF("Your version: {0}", game_version()) + "    " +
+                    LF("Latest: {0}", global.update_latest);
+    gfx_draw_string(28, 56, _versions, c_white, -1);
+    gfx_draw_string(28, 72, L("Older builds may crash. Save your game. Then update."),
+                    c_white, -1);
+    gfx_draw_string(28, 88, L("F5 saves to your selected slot."), c_white, -1);
+    var _hover = update_notice_hit(UPDATE_NOTICE_LINK_X, UPDATE_NOTICE_LINK_Y,
+                                  UPDATE_NOTICE_LINK_W, UPDATE_NOTICE_LINK_H);
+    var _colour = c_yellow;
+    if (_hover) {
+        _colour = c_white;
+    }
+    gfx_fill_rect(UPDATE_NOTICE_LINK_X, UPDATE_NOTICE_LINK_Y,
+                  UPDATE_NOTICE_LINK_W, UPDATE_NOTICE_LINK_H, _colour);
+    var _label = L("OPEN UPDATE PAGE");
+    gfx_draw_string(UPDATE_NOTICE_LINK_X +
+                    (UPDATE_NOTICE_LINK_W - 8 * string_length(_label)) div 2,
+                    UPDATE_NOTICE_LINK_Y + 8, _label, c_black, -1);
+    draw_set_colour(c_white);
 }
 
 /// First line of a fetched file, without its line ending or surrounding space.
