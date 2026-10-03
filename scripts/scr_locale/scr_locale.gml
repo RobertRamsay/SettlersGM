@@ -262,7 +262,7 @@ function locale_build_de() {
     locale_add("Save could not be read", "Spielstand nicht lesbar");
     locale_add("Save has no usable map", "Spielstand ohne Karte");
     locale_add("Loading...", "Lade...");
-    locale_add("Pick a save, then LOAD", "Spielstand wählen, dann LOAD");
+    locale_add("Click a save to load it", "Zum Laden Spielstand klicken");
     locale_add("- empty -", "- leer -");
     locale_add("saved game", "Spielstand");
 

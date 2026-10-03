@@ -1251,7 +1251,7 @@ function GameInitBox(_interface) : GuiObject() constructor {
         /* Cut to the row's width like everything else down here. Most of these
            are short, but savegame_last_error() is whatever the loader had to
            say, and a long one would run out across LOAD and EXIT. */
-        if (load_status != "") {
+        if (game_type == GameType.load && load_status != "") {
             var _status = load_status;
             if (string_length(_status) > GEN_LABEL_COLS) {
                 _status = string_copy(_status, 1, GEN_LABEL_COLS);
@@ -1484,6 +1484,13 @@ function GameInitBox(_interface) : GuiObject() constructor {
     /// ActionToggleGameType).
     static set_game_type = function(_game_type) {
         game_type = _game_type;
+
+        /* The yellow status line is about the save list and nothing else, so
+           it belongs to the load screen: every way off that screen clears it
+           (BACK, NET PLAY, anything added later), and every way onto it puts
+           the hint back. Before, only the button that happened to be pressed
+           tidied up, and the hint could follow you to the New Game screen. */
+        load_status = "";
         switch (game_type) {
             case GameType.mission: {
                 mission = game_info_get_mission(game_mission);
@@ -1506,6 +1513,9 @@ function GameInitBox(_interface) : GuiObject() constructor {
                 random_input.set_displayed(false);
                 minimap.set_displayed(true);
                 file_list.set_displayed(true);
+                /* Clicking a save loads it there and then (the list's
+                   selection handler), so there is nothing else to press. */
+                load_status = L("Click a save to load it");
                 break;
             }
             case GameType.netplay: {
@@ -1649,10 +1659,9 @@ function GameInitBox(_interface) : GuiObject() constructor {
             }
             case GameInitAction.toggle_game_type: {
                 /* On the load screen this plaque is BACK: return to whichever
-                   screen LOAD was pressed on, and drop the load hint so it does
-                   not follow us there and hold the update note's row. */
+                   screen LOAD was pressed on. set_game_type clears the load
+                   hint. */
                 if (game_type == GameType.load) {
-                    load_status = "";
                     set_game_type(load_return_type);
                     set_redraw();
                     break;
@@ -1675,7 +1684,6 @@ function GameInitBox(_interface) : GuiObject() constructor {
                     }
                     set_game_type(GameType.load);
                     file_list.update();
-                    load_status = L("Pick a save, then LOAD");
                     set_redraw();
                     break;
                 }
