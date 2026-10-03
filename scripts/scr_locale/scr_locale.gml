@@ -269,8 +269,7 @@ function locale_build_de() {
     /* ---- start screen hover hints (one line, beside the pointer) */
     locale_add("Quit SettlersGM", "SettlersGM beenden");
     locale_add("Back", "Zurück");
-    locale_add("Back to new game", "Zurück zu Neues Spiel");
-    locale_add("Back to missions", "Zurück zu den Missionen");
+    locale_add("Flag", "Fahne");
 
     /* ---- building names, shown beside the pointer over the map */
     locale_add("Fisherman", "Fischer");

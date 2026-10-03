@@ -1871,6 +1871,10 @@ function PopupBox(_interface) : GuiObject() constructor {
         default:
             break;
         }
+
+        /* On the four build menus: the name of the building under the
+           pointer, in a strip under the box. */
+        draw_build_hover_name();
     };
 
     static activate_sett_5_6_item = function(_index) {
@@ -2180,6 +2184,8 @@ function PopupBox(_interface) : GuiObject() constructor {
     static handle_game_end_clk = function(_cx, _cy) { popup_handle_game_end_clk(self, _cx, _cy); };
     static draw_demolish_box = function() { popup_draw_demolish_box(self); };
     static draw_save_box = function() { popup_draw_save_box(self); };
+    static build_hover_name = function() { return popup_build_hover_name(self); };
+    static draw_build_hover_name = function() { popup_draw_build_hover_name(self); };
 
     /* popup.cc 2820-4187 (handlers) → popup_<name>(_popup, ...) */
     static handle_send_geologist = function() { popup_handle_send_geologist(self); };

@@ -324,8 +324,6 @@ function GuiObject() constructor {
 #macro GUI_TIP_PAD      3
 #macro GUI_TIP_OFF_X    12
 #macro GUI_TIP_OFF_Y    4
-/* How long the pointer rests on a building before its name appears. */
-#macro GUI_TIP_DELAY_MS 250
 #macro GUI_TIP_COL_BG   make_colour_rgb(0x00, 0x00, 0x00)
 #macro GUI_TIP_COL_EDGE make_colour_rgb(0x73, 0xb3, 0x43)
 #macro GUI_TIP_COL_TEXT make_colour_rgb(0xff, 0xff, 0xff)

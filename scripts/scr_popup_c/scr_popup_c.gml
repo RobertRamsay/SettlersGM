@@ -1629,3 +1629,125 @@ function popup_handle_save_clk(_popup, _cx, _cy) {
 
   popup_handle_clickmap(_popup, _cx, _cy, global.popup_c_clk_save);
 }
+
+/* ---------------------------------------------------------------------------
+   Build menu names. Not in the original: the build menus are pictures only,
+   and several buildings look alike at that size. Rest the pointer on one and
+   its name is shown in a strip just under the box.
+   --------------------------------------------------------------------------- */
+
+#macro POPUP_BUILD_NAME_GAP  2
+#macro POPUP_BUILD_NAME_H    14
+
+/// The BuildingType a build-menu action builds, or BuildingType.none.
+function popup_build_action_type(_action) {
+  switch (_action) {
+    case Action.build_stonemine:     return BuildingType.stone_mine;
+    case Action.build_coalmine:      return BuildingType.coal_mine;
+    case Action.build_ironmine:      return BuildingType.iron_mine;
+    case Action.build_goldmine:      return BuildingType.gold_mine;
+    case Action.build_stonecutter:   return BuildingType.stonecutter;
+    case Action.build_hut:           return BuildingType.hut;
+    case Action.build_lumberjack:    return BuildingType.lumberjack;
+    case Action.build_forester:      return BuildingType.forester;
+    case Action.build_fisher:        return BuildingType.fisher;
+    case Action.build_mill:          return BuildingType.mill;
+    case Action.build_boatbuilder:   return BuildingType.boatbuilder;
+    case Action.build_butcher:       return BuildingType.butcher;
+    case Action.build_weaponsmith:   return BuildingType.weapon_smith;
+    case Action.build_steelsmelter:  return BuildingType.steel_smelter;
+    case Action.build_sawmill:       return BuildingType.sawmill;
+    case Action.build_baker:         return BuildingType.baker;
+    case Action.build_goldsmelter:   return BuildingType.gold_smelter;
+    case Action.build_fortress:      return BuildingType.fortress;
+    case Action.build_tower:         return BuildingType.tower;
+    case Action.build_toolmaker:     return BuildingType.tool_maker;
+    case Action.build_farm:          return BuildingType.farm;
+    case Action.build_pigfarm:       return BuildingType.pig_farm;
+    case Action.build_stock:         return BuildingType.stock;
+  }
+  return BuildingType.none;
+}
+
+/// The name of whatever the pointer is over in a build menu, or "" for
+/// nothing (or not a build menu). It walks the same clickmap, in the same
+/// order and with the same 8-pixel inset, as the click handlers, so the name
+/// shown is always what a click there would build. Things the box is not
+/// drawing - the hut, tower and fortress where a military building cannot go,
+/// the flag where a flag cannot go - get no name, as there is nothing there
+/// to point at.
+function popup_build_hover_name(_popup) {
+  popup_c_init_tables();
+  var _clkmap = undefined;
+  switch (_popup.get_box()) {
+    case PopupType.mine_building:
+      _clkmap = global.popup_c_clk_mine_building;
+      break;
+    case PopupType.basic_bld:
+      _clkmap = global.popup_c_clk_basic_building_noflip;
+      break;
+    case PopupType.basic_bld_flip:
+      _clkmap = global.popup_c_clk_basic_building;
+      break;
+    case PopupType.adv_1_bld:
+      _clkmap = global.popup_c_clk_adv_1_building;
+      break;
+    case PopupType.adv_2_bld:
+      _clkmap = global.popup_c_clk_adv_2_building;
+      break;
+    default:
+      return "";
+  }
+
+  var _sp = _popup.get_screen_position();
+  var _x = mouse_x - _sp[0] - 8;
+  var _y = mouse_y - _sp[1] - 8;
+
+  var _action = -1;
+  var _i = 0;
+  while (_clkmap[_i] >= 0) {
+    if (_clkmap[_i + 1] <= _x && _x < _clkmap[_i + 1] + _clkmap[_i + 3] &&
+        _clkmap[_i + 2] <= _y && _y < _clkmap[_i + 2] + _clkmap[_i + 4]) {
+      _action = _clkmap[_i];
+      break;
+    }
+    _i += 5;
+  }
+  if (_action < 0) {
+    return "";
+  }
+
+  var _interface = _popup.interface;
+  var _game = _interface.get_game();
+  var _cursor = _interface.get_map_cursor_pos();
+
+  if (_action == Action.build_flag) {
+    if (_game.can_build_flag(_cursor, _interface.get_player())) {
+      return L("Flag");
+    }
+    return "";
+  }
+  if (_action == Action.build_hut || _action == Action.build_tower ||
+      _action == Action.build_fortress) {
+    if (!_game.can_build_military(_cursor)) {
+      return "";
+    }
+  }
+  return building_type_display_name(popup_build_action_type(_action));
+}
+
+/// The strip under a build menu, the full width of the box, with the name
+/// centred in it. Nothing at all is drawn while the pointer is not on a
+/// building, so the map under the box is only covered while it is useful.
+function popup_draw_build_hover_name(_popup) {
+  var _name = popup_build_hover_name(_popup);
+  if (_name == "") {
+    return;
+  }
+  var _w = _popup.width;
+  var _y = _popup.height + POPUP_BUILD_NAME_GAP;
+  var _tx = (_w - string_length(_name) * GFX_TEXT_CHAR_W) div 2;
+  gfx_fill_rect(0, _y, _w, POPUP_BUILD_NAME_H, GUI_TIP_COL_BG);
+  gfx_draw_rect(0, _y, _w, POPUP_BUILD_NAME_H, GUI_TIP_COL_EDGE);
+  gfx_draw_string(_tx, _y + GUI_TIP_PAD, _name, GUI_TIP_COL_TEXT, -1);
+}

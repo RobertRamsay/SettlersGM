@@ -7,10 +7,6 @@ prof_draw_begin();
 interface.handle_event(gui_make_event(EventType.draw, 0, 0, 0, 0, 0));
 prof_draw_end();
 
-// The name of the building under the pointer, over the map and under
-// everything drawn below (chat, net status, the crash notice).
-interface.draw_hover_tooltip();
-
 // Keep the play view quiet. Detailed timings are available in the F3 file.
 // Temporarily disabled for release; retained for debugging.
 // draw_set_color(c_white);

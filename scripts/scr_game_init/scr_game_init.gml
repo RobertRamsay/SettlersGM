@@ -1410,10 +1410,9 @@ function GameInitBox(_interface) : GuiObject() constructor {
         draw_button_hint();
     };
 
-    /// What the button under the pointer does, for the two that are not
-    /// obvious: EXIT, which closes the program (on NET PLAY it only goes
-    /// back), and BACK on the load screen. The same rectangles the clickmaps
-    /// use, so the hint is shown over exactly the area that can be pressed.
+    /// What EXIT does, because it is not obvious: it closes the program (on
+    /// NET PLAY it only goes back). The same rectangle the clickmaps use, so
+    /// the hint is shown over exactly the area that can be pressed.
     static draw_button_hint = function() {
         var _hint = "";
         if (box_hover(GAME_INIT_EXIT_X, GAME_INIT_EXIT_Y, 16, 16)) {
@@ -1421,14 +1420,6 @@ function GameInitBox(_interface) : GuiObject() constructor {
                 _hint = L("Back");
             } else {
                 _hint = L("Quit SettlersGM");
-            }
-        }
-        if (game_type == GameType.load &&
-            box_hover(GAME_INIT_BACK_X, GAME_INIT_BACK_Y, 32, 32)) {
-            if (load_return_type == GameType.mission) {
-                _hint = L("Back to missions");
-            } else {
-                _hint = L("Back to new game");
             }
         }
         if (_hint == "") {
