@@ -266,6 +266,38 @@ function locale_build_de() {
     locale_add("- empty -", "- leer -");
     locale_add("saved game", "Spielstand");
 
+    /* ---- start screen hover hints (one line, beside the pointer) */
+    locale_add("Quit SettlersGM", "SettlersGM beenden");
+    locale_add("Back", "Zurück");
+    locale_add("Back to new game", "Zurück zu Neues Spiel");
+    locale_add("Back to missions", "Zurück zu den Missionen");
+
+    /* ---- building names, shown beside the pointer over the map */
+    locale_add("Fisherman", "Fischer");
+    locale_add("Lumberjack", "Holzfäller");
+    locale_add("Boatbuilder", "Bootsbauer");
+    locale_add("Stonecutter", "Steinmetz");
+    locale_add("Stone mine", "Steinbergwerk");
+    locale_add("Coal mine", "Kohlebergwerk");
+    locale_add("Iron mine", "Eisenbergwerk");
+    locale_add("Gold mine", "Goldbergwerk");
+    locale_add("Forester", "Förster");
+    locale_add("Stock", "Lager");
+    locale_add("Hut", "Wachhütte");
+    locale_add("Farm", "Bauernhof");
+    locale_add("Butcher", "Metzger");
+    locale_add("Pig farm", "Schweinezucht");
+    locale_add("Mill", "Mühle");
+    locale_add("Baker", "Bäcker");
+    locale_add("Sawmill", "Sägewerk");
+    locale_add("Steel smelter", "Eisenschmelze");
+    locale_add("Toolmaker", "Werkzeugmacher");
+    locale_add("Weaponsmith", "Waffenschmied");
+    locale_add("Tower", "Wachturm");
+    locale_add("Fortress", "Festung");
+    locale_add("Gold smelter", "Goldschmelze");
+    locale_add("Castle", "Schloss");
+
     /* ---- map generation label: "GENERATING - " + phase, 29 columns */
     locale_add("GENERATING - ", "ERZEUGE - ");
     locale_add("LANDSCAPE", "LANDSCHAFT");

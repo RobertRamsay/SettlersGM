@@ -298,6 +298,13 @@ function Interface(_game = undefined) : GuiObject() constructor {
     init_box = undefined;
     notification_box = undefined;
 
+    /* The building name box over the map: which building the pointer is
+       resting on, and since when (current_time), so the box waits a moment
+       before it appears rather than flickering over everything the pointer
+       crosses. See draw_hover_tooltip. */
+    hover_tip_building = undefined;
+    hover_tip_since = 0;
+
     // ----------------------------------------------------------- accessors
 
     static get_game = function() {
@@ -542,6 +549,67 @@ function Interface(_game = undefined) : GuiObject() constructor {
         set_game(_new_game);
         close_game_init();
         return true;
+    };
+
+    /// Is screen point (_mx, _my) on _obj? Displayed objects only.
+    static point_on_float = function(_obj, _mx, _my) {
+        if (_obj == undefined) {
+            return false;
+        }
+        if (!_obj.is_displayed()) {
+            return false;
+        }
+        var _sp = _obj.get_screen_position();
+        return (_mx >= _sp[0] && _mx < _sp[0] + _obj.width &&
+                _my >= _sp[1] && _my < _sp[1] + _obj.height);
+    };
+
+    /// The name of the building under the pointer, in a small box beside it.
+    /// Called from obj_game's Draw after the interface itself, so it sits on
+    /// top of the map. Only over the open map: not over the panel, a popup or
+    /// the message box, not while the start screen is up (it has its own
+    /// hints), and not while a mouse button is held, which is a drag or a
+    /// click and not a look.
+    static draw_hover_tooltip = function() {
+        var _building = undefined;
+        var _blocked = false;
+
+        if (game == undefined || viewport == undefined) {
+            _blocked = true;
+        }
+        if (init_box != undefined) {
+            _blocked = true;
+        }
+        if (global.locale_asking) {
+            _blocked = true;
+        }
+        if (mouse_check_button(mb_left) || mouse_check_button(mb_right) ||
+            mouse_check_button(mb_middle)) {
+            _blocked = true;
+        }
+        if (!_blocked) {
+            if (point_on_float(panel, mouse_x, mouse_y) ||
+                point_on_float(popup, mouse_x, mouse_y) ||
+                point_on_float(notification_box, mouse_x, mouse_y)) {
+                _blocked = true;
+            }
+        }
+        if (!_blocked) {
+            _building = viewport.building_under_pointer(mouse_x, mouse_y);
+        }
+
+        if (_building != hover_tip_building) {
+            hover_tip_building = _building;
+            hover_tip_since = current_time;
+        }
+        if (_building == undefined) {
+            return;
+        }
+        if (current_time - hover_tip_since < GUI_TIP_DELAY_MS) {
+            return;
+        }
+        gui_draw_tooltip(mouse_x, mouse_y,
+                         building_type_display_name(_building.get_type()));
     };
 
     static get_game_init_box = function() {

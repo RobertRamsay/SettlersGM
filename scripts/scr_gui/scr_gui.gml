@@ -315,3 +315,56 @@ function GuiObject() constructor {
         play_sfx(_sound);
     };
 }
+
+// ---------------------------------------------------------------------------
+// Tooltip. Not in the original - it had no hover text anywhere. One small box
+// that says what the thing under the pointer is, drawn in the game's own font.
+// ---------------------------------------------------------------------------
+
+#macro GUI_TIP_PAD      3
+#macro GUI_TIP_OFF_X    12
+#macro GUI_TIP_OFF_Y    4
+/* How long the pointer rests on a building before its name appears. */
+#macro GUI_TIP_DELAY_MS 250
+#macro GUI_TIP_COL_BG   make_colour_rgb(0x00, 0x00, 0x00)
+#macro GUI_TIP_COL_EDGE make_colour_rgb(0x73, 0xb3, 0x43)
+#macro GUI_TIP_COL_TEXT make_colour_rgb(0xff, 0xff, 0xff)
+
+/// Draw _text in a box off to the right of screen point (_sx, _sy) - normally
+/// the pointer. Screen coordinates, whatever the gfx origin happens to be when
+/// it is called: the origin is set to the corner for the duration and put back.
+/// Kept inside the 640x400 screen; a box that would run off the right-hand
+/// edge goes to the LEFT of the point instead, so it never sits under the
+/// pointer it is describing.
+function gui_draw_tooltip(_sx, _sy, _text) {
+    if (_text == "") {
+        return;
+    }
+    var _saved_ox = global.gfx_ox;
+    var _saved_oy = global.gfx_oy;
+    gfx_set_origin(0, 0);
+
+    var _w = string_length(_text) * GFX_TEXT_CHAR_W + 2 * GUI_TIP_PAD;
+    var _h = 8 + 2 * GUI_TIP_PAD;
+
+    var _bx = _sx + GUI_TIP_OFF_X;
+    if (_bx + _w > SCREEN_W) {
+        _bx = _sx - GUI_TIP_OFF_X - _w;
+    }
+    if (_bx < 0) {
+        _bx = 0;
+    }
+    var _by = _sy + GUI_TIP_OFF_Y;
+    if (_by + _h > SCREEN_H) {
+        _by = SCREEN_H - _h;
+    }
+    if (_by < 0) {
+        _by = 0;
+    }
+
+    gfx_fill_rect(_bx, _by, _w, _h, GUI_TIP_COL_BG);
+    gfx_draw_rect(_bx, _by, _w, _h, GUI_TIP_COL_EDGE);
+    gfx_draw_string(_bx + GUI_TIP_PAD, _by + GUI_TIP_PAD, _text, GUI_TIP_COL_TEXT, -1);
+
+    gfx_set_origin(_saved_ox, _saved_oy);
+}

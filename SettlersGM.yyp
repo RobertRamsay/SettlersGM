@@ -110,6 +110,7 @@
     {"id":{"name":"snd_cf_hurt2","path":"sounds/snd_cf_hurt2/snd_cf_hurt2.yy",},},
     {"id":{"name":"snd_cf_rifle","path":"sounds/snd_cf_rifle/snd_cf_rifle.yy",},},
     {"id":{"name":"spr_art_box","path":"sprites/spr_art_box/spr_art_box.yy",},},
+    {"id":{"name":"spr_btn_back","path":"sprites/spr_btn_back/spr_btn_back.yy",},},
     {"id":{"name":"spr_cf_fx","path":"sprites/spr_cf_fx/spr_cf_fx.yy",},},
     {"id":{"name":"spr_cf_soldier","path":"sprites/spr_cf_soldier/spr_cf_soldier.yy",},},
     {"id":{"name":"spr_credits_bg","path":"sprites/spr_credits_bg/spr_credits_bg.yy",},},

@@ -537,6 +537,12 @@ function game_init_init_tables() {
 #macro GAME_INIT_LOAD_X   300
 #macro GAME_INIT_LOAD_Y   216
 
+/* BACK, on the load screen only: the game-type plaque's slot beside START,
+   draw_box_icon(5, 0) = (60, 16), which is what toggle_game_type's clickmap
+   row already covers on every screen. */
+#macro GAME_INIT_BACK_X   60
+#macro GAME_INIT_BACK_Y   16
+
 /* ADD AN ADDRESS, below the list. Its own row rather than the bottom-right
    slot, which is where LOAD is drawn - a button that reads LOAD and adds an
    address is worse than no button. */
@@ -812,6 +818,11 @@ function GameInitBox(_interface) : GuiObject() constructor {
     /* Which screen NET PLAY was opened from, so the same button goes back to
        it rather than always landing on one of them. */
     netplay_return_type = GameType.custom;
+
+    /* Which screen LOAD was opened from, so BACK goes to it. Load used to be
+       a room with no door: the plaque at (60,16) read LOAD while quietly
+       meaning "new game", and EXIT quits the whole program. */
+    load_return_type = GameType.custom;
 
     /* The host's alternative to a mission: a custom map of netplay_size from
        netplay_seed, two humans and no AI. Only these two numbers are the map;
@@ -1309,7 +1320,12 @@ function GameInitBox(_interface) : GuiObject() constructor {
                 break;
             }
             case GameType.load: {
-                draw_box_icon(5, 0, 316);  // Game type
+                /* BACK, where the game-type plaque sits on the other screens.
+                   It was a second LOAD plaque, which made two LOAD buttons and
+                   no way out. Not in spr_icon - see tools/gen_back_button.py. */
+                draw_sprite(spr_btn_back, 0,
+                            global.gfx_ox + GAME_INIT_BACK_X,
+                            global.gfx_oy + GAME_INIT_BACK_Y);
 
                 draw_box_string(10, 2, L("Load game"));
 
@@ -1390,6 +1406,35 @@ function GameInitBox(_interface) : GuiObject() constructor {
         /* Last, so it sits over the panel rather than under it. Draws nothing
            unless a map is actually being generated. */
         draw_map_progress();
+
+        draw_button_hint();
+    };
+
+    /// What the button under the pointer does, for the two that are not
+    /// obvious: EXIT, which closes the program (on NET PLAY it only goes
+    /// back), and BACK on the load screen. The same rectangles the clickmaps
+    /// use, so the hint is shown over exactly the area that can be pressed.
+    static draw_button_hint = function() {
+        var _hint = "";
+        if (box_hover(GAME_INIT_EXIT_X, GAME_INIT_EXIT_Y, 16, 16)) {
+            if (game_type == GameType.netplay) {
+                _hint = L("Back");
+            } else {
+                _hint = L("Quit SettlersGM");
+            }
+        }
+        if (game_type == GameType.load &&
+            box_hover(GAME_INIT_BACK_X, GAME_INIT_BACK_Y, 32, 32)) {
+            if (load_return_type == GameType.mission) {
+                _hint = L("Back to missions");
+            } else {
+                _hint = L("Back to new game");
+            }
+        }
+        if (_hint == "") {
+            return;
+        }
+        gui_draw_tooltip(mouse_x, mouse_y, _hint);
     };
 
     static draw_player_box = function(_player, _bx, _by) {
@@ -1612,9 +1657,16 @@ function GameInitBox(_interface) : GuiObject() constructor {
                 break;
             }
             case GameInitAction.toggle_game_type: {
-                /* Custom and mission only. Load has its own button now, and
-                   leaving it in the cycle meant the icon at (60,16) reads
-                   "LOAD" while actually switching back to New Game. */
+                /* On the load screen this plaque is BACK: return to whichever
+                   screen LOAD was pressed on, and drop the load hint so it does
+                   not follow us there and hold the update note's row. */
+                if (game_type == GameType.load) {
+                    load_status = "";
+                    set_game_type(load_return_type);
+                    set_redraw();
+                    break;
+                }
+                /* Custom and mission only. Load has its own button. */
                 var _next_type = GameType.custom;
                 if (game_type == GameType.custom) {
                     _next_type = GameType.mission;
@@ -1624,6 +1676,12 @@ function GameInitBox(_interface) : GuiObject() constructor {
             }
             case GameInitAction.show_load: {
                 if (game_type != GameType.load) {
+                    /* Only the two set-up screens are somewhere to come back
+                       to; NET PLAY has no LOAD button. */
+                    load_return_type = GameType.custom;
+                    if (game_type == GameType.mission) {
+                        load_return_type = GameType.mission;
+                    }
                     set_game_type(GameType.load);
                     file_list.update();
                     load_status = L("Pick a save, then LOAD");

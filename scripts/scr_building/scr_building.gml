@@ -47,6 +47,38 @@ function building_init_tables() {
     }
     global.building_tables_initialised = true;
 
+    /* What each building is called, for the hover box over the map. English,
+       and the English is the locale key - L() turns it into German at the
+       moment it is drawn. Indexed by BuildingType, so it must have one entry
+       per enumerator; building_type_display_name checks the bounds anyway. */
+    global.building_type_display_name = [
+        "",                 // none
+        "Fisherman",        // fisher
+        "Lumberjack",       // lumberjack
+        "Boatbuilder",      // boatbuilder
+        "Stonecutter",      // stonecutter
+        "Stone mine",       // stone_mine
+        "Coal mine",        // coal_mine
+        "Iron mine",        // iron_mine
+        "Gold mine",        // gold_mine
+        "Forester",         // forester
+        "Stock",            // stock
+        "Hut",              // hut
+        "Farm",             // farm
+        "Butcher",          // butcher
+        "Pig farm",         // pig_farm
+        "Mill",             // mill
+        "Baker",            // baker
+        "Sawmill",          // sawmill
+        "Steel smelter",    // steel_smelter
+        "Toolmaker",        // tool_maker
+        "Weaponsmith",      // weapon_smith
+        "Tower",            // tower
+        "Fortress",         // fortress
+        "Gold smelter",     // gold_smelter
+        "Castle"            // castle
+    ];
+
     // ConstructionInfo const_info[] : {map_obj, planks, stones, phase_1, phase_2}
     global.building_const_info = [
         { map_obj: MapObject.none,           planks: 0, stones: 0, phase_1:    0, phase_2:    0 },  // BUILDING_NONE
@@ -145,6 +177,18 @@ function building_init_tables() {
         3, 6, 4, 6, 5, 4, 7, 7, 9, 4,
         8, 15, 6, 20
     ];
+}
+
+/// The name the player reads for a building type, in the current language.
+/// "" for none or anything outside the table, so a caller can treat an empty
+/// string as "nothing to show".
+function building_type_display_name(_type) {
+    building_init_tables();
+    var _names = global.building_type_display_name;
+    if (_type <= BuildingType.none || _type >= array_length(_names)) {
+        return "";
+    }
+    return L(_names[_type]);
 }
 
 /// Port of the free function building_get_score_from_type(Building::Type type).
