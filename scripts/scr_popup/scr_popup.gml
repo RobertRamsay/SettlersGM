@@ -870,7 +870,12 @@ function PopupBox(_interface) : GuiObject() constructor {
     minimap.set_size(128, 128);
     add_float(minimap, 8, 9);
 
+    /* 100 high is all the room there is - the name field sits at y 124 - and
+       at the list's usual 11-pixel rows that is 9 rows for 10 slots, so slot
+       10 could be loaded from the start screen but never saved to. 10-pixel
+       rows fit all ten: 8 for the text, 1 above and 1 below. */
     file_list.set_size(120, 100);
+    file_list.set_row_height(10);
     file_list.set_displayed(false);
     file_list.set_allow_rename(true);
     file_list.set_selection_handler(method(self, function(_item) {
@@ -2338,6 +2343,14 @@ function ListSavedFiles() : GuiObject() constructor {
 
     static set_allow_rename = function(_allow) {
         allow_rename = _allow;
+    };
+
+    /// Pixels per row. The list does not scroll, so height div row_height has
+    /// to be at least SAVEGAME_SLOTS or the last slots cannot be seen or
+    /// clicked.
+    static set_row_height = function(_h) {
+        row_height = _h;
+        set_redraw();
     };
 
     static stop_editing = function() {
