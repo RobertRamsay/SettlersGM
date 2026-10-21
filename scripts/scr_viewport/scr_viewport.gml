@@ -3271,10 +3271,17 @@ function Viewport(_interface, _map) : GuiObject() constructor {
                         interface.build_road_begin();
                     } else {
                         interface.open_popup(PopupType.transport_info);
+                        _player.temp_index = map.get_obj_index(_clk_pos);
                     }
                 }
 
-                _player.temp_index = map.get_obj_index(_clk_pos);
+                /* temp_index is only re-pointed when the transport info popup
+                   actually opens. Freeserf set it for ANY flag click - an
+                   enemy flag, or a fast map click that starts a road - which
+                   left whatever building popup was already open (castle serfs,
+                   stock, mine output...) reading get_building() with a FLAG's
+                   index: undefined, or some unrelated building. That is the
+                   1.1.7.0 crash in popup_draw_castle_serf_box. */
             } else { /* Building */
                 var _building = interface.get_game().get_building_at_pos(_clk_pos);
                 if ((_building == undefined) || _building.is_burning()) {

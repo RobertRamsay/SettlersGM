@@ -5,6 +5,21 @@
 //
 // Ported from Freeserf (GPL-3.0), original copyright (C) 2013-2018 Jon Lund Steffensen.
 
+/* temp_index is one number shared by every building popup and the flag
+   popup, and the building it names can be gone by the time the popup draws:
+   another click can re-point it, and a building can be deleted without ever
+   passing through demolish_building_(), which is the only path that zeroes
+   it. Freeserf reads a null there; in GML it is the end of the session
+   (crash report 1.1.7.0, popup_draw_castle_serf_box). A popup about a
+   building that no longer exists simply closes. */
+function popup_building_gone(_building) {
+    if (_building == undefined) {
+        fault_note("popup.temp_index.no_building", "building popup closed");
+        return true;
+    }
+    return false;
+}
+
 /// Static tables for this range (file-level const arrays in the C++ functions).
 function popup_b_init_tables() {
     if (variable_global_exists("popup_b_tables_ready")) {
@@ -735,6 +750,10 @@ function popup_draw_castle_res_box(_popup) {
     }
 
     var _building = _popup.interface.get_game().get_building(_popup.interface.get_player().temp_index);
+    if (popup_building_gone(_building)) {
+        _popup.interface.close_popup();
+        return;
+    }
     if (_building.is_burning()) {
         _popup.interface.close_popup();
         return;
@@ -762,6 +781,10 @@ function popup_draw_mine_output_box(_popup) {
     }
 
     var _building = _popup.interface.get_game().get_building(_popup.interface.get_player().temp_index);
+    if (popup_building_gone(_building)) {
+        _popup.interface.close_popup();
+        return;
+    }
     if (_building.is_burning()) {
         _popup.interface.close_popup();
         return;
@@ -842,6 +865,10 @@ function popup_draw_ordered_building_box(_popup) {
     }
 
     var _building = _popup.interface.get_game().get_building(_popup.interface.get_player().temp_index);
+    if (popup_building_gone(_building)) {
+        _popup.interface.close_popup();
+        return;
+    }
     if (_building.is_burning()) {
         _popup.interface.close_popup();
         return;
@@ -883,6 +910,10 @@ function popup_draw_defenders_box(_popup) {
     }
 
     var _building = _popup.interface.get_game().get_building(_player.temp_index);
+    if (popup_building_gone(_building)) {
+        _popup.interface.close_popup();
+        return;
+    }
     if (_building.is_burning()) {
         _popup.interface.close_popup();
         return;
@@ -972,6 +1003,12 @@ function popup_draw_transport_info_box(_popup) {
     }
 
     var _flag = _popup.interface.get_game().get_flag(_popup.interface.get_player().temp_index);
+    if (_flag == undefined) {
+        fault_note("popup.temp_index.no_flag",
+                   "temp_index " + string(_popup.interface.get_player().temp_index));
+        _popup.interface.close_popup();
+        return;
+    }
 
     /* Draw viewport of flag */
     if (_popup.flag_view == undefined) {
@@ -1037,6 +1074,10 @@ function popup_draw_castle_serf_box(_popup) {
     }
 
     var _building = _popup.interface.get_game().get_building(_popup.interface.get_player().temp_index);
+    if (popup_building_gone(_building)) {
+        _popup.interface.close_popup();
+        return;
+    }
     if (_building.is_burning()) {
         _popup.interface.close_popup();
         return;
@@ -1072,6 +1113,10 @@ function popup_draw_resdir_box(_popup) {
     }
 
     var _building = _popup.interface.get_game().get_building(_popup.interface.get_player().temp_index);
+    if (popup_building_gone(_building)) {
+        _popup.interface.close_popup();
+        return;
+    }
     if (_building.is_burning()) {
         _popup.interface.close_popup();
         return;
@@ -1240,6 +1285,10 @@ function popup_draw_building_stock_box(_popup) {
     }
 
     var _building = _popup.interface.get_game().get_building(_popup.interface.get_player().temp_index);
+    if (popup_building_gone(_building)) {
+        _popup.interface.close_popup();
+        return;
+    }
     if (_building.is_burning()) {
         _popup.interface.close_popup();
         return;

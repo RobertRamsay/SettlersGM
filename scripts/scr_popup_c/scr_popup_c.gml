@@ -589,7 +589,13 @@ function popup_set_inventory_resource_mode(_popup, _mode) {
   }
 
   var _building = _popup.interface.get_game().get_building(_index);
+  if (_building == undefined) {
+    return;
+  }
   var _inventory = _building.get_inventory();
+  if (_inventory == undefined) {
+    return;
+  }
   _popup.interface.get_game().set_inventory_resource_mode(_inventory, _mode);
 }
 
@@ -603,7 +609,13 @@ function popup_set_inventory_serf_mode(_popup, _mode) {
   }
 
   var _building = _popup.interface.get_game().get_building(_index);
+  if (_building == undefined) {
+    return;
+  }
   var _inventory = _building.get_inventory();
+  if (_inventory == undefined) {
+    return;
+  }
   _popup.interface.get_game().set_inventory_serf_mode(_inventory, _mode);
 }
 
