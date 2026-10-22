@@ -1581,6 +1581,29 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
        a joined position so the source position will not have it's
        serf index cleared. */
     static enter_building = function(_field_B, _join_pos) {
+        /* The building can be gone by the time a serf gets to its door. A
+           serf parked in ready_to_enter outside a building that burns waits
+           out the whole burn, and when delete_building finally clears the
+           tile the door stops being blocked and he walks into nothing.
+           Freeserf reads get_type() through a null pointer here and gets away
+           with it, because handle_serf_entering_building_state then finds
+           obj_index 0 and sends him lost; GML stops the game instead. Send
+           him lost now, before he takes the step, which is where the original
+           ends up one step later. Checked before set_state / start_walking so
+           nothing about his tile or state has moved yet. */
+        var _door_building = game.get_building_at_pos(game.get_map().move_up_left(pos));
+        if (_door_building == undefined) {
+            fault_note("serf.enter_building.no_building",
+                       "serf " + string(get_index()) +
+                       " at " + string(pos) +
+                       " state " + string(state) +
+                       " field_B " + string(_field_B));
+            set_state(SerfState.lost);
+            s.lost_field_B = 0;
+            counter = 0;
+            return;
+        }
+
         set_state(SerfState.entering_building);
 
         start_walking(Direction.up_left, 32, !_join_pos);
