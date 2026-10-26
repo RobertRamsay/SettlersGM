@@ -373,10 +373,30 @@ function savegame_decode_game(_data, _repair = true) {
     }
 
     savegame_fix_serf_layers(_game);
+    savegame_check_flag_buildings(_game);
     savegame_audit_garrisons(_game);
     savegame_kick_knights(_game);
 
     return _game;
+}
+
+/// Cut every flag-to-building link that names no live building.
+///
+/// Flag.has_building() does the checking and the cutting; this only makes sure
+/// it happens at load rather than whenever a search first wanders past the
+/// flag. A save written while a link was stale stores it as a ref to an empty
+/// slot, and that loads as undefined behind a has-building bit that still says
+/// yes - which is how the same file crashed 1.1.7.0, 1.1.8.0 and 1.1.9.0 in
+/// update_inventories_cb. Doing it here also dates the fault: one noted at the
+/// load tick came in with the file, one noted later was made in this game.
+function savegame_check_flag_buildings(_game) {
+    var _flags = _game.flags.objects;
+    var _n = array_length(_flags);
+    for (var _i = 0; _i < _n; _i++) {
+        if (_flags[_i] != undefined) {
+            _flags[_i].has_building();
+        }
+    }
 }
 
 /// Check every garrison's knight bookkeeping against reality, and correct it.

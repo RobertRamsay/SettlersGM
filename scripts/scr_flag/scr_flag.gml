@@ -430,8 +430,30 @@ function Flag(_game, _index) : GameObject(_game, _index) constructor {
     /* Whether a building is connected to this flag. If so, the pointer to
      the other endpoint is a valid building pointer.
      (Always at UP LEFT direction). */
+    /* The bit alone is not trusted. A flag whose link names no live building -
+       undefined after a load resolved the ref to an empty slot, or a building
+       erased while still linked, or one that has since moved to another flag -
+       answered true here, and every caller went straight on to
+       get_building().whatever(). That is the 1.1.7.0-1.1.9.0 crash in
+       update_inventories_cb (get_max_priority_for_resource on undefined). Such
+       a link is cut here and reported, so the flag carries on as a plain flag
+       and the next crash report says where the stale link was found. */
     static has_building = function() {
-        return (((endpoint >> 6) & 1) != 0);
+        if (((endpoint >> 6) & 1) == 0) {
+            return false;
+        }
+        var _building = other_endpoint[Direction.up_left];
+        if (is_struct(_building) &&
+            game.buildings.get(_building.get_index()) == _building &&
+            _building.get_flag_index() == index) {
+            return true;
+        }
+        fault_note("flag.building_link.stale",
+                   "flag " + string(index) + " at " + string(pos) + " linked to " +
+                   (is_struct(_building) ? "building " + string(_building.get_index())
+                                         : string(_building)) + " - detached");
+        unlink_building();
+        return false;
     };
 
     /* Whether resources exist that are not yet scheduled. */
