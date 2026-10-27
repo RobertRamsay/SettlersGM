@@ -252,7 +252,9 @@ function flag_find_nearest_inventory_search_cb(_flag, _data) {
 
 /// data: {dest_index}
 function flag_search_inventory_search_cb(_flag, _data) {
-    if (_flag.accepts_serfs()) {
+    /* has_building() as well: the accepts-serfs bit outlives a link gone
+       stale, and asking it is what mends or cuts such a link. */
+    if (_flag.accepts_serfs() && _flag.has_building()) {
         var _building = _flag.get_building();
         _data.dest_index = _building.get_flag_index();
         return true;
@@ -268,10 +270,15 @@ function flag_schedule_known_dest_cb(_flag, _data) {
 
 /// data: {inventory, water}
 function flag_send_serf_to_road_search_cb(_flag, _data) {
-    if (_flag.has_inventory()) {
+    if (_flag.has_inventory() && _flag.has_building()) {
         /* Inventory reached */
         var _building = _flag.get_building();
         var _inventory = _building.get_inventory();
+        if (_inventory == undefined) {
+            /* A burning castle or stock has handed its inventory back - see
+               send_serf_to_flag_search_cb. Nothing to call out of here. */
+            return false;
+        }
         if (!_data.water) {
             if (_inventory.have_serf(SerfType.transporter)) {
                 _data.inventory = _inventory;

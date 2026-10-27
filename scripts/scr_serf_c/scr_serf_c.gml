@@ -1248,10 +1248,14 @@ function serf_handle_state_knight_free_walking(_serf) {
               _serf.animation = 99;
               _serf.counter = 255;
 
+              /* His destination may have burnt or lost its flag link since
+                 he set out; then there is no request to hand back. */
               var dest = _serf.game.get_flag(_other.s.walking_dest);
-              var building = dest.get_building();
-              if (!building.has_inventory()) {
-                building.requested_knight_attacking_on_walk();
+              if (dest != undefined && dest.has_building()) {
+                var building = dest.get_building();
+                if (!building.has_inventory()) {
+                  building.requested_knight_attacking_on_walk();
+                }
               }
 
               _other.state = SerfState.knight_engage_attacking_free;

@@ -1267,17 +1267,27 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
         if (state == SerfState.walking) {
             if (s.walking_dir1 >= 0) {
                 if (s.walking_dir1 != 6) {
+                    /* The flag or the road may have gone while he walked -
+                       that is often why he is being sent lost. A request on
+                       something demolished has nothing left to cancel. */
                     var _dir = s.walking_dir1;
                     var _flag = game.get_flag(s.walking_dest);
-                    _flag.cancel_serf_request(_dir);
+                    if (_flag != undefined) {
+                        _flag.cancel_serf_request(_dir);
 
-                    var _other_dir = _flag.get_other_end_dir(_dir);
-                    _flag.get_other_end_flag(_dir).cancel_serf_request(_other_dir);
+                        var _other_dir = _flag.get_other_end_dir(_dir);
+                        var _other_flag = _flag.get_other_end_flag(_dir);
+                        if (is_struct(_other_flag)) {
+                            _other_flag.cancel_serf_request(_other_dir);
+                        }
+                    }
                 }
             } else if (s.walking_dir1 == -1) {
+                /* Likewise the building he was sent to. */
                 var _flag2 = game.get_flag(s.walking_dest);
-                var _building = _flag2.get_building();
-                _building.requested_serf_lost();
+                if (_flag2 != undefined && _flag2.has_building()) {
+                    _flag2.get_building().requested_serf_lost();
+                }
             }
 
             set_state(SerfState.lost);
@@ -1851,15 +1861,22 @@ function Serf(_game, _index) : GameObject(_game, _index) constructor {
                     return;
                 }
 
+                /* As in set_lost_state: the destination failing is often
+                   the flag, road or building having gone. */
                 var _flag = game.get_flag(s.walking_dest);
-                var _building = _flag.get_building();
-                _building.requested_serf_lost();
+                if (_flag != undefined && _flag.has_building()) {
+                    _flag.get_building().requested_serf_lost();
+                }
             } else if (s.walking_dir1 != 6) {
                 var _flag2 = game.get_flag(s.walking_dest);
                 var _d2 = s.walking_dir1;
-                _flag2.cancel_serf_request(_d2);
-                _flag2.get_other_end_flag(_d2).cancel_serf_request(
-                                                _flag2.get_other_end_dir(_d2));
+                if (_flag2 != undefined) {
+                    _flag2.cancel_serf_request(_d2);
+                    var _other_flag2 = _flag2.get_other_end_flag(_d2);
+                    if (is_struct(_other_flag2)) {
+                        _other_flag2.cancel_serf_request(_flag2.get_other_end_dir(_d2));
+                    }
+                }
             }
 
             s.walking_dir1 = -2;

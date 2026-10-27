@@ -766,6 +766,11 @@ function popup_draw_castle_res_box(_popup) {
     }
 
     var _inventory = _building.get_inventory();
+    if (_inventory == undefined) {
+        /* Burning - the inventory has been handed back. */
+        _popup.interface.close_popup();
+        return;
+    }
     // ResourceMap -> array indexed by ResourceType
     var _resources = _inventory.get_all_resources();
     _popup.draw_resources_box(_resources);
@@ -1090,6 +1095,11 @@ function popup_draw_castle_serf_box(_popup) {
     }
 
     var _inventory = _building.get_inventory();
+    if (_inventory == undefined) {
+        /* Burning - the inventory has been handed back. */
+        _popup.interface.close_popup();
+        return;
+    }
     var _list = _popup.interface.get_game().get_serfs_in_inventory(_inventory);
     for (var _i = 0; _i < array_length(_list); _i++) {
         var _serf = _list[_i];
@@ -1159,6 +1169,11 @@ function popup_draw_resdir_box(_popup) {
 
     /* Draw resource mode checkbox */
     var _inventory = _building.get_inventory();
+    if (_inventory == undefined) {
+        /* Burning - the inventory has been handed back. */
+        _popup.interface.close_popup();
+        return;
+    }
     var _res_mode = _inventory.get_res_mode();
     if (_res_mode == InventoryMode.mode_in) { /* in */
         _popup.draw_popup_icon(9, 16, 0x120);
