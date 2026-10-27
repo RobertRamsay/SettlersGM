@@ -709,7 +709,14 @@ function Game() constructor {
             _building = _dest.get_building();
         }
 
-        /* If type is negative, building is non-NULL. */
+        /* If type is negative, building is non-NULL. When it is not - a
+           knight asked for at a flag that has lost its building - there is
+           nobody to count him against, and send_serf_to_flag_search_cb would
+           call knight_request_granted on undefined (the 1.2.0.0 crash). The
+           request is refused and the building asks again next update. */
+        if ((_type < 0) && (_building == undefined)) {
+            return false;
+        }
         if ((_type < 0) && (_building != undefined)) {
             var _player = players.get(_building.get_owner());
             _type = _player.get_cycling_serf_type(_type);

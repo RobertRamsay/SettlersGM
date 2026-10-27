@@ -389,12 +389,45 @@ function savegame_decode_game(_data, _repair = true) {
 /// yes - which is how the same file crashed 1.1.7.0, 1.1.8.0 and 1.1.9.0 in
 /// update_inventories_cb. Doing it here also dates the fault: one noted at the
 /// load tick came in with the file, one noted later was made in this game.
+///
+/// It also runs the other way, for files written by 1.2.0.0. That build cut a
+/// stale link instead of repairing it, and the building on the far side was
+/// usually alive - left standing behind a flag that no longer knew it, unable
+/// to be supplied and crashing the game the next time it sent for a knight.
+/// Every live building that names a flag with no building on it is put back.
+/// Unlinking also wiped the flag's inventory bits, so a finished stock or
+/// castle gets them back as its inventory's modes say they should be.
 function savegame_check_flag_buildings(_game) {
     var _flags = _game.flags.objects;
     var _n = array_length(_flags);
     for (var _i = 0; _i < _n; _i++) {
         if (_flags[_i] != undefined) {
             _flags[_i].has_building();
+        }
+    }
+
+    var _buildings = _game.buildings.objects;
+    var _bn = array_length(_buildings);
+    for (var _i = 0; _i < _bn; _i++) {
+        var _building = _buildings[_i];
+        if (_building == undefined || _building.get_flag_index() <= 0) {
+            continue;
+        }
+        var _flag = _game.flags.get(_building.get_flag_index());
+        if (_flag == undefined || _flag.has_building() ||
+            _flag.claiming_building() != _building) {
+            continue;
+        }
+        fault_note("building.flag_link.missing",
+                   "building " + string(_building.get_index()) + " on flag " +
+                   string(_flag.get_index()) + " which had no building - relinked");
+        _flag.link_building(_building);
+        if (_building.is_done() && !_building.is_burning() &&
+            _building.has_inventory()) {
+            var _inv = _building.get_inventory();
+            _flag.set_has_inventory();
+            _flag.set_accepts_resources(_inv.get_res_mode() == InventoryMode.mode_in);
+            _flag.set_accepts_serfs(_inv.get_serf_mode() == InventoryMode.mode_in);
         }
     }
 }

@@ -435,9 +435,16 @@ function Flag(_game, _index) : GameObject(_game, _index) constructor {
        erased while still linked, or one that has since moved to another flag -
        answered true here, and every caller went straight on to
        get_building().whatever(). That is the 1.1.7.0-1.1.9.0 crash in
-       update_inventories_cb (get_max_priority_for_resource on undefined). Such
-       a link is cut here and reported, so the flag carries on as a plain flag
-       and the next crash report says where the stale link was found. */
+       update_inventories_cb (get_max_priority_for_resource on undefined).
+
+       Cutting such a link outright was the 1.2.0.0 crash. The pointer was
+       stale but the building it should have named was alive and well up-left
+       of the flag, still sending for knights through it - and with the flag
+       now saying "no building", send_serf_to_flag lost track of who was asking
+       and called knight_request_granted on undefined. So the map is asked
+       first: if the building standing up-left claims this flag, the link is
+       pointed back at it. Only a flag nothing claims is detached. Either way
+       it is reported, so the next crash report says where it was found. */
     static has_building = function() {
         if (((endpoint >> 6) & 1) == 0) {
             return false;
@@ -448,12 +455,36 @@ function Flag(_game, _index) : GameObject(_game, _index) constructor {
             _building.get_flag_index() == index) {
             return true;
         }
+        var _was = is_struct(_building) ? "building " + string(_building.get_index())
+                                        : string(_building);
+        var _owner = claiming_building();
+        if (_owner != undefined) {
+            fault_note("flag.building_link.stale",
+                       "flag " + string(index) + " at " + string(pos) + " linked to " +
+                       _was + " - relinked to building " + string(_owner.get_index()));
+            other_endpoint[Direction.up_left] = _owner;
+            return true;
+        }
         fault_note("flag.building_link.stale",
                    "flag " + string(index) + " at " + string(pos) + " linked to " +
-                   (is_struct(_building) ? "building " + string(_building.get_index())
-                                         : string(_building)) + " - detached");
+                   _was + " - detached");
         unlink_building();
         return false;
+    };
+
+    /* The live building standing up-left of this flag and naming it as its
+       flag, or undefined. This is what the link ought to say, read from the
+       map rather than from the link itself. */
+    static claiming_building = function() {
+        var _map = game.get_map();
+        var _bpos = _map.move_up_left(pos);
+        var _building = game.buildings.get(_map.get_obj_index(_bpos));
+        if (_building != undefined &&
+            _building.get_position() == _bpos &&
+            _building.get_flag_index() == index) {
+            return _building;
+        }
+        return undefined;
     };
 
     /* Whether resources exist that are not yet scheduled. */
