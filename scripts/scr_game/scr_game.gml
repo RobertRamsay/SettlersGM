@@ -713,8 +713,11 @@ function Game() constructor {
            knight asked for at a flag that has lost its building - there is
            nobody to count him against, and send_serf_to_flag_search_cb would
            call knight_request_granted on undefined (the 1.2.0.0 crash). The
+           same goes for any worker but a transporter or a geologist: the
+           callback calls serf_request_granted on the flag's building. The
            request is refused and the building asks again next update. */
-        if ((_type < 0) && (_building == undefined)) {
+        if ((_building == undefined) && (_type != SerfType.generic) &&
+            (_type != SerfType.geologist)) {
             return false;
         }
         if ((_type < 0) && (_building != undefined)) {

@@ -455,8 +455,18 @@ function Flag(_game, _index) : GameObject(_game, _index) constructor {
             _building.get_flag_index() == index) {
             return true;
         }
-        var _was = is_struct(_building) ? "building " + string(_building.get_index())
-                                        : string(_building);
+        /* Say which test failed, so a report shows how the link went bad and
+           not just that it did. */
+        var _was = string(_building);
+        if (is_struct(_building)) {
+            var _slot = game.buildings.get(_building.get_index());
+            _was = "building " + string(_building.get_index()) +
+                   " (flag " + string(_building.get_flag_index()) +
+                   ", at " + string(_building.get_position()) +
+                   (_slot == _building ? ", live)"
+                    : (_slot == undefined ? ", slot empty)"
+                       : ", slot reused by one at " + string(_slot.get_position()) + ")"));
+        }
         var _owner = claiming_building();
         if (_owner != undefined) {
             fault_note("flag.building_link.stale",
