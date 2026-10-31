@@ -45,8 +45,12 @@ global.net_ip_text = "";
 /* "join" dials the address, "add" only files it in the lobby's list. */
 global.net_ip_prompt_mode = "join";
 
-// Window: integer-scaled, pixel-perfect
-window_set_size(SCREEN_W * SCREEN_SCALE, SCREEN_H * SCREEN_SCALE);
+// Window: SCREEN_SCALE wide, in the shape the Screen setting asks for. The
+// picture is put into it by the Post-Draw event, not the runtime - see
+// "Screen shape" in scr_gfx.
+display_init();
+var _window_size = display_window_size();
+window_set_size(_window_size[0], _window_size[1]);
 surface_resize(application_surface, SCREEN_W, SCREEN_H);
 display_set_gui_size(SCREEN_W, SCREEN_H);
 gpu_set_texfilter(false);

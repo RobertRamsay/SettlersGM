@@ -135,8 +135,8 @@ function locale_row_rect(_lang) {
 
 function locale_row_hover(_lang) {
     var _r = locale_row_rect(_lang);
-    return (mouse_x >= _r[0] && mouse_x < _r[0] + _r[2] &&
-            mouse_y >= _r[1] && mouse_y < _r[1] + _r[3]);
+    return (display_mouse_x() >= _r[0] && display_mouse_x() < _r[0] + _r[2] &&
+            display_mouse_y() >= _r[1] && display_mouse_y() < _r[1] + _r[3]);
 }
 
 /// One line of the game font, centred in the box.
@@ -398,6 +398,9 @@ function locale_build_de() {
     locale_add("Mus vol", "Mus.Lst");
     locale_add("Sfx vol", "Sfx Lst");
     locale_add("Fullscreen", "Vollbild");
+    locale_add("Screen", "Bild");
+    locale_add("Pixel", "Pixel");
+    locale_add("Fill", "Voll");
     locale_add("video", "Anzeige");
     locale_add("Messages", "Meldungen");
     locale_add("All", "Alle");

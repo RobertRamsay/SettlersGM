@@ -49,15 +49,15 @@ if (net_is_active() || global.net_chat_open ||
        cover the controls. Putting the pointer down there is as clear a signal
        as any that the panel is what you are looking at, so the words step back
        to NET_CHAT_DIM rather than disappearing - still readable, no longer in
-       the way. mouse_x/mouse_y are room coordinates and GameMaker has already
-       divided the window scale out of them, so they are in the same space as
-       everything drawn here. */
+       the way. display_mouse_x/_y are in game pixels, the window's position
+       and scale already divided out (scr_gfx), so they are in the same space
+       as everything drawn here. */
     /* gfx_* coordinates are relative to the current GUI origin, which the
        floats move about as they draw. Put it back to the screen corner. */
     gfx_set_origin(0, 0);
 
     var _chat_alpha = 1;
-    if (mouse_y >= NET_CHAT_FADE_Y) {
+    if (display_mouse_y() >= NET_CHAT_FADE_Y) {
         _chat_alpha = NET_CHAT_DIM;
     }
 

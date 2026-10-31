@@ -141,8 +141,8 @@ function update_notice_shown(_interface) {
 }
 
 function update_notice_hit(_x, _y, _w, _h) {
-    return mouse_x >= _x && mouse_x < _x + _w &&
-           mouse_y >= _y && mouse_y < _y + _h;
+    return display_mouse_x() >= _x && display_mouse_x() < _x + _w &&
+           display_mouse_y() >= _y && display_mouse_y() < _y + _h;
 }
 
 // Return true while the warning owns the mouse. Keep the whole gesture,
@@ -927,13 +927,13 @@ function GameInitBox(_interface) : GuiObject() constructor {
     ///
     /// get_screen_position rather than the gfx origin: it is what the drawing
     /// itself is offset by, so the two cannot disagree about where the box is,
-    /// and it works whether or not a draw is in progress. mouse_x and mouse_y
-    /// are room coordinates, which GameMaker has already divided the window
-    /// scaling out of - the same coordinates the click arrives in.
+    /// and it works whether or not a draw is in progress. display_mouse_x/_y
+    /// have the window's position and scaling divided out already - the same
+    /// coordinates the click arrives in.
     static box_hover = function(_hx, _hy, _hw, _hh) {
         var _sp = get_screen_position();
-        var _mx = mouse_x - _sp[0];
-        var _my = mouse_y - _sp[1];
+        var _mx = display_mouse_x() - _sp[0];
+        var _my = display_mouse_y() - _sp[1];
         return (_mx >= _hx && _mx < _hx + _hw &&
                 _my >= _hy && _my < _hy + _hh);
     };
@@ -1425,7 +1425,7 @@ function GameInitBox(_interface) : GuiObject() constructor {
         if (_hint == "") {
             return;
         }
-        gui_draw_tooltip(mouse_x, mouse_y, _hint);
+        gui_draw_tooltip(display_mouse_x(), display_mouse_y(), _hint);
     };
 
     static draw_player_box = function(_player, _bx, _by) {

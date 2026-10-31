@@ -380,7 +380,9 @@ enum Action {
        effects' own volume. Appended for the same reason. */
     options_sfx_stereo,
     options_sfx_vol_minus,
-    options_sfx_vol_plus
+    options_sfx_vol_plus,
+    /* Pixel / 4:3 / Fill - see "Screen shape" in scr_gfx. Appended. */
+    options_screen_shape
 }
 
 /// Static tables for popup.cc (the local `const int layout[]` arrays of the
@@ -393,6 +395,11 @@ function popup_init_tables() {
 
     /* Color::green */
     global.popup_color_green = make_colour_rgb(0x73, 0xb3, 0x43);
+    /* Not in the original: text that changes when clicked - the options
+       values - in a lighter green than the labels, and white under the
+       pointer. See popup_draw_link_string. */
+    global.popup_color_link = make_colour_rgb(0xb4, 0xf0, 0x7c);
+    global.popup_color_link_hover = make_colour_rgb(0xff, 0xff, 0xff);
     /* Color(0xcf, 0x63, 0x63) used by the stat 7 chart */
     global.popup_color_chart_red = make_colour_rgb(0xcf, 0x63, 0x63);
 

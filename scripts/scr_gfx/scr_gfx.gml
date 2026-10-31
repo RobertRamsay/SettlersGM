@@ -460,9 +460,9 @@ function gfx_wrap_string(_str, _cols) {
    A window with no border, moved to the top-left corner and sized to the
    display, looks the same to the player and never touches the swap chain: it
    is an ordinary resize, which the runtime already survives while
-   unfocused. The application surface stays SCREEN_W x SCREEN_H and is scaled
-   into the window by the project's keep-aspect-ratio setting, exactly as it
-   is for a dragged window edge. The platform's "start fullscreen" option and
+   unfocused. The application surface stays SCREEN_W x SCREEN_H and is fitted
+   into the window by display_draw, in the shape the Screen setting asks for,
+   exactly as it is for a dragged window edge. The platform's "start fullscreen" option and
    "allow fullscreen switching" stay off on every target, so nothing else can
    ask for the real thing.
 
@@ -534,7 +534,8 @@ function fullscreen_set(_on) {
         return;
     }
     window_set_showborder(true);
-    window_set_size(SCREEN_W * SCREEN_SCALE, SCREEN_H * SCREEN_SCALE);
+    var _size = display_window_size();
+    window_set_size(_size[0], _size[1]);
     /* Centre next frame, the same way Create does: the size change has to
        settle before window_center measures it. */
     with (obj_game) {
@@ -549,6 +550,170 @@ function fullscreen_toggle() {
        few frames later. */
     global.fullscreen_wanted = false;
     fullscreen_set(!global.fullscreen_on);
+}
+
+/* ---------------------------------------------------------------------------
+   Screen shape - how the 640 x 400 picture fills the window.
+
+   640 x 400 is 16:10. Left to the runtime it is scaled to fit with its shape
+   kept, which on a 4:3 monitor leaves a black band top and bottom. But the
+   original was never seen that way: it ran on 4:3 CRTs, which stretched
+   those 400 lines over the whole tube, so every pixel stood about a fifth
+   taller than it was wide. Three choices, on the options popup's Screen row:
+
+     Pixel  square pixels, the whole picture, bands where the shapes differ
+     4:3    the CRT's shape - fills a 4:3 monitor, as the original did
+     Fill   whatever shape the window is, no bands at all
+
+   The game draws the application surface itself, in obj_game's Post-Draw,
+   rather than leaving it to the runtime, because the runtime only knows how
+   to keep the shape. That moves the picture, so the mouse has to be mapped
+   back by the same rectangle - which is what display_mouse_x/_y are, and why
+   nothing reads mouse_x/mouse_y directly any more.
+
+   Scaling is "sharp bilinear": point-sampled up to the next whole multiple,
+   then smoothed down to the real size. 400 lines over 1200 is a clean 3, but
+   over 1136 or 768 it is not, and plain point sampling then makes some rows
+   a pixel taller than their neighbours - very visible on text. This keeps the
+   pixels crisp and their sizes even, softening only the edge pixel between
+   two. At an exact multiple it is point sampling, unchanged. */
+enum DisplayAspect {
+    pixel = 0,
+    crt = 1,
+    fill = 2,
+    count = 3
+}
+
+#macro DISPLAY_INI_SECTION "display"
+#macro DISPLAY_INI_KEY     "aspect"
+
+/* Before the window is first sized: Create sizes it from this. */
+function display_init() {
+    global.display_aspect = DisplayAspect.pixel;
+    ini_open(PROGRESS_PATH);
+    var _saved = ini_read_real(DISPLAY_INI_SECTION, DISPLAY_INI_KEY, DisplayAspect.pixel);
+    ini_close();
+    if (_saved >= 0 && _saved < DisplayAspect.count) {
+        global.display_aspect = floor(_saved);
+    }
+    global.display_sharp = -1;
+    application_surface_draw_enable(false);
+}
+
+/* The options popup's Screen value. Remembered in settlers.ini. */
+function display_aspect_cycle() {
+    global.display_aspect = (global.display_aspect + 1) mod DisplayAspect.count;
+    ini_open(PROGRESS_PATH);
+    ini_write_real(DISPLAY_INI_SECTION, DISPLAY_INI_KEY, global.display_aspect);
+    ini_close();
+    /* A window gets the new shape too. Full-window keeps its size - the
+       picture is fitted into it afresh every frame. */
+    if (!fullscreen_is_on()) {
+        fullscreen_set(false);
+    }
+}
+
+function display_aspect_name() {
+    switch (global.display_aspect) {
+        case DisplayAspect.crt:  return "4:3";
+        case DisplayAspect.fill: return L("Fill");
+    }
+    return L("Pixel");
+}
+
+/* Width over height of the picture as shown, in a window of this size. */
+function display_aspect_ratio(_ww, _wh) {
+    switch (global.display_aspect) {
+        case DisplayAspect.crt:  return 4 / 3;
+        case DisplayAspect.fill: return _ww / max(1, _wh);
+    }
+    return SCREEN_W / SCREEN_H;
+}
+
+/* Where the picture goes in the window: [x, y, w, h], centred. Worked out
+   afresh each time - it is a few multiplications, and a cached one would be
+   a frame stale after every resize. */
+function display_rect() {
+    var _ww = max(1, window_get_width());
+    var _wh = max(1, window_get_height());
+    var _aspect = display_aspect_ratio(_ww, _wh);
+    var _w = _ww;
+    var _h = _ww / _aspect;
+    if (_h > _wh) {
+        _h = _wh;
+        _w = _wh * _aspect;
+    }
+    _w = max(1, round(_w));
+    _h = max(1, round(_h));
+    return [(_ww - _w) div 2, (_wh - _h) div 2, _w, _h];
+}
+
+/* The windowed size: SCREEN_SCALE wide, as tall as the shape asks, shrunk
+   just enough to fit on the display with room for a title bar and taskbar.
+   Not in whole steps: x2 at 4:3 is 1280 x 960, which a 1280 x 1024 monitor
+   cannot hold, and the next whole step down is a postage stamp. The picture
+   is smoothed to any size, so 1258 x 944 is as good as 1280 x 960. */
+function display_window_size() {
+    var _dw = display_get_width();
+    var _dh = display_get_height();
+    var _aspect = display_aspect_ratio(_dw, _dh);
+    var _scale = min(SCREEN_SCALE, _dw / SCREEN_W, (_dh - 80) * _aspect / SCREEN_W);
+    _scale = max(1, _scale);
+    var _w = floor(SCREEN_W * _scale);
+    return [_w, round(_w / _aspect)];
+}
+
+/* mouse_x / mouse_y as the game means them: a pixel of the 640 x 400
+   picture, wherever and however large it is drawn. Not rounded, as mouse_x
+   was not: 1:1 map dragging needs the fraction. Outside the picture these run
+   past 0 or SCREEN_W / SCREEN_H, as mouse_x did over the bands. */
+function display_mouse_x() {
+    var _r = display_rect();
+    /* + 0.5: the pointer is over the middle of a window pixel, and the middle
+       is what the drawing sampled. From the left edge instead, one boundary
+       in every few at an uneven scale reads as the game pixel next door. */
+    return (window_mouse_get_x() + 0.5 - _r[0]) * SCREEN_W / _r[2];
+}
+
+function display_mouse_y() {
+    var _r = display_rect();
+    return (window_mouse_get_y() + 0.5 - _r[1]) * SCREEN_H / _r[3];
+}
+
+/* obj_game Post-Draw: put the application surface in the window. */
+function display_draw() {
+    var _r = display_rect();
+    draw_clear(c_black);
+    gpu_set_blendenable(false);
+
+    var _kx = max(1, ceil(_r[2] / SCREEN_W));
+    var _ky = max(1, ceil(_r[3] / SCREEN_H));
+    if (_r[2] == SCREEN_W * _kx && _r[3] == SCREEN_H * _ky) {
+        /* A whole multiple both ways: nothing to smooth. */
+        gpu_set_texfilter(false);
+        draw_surface_stretched(application_surface, _r[0], _r[1], _r[2], _r[3]);
+    } else {
+        var _sw = SCREEN_W * _kx;
+        var _sh = SCREEN_H * _ky;
+        if (surface_exists(global.display_sharp) &&
+            (surface_get_width(global.display_sharp) != _sw ||
+             surface_get_height(global.display_sharp) != _sh)) {
+            surface_free(global.display_sharp);
+        }
+        if (!surface_exists(global.display_sharp)) {
+            global.display_sharp = surface_create(_sw, _sh);
+        }
+        surface_set_target(global.display_sharp);
+        gpu_set_texfilter(false);
+        draw_surface_stretched(application_surface, 0, 0, _sw, _sh);
+        surface_reset_target();
+
+        gpu_set_texfilter(true);
+        draw_surface_stretched(global.display_sharp, _r[0], _r[1], _r[2], _r[3]);
+    }
+
+    gpu_set_texfilter(false);
+    gpu_set_blendenable(true);
 }
 
 /* ---------------------------------------------------------------------------

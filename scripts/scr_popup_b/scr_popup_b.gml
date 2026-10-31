@@ -633,6 +633,30 @@ function popup_draw_no_save_quit_confirm_box(_popup) {
     _popup.draw_green_string(0, 125, L("  Yes       No"));
 }
 
+/// A value that changes when clicked: lighter green than a label, white while
+/// the pointer is over its clickmap rectangle, and centred in the space that
+/// rectangle gives it. Both come from the options clickmap itself, so what
+/// lights up is exactly what a click would change, and the value sits in the
+/// middle of what a click would hit. _from_x, when given, starts the space
+/// further right than the rectangle does - for Sfx, whose rectangle takes in
+/// its label as well.
+function popup_draw_link_string(_popup, _sy, _str, _action, _from_x = undefined) {
+    popup_c_init_tables();
+    var _r = popup_clkmap_rect(global.popup_c_clk_box_options, _action);
+    var _x0 = _r[0] + 8;
+    var _x1 = _r[0] + 8 + _r[2];
+    if (_from_x != undefined) {
+        _x0 = _from_x;
+    }
+    var _x = _x0 + ((_x1 - _x0) - string_length(_str) * GFX_TEXT_CHAR_W) div 2;
+
+    var _colour = global.popup_color_link;
+    if (popup_clkmap_hover_action(_popup, global.popup_c_clk_box_options) == _action) {
+        _colour = global.popup_color_link_hover;
+    }
+    gfx_draw_string(_x, _sy + 9, _str, _colour, -1);
+}
+
 function popup_draw_options_box(_popup) {
     _popup.draw_box_background(BackgroundPattern.diagonal_green);
 
@@ -683,7 +707,11 @@ function popup_draw_options_box(_popup) {
     _popup.draw_green_string(8, 44, string(floor(99.0 * audio_music_volume())));
     _popup.draw_green_string(8, 60, string(floor(99.0 * audio_sfx_volume())));
 
-    _popup.draw_green_string(1, 76, L("Fullscreen"));
+    /* Screen: its shape, then the fullscreen icon - both how the picture
+       meets the monitor, so one row. "Fullscreen" was ten characters and the
+       shape needs five of them; the icon says the rest. */
+    _popup.draw_green_string(1, 76, L("Screen"));
+    popup_draw_link_string(_popup, 76, display_aspect_name(), Action.options_screen_shape);
 
     /* Fullscreen mode */
     var _fullscreen_sprite = 220;
@@ -703,7 +731,7 @@ function popup_draw_options_box(_popup) {
         }
     }
     _popup.draw_green_string(1, 92, L("Messages"));
-    _popup.draw_green_string(11, 92, _value);
+    popup_draw_link_string(_popup, 92, _value, Action.options_message_count_1);
 
     // Not in the original. There are only two possible drag behaviours and they
     // differ by nothing but the sign: No grabs the ground, so the pixel under
@@ -716,7 +744,7 @@ function popup_draw_options_box(_popup) {
         _invert_value = L("Yes");
     }
     _popup.draw_green_string(1, 108, L("Invert"));
-    _popup.draw_green_string(11, 108, _invert_value);
+    popup_draw_link_string(_popup, 108, _invert_value, Action.options_map_drag);
 
     /* Not in the original: the Amiga had four channels and one mix, so there
        was nothing to choose. Stereo places each effect across the sound stage
@@ -732,7 +760,9 @@ function popup_draw_options_box(_popup) {
         _stereo_value = "Stereo";
     }
     _popup.draw_green_string(1, 128, "Sfx");
-    _popup.draw_green_string(5, 128, _stereo_value);
+    /* Centred between the end of "Sfx" (x 40) and the end of its click
+       area (x 116), just short of the exit icon at 120. */
+    popup_draw_link_string(_popup, 128, _stereo_value, Action.options_sfx_stereo, 40);
 
     _popup.draw_popup_icon(14, 128, 60); /* exit */
 }

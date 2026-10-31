@@ -42,9 +42,15 @@ function popup_c_init_tables() {
     Action.options_music_vol_plus, 106, 40, 16, 16,
     Action.options_sfx_vol_minus, 90, 56, 16, 16,
     Action.options_sfx_vol_plus, 106, 56, 16, 16,
+    /* The three values below are the whole space the value has, from the
+       end of the longer label (English or German) to the icon or the box
+       edge, and popup_draw_link_string centres the value in exactly this
+       rectangle - drawn 8 to the right of these numbers, the inset. Screen
+       stops at 104, short of the fullscreen icon. */
+    Action.options_screen_shape, 56, 72, 48, 16,      /* after "Screen"    */
     Action.options_fullscreen, 106, 72, 16, 16,
-    Action.options_message_count_1, 90, 88, 32, 16,
-    Action.options_map_drag, 88, 104, 40, 16,
+    Action.options_message_count_1, 80, 88, 48, 16,   /* after "Meldungen" */
+    Action.options_map_drag, 72, 104, 56, 16,         /* after "Umkehren"  */
     /* Mono / Stereo shares the bottom band with the exit icon, which is drawn
        at x 120 and clicked from 112, so this stops at 108 and the two stay
        disjoint. */
@@ -1308,6 +1314,10 @@ function popup_handle_action(_popup, _action, _x, _y) {
     fullscreen_toggle();
     _popup.play_sound(Sfx.click);
     break;
+  case Action.options_screen_shape:
+    display_aspect_cycle();
+    _popup.play_sound(Sfx.click);
+    break;
   case Action.options_map_drag:
     global.map_drag_invert = !global.map_drag_invert;
     _popup.play_sound(Sfx.click);
@@ -1681,6 +1691,37 @@ function popup_build_action_type(_action) {
   return BuildingType.none;
 }
 
+/// The action whose clickmap rectangle the pointer is over, or -1. The same
+/// walk, in the same order and with the same 8-pixel inset, as the click
+/// handlers, so whatever is lit up is what a click there would do.
+function popup_clkmap_hover_action(_popup, _clkmap) {
+  var _sp = _popup.get_screen_position();
+  var _x = display_mouse_x() - _sp[0] - 8;
+  var _y = display_mouse_y() - _sp[1] - 8;
+
+  var _i = 0;
+  while (_clkmap[_i] >= 0) {
+    if (_clkmap[_i + 1] <= _x && _x < _clkmap[_i + 1] + _clkmap[_i + 3] &&
+        _clkmap[_i + 2] <= _y && _y < _clkmap[_i + 2] + _clkmap[_i + 4]) {
+      return _clkmap[_i];
+    }
+    _i += 5;
+  }
+  return -1;
+}
+
+/// The [x, y, w, h] an action has in a clickmap, or undefined.
+function popup_clkmap_rect(_clkmap, _action) {
+  var _i = 0;
+  while (_clkmap[_i] >= 0) {
+    if (_clkmap[_i] == _action) {
+      return [_clkmap[_i + 1], _clkmap[_i + 2], _clkmap[_i + 3], _clkmap[_i + 4]];
+    }
+    _i += 5;
+  }
+  return undefined;
+}
+
 /// The name of whatever the pointer is over in a build menu, or "" for
 /// nothing (or not a build menu). It walks the same clickmap, in the same
 /// order and with the same 8-pixel inset, as the click handlers, so the name
@@ -1711,20 +1752,7 @@ function popup_build_hover_name(_popup) {
       return "";
   }
 
-  var _sp = _popup.get_screen_position();
-  var _x = mouse_x - _sp[0] - 8;
-  var _y = mouse_y - _sp[1] - 8;
-
-  var _action = -1;
-  var _i = 0;
-  while (_clkmap[_i] >= 0) {
-    if (_clkmap[_i + 1] <= _x && _x < _clkmap[_i + 1] + _clkmap[_i + 3] &&
-        _clkmap[_i + 2] <= _y && _y < _clkmap[_i + 2] + _clkmap[_i + 4]) {
-      _action = _clkmap[_i];
-      break;
-    }
-    _i += 5;
-  }
+  var _action = popup_clkmap_hover_action(_popup, _clkmap);
   if (_action < 0) {
     return "";
   }

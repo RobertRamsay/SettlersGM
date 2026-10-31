@@ -98,8 +98,8 @@ if (global.crash_asking && !global.net_chat_open) {
            they came out. Checked here rather than through the interface's own
            event plumbing because this notice sits above all of it and is about
            a run that has already ended. */
-        var _mx = mouse_x;
-        var _my = mouse_y;
+        var _mx = display_mouse_x();
+        var _my = display_mouse_y();
         if (_my >= global.crash_hit_y1 && _my <= global.crash_hit_y2) {
             if (_mx >= global.crash_yes_x1 && _mx <= global.crash_yes_x2) {
                 crash_answer(true);
@@ -305,13 +305,13 @@ if (!_update_mouse && (mouse_wheel_up() || mouse_wheel_down())) {
 }
 
 // ---- mouse position in screen pixels (room == screen size)
-// mouse_x / mouse_y are room coordinates, so GameMaker has already divided out
-// the window-to-application-surface scale for us: x2 in a window, whatever
-// ratio fullscreen ends up using. One unit here is always one drawn game pixel,
+// display_mouse_x/_y have already divided out where the picture sits in the
+// window and how it is stretched - x2 in a window, whatever shape and ratio
+// the Screen setting gives it (scr_gfx). One unit here is always one drawn game pixel,
 // so nothing else in this file needs to know the window size. The unrounded
 // values are kept as well, because 1:1 dragging needs the fraction.
-var _mx_raw = clamp(mouse_x, 0, SCREEN_W - 1);
-var _my_raw = clamp(mouse_y, 0, SCREEN_H - 1);
+var _mx_raw = clamp(display_mouse_x(), 0, SCREEN_W - 1);
+var _my_raw = clamp(display_mouse_y(), 0, SCREEN_H - 1);
 var _mx = floor(_mx_raw);
 var _my = floor(_my_raw);
 
