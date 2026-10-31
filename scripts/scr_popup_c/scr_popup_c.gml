@@ -1130,6 +1130,7 @@ function popup_handle_action(_popup, _action, _x, _y) {
       _interface.set_config(4);
       _interface.set_config(5);
     }
+    settings_save(_interface);
     break;
   case Action.default_sett_1:
     _interface.open_popup(PopupType.sett_1);
@@ -1301,12 +1302,14 @@ function popup_handle_action(_popup, _action, _x, _y) {
   case Action.options_music: {
     /* Audio::get_instance().get_music_player()->enable(!is_enabled()) */
     audio_toggle_music();
+    settings_save(_interface);
     _popup.play_sound(Sfx.click);
     break;
   }
   case Action.options_sfx: {
     /* Audio::get_instance().get_sound_player()->enable(!is_enabled()) */
     audio_toggle_sfx();
+    settings_save(_interface);
     _popup.play_sound(Sfx.click);
     break;
   }
@@ -1320,10 +1323,12 @@ function popup_handle_action(_popup, _action, _x, _y) {
     break;
   case Action.options_map_drag:
     global.map_drag_invert = !global.map_drag_invert;
+    settings_save(_interface);
     _popup.play_sound(Sfx.click);
     break;
   case Action.options_sfx_stereo:
     sfx_toggle_stereo();
+    settings_save(_interface);
     _popup.play_sound(Sfx.click);
     break;
   case Action.game_end_continue:
@@ -1349,16 +1354,19 @@ function popup_handle_action(_popup, _action, _x, _y) {
     /* Audio::get_instance().get_volume_controller()->volume_down(), now the
        music's own. */
     audio_music_volume_down();
+    settings_save(_interface);
     _popup.play_sound(Sfx.click);
     break;
   }
   case Action.options_music_vol_plus: {
     audio_music_volume_up();
+    settings_save(_interface);
     _popup.play_sound(Sfx.click);
     break;
   }
   case Action.options_sfx_vol_minus: {
     audio_sfx_volume_down();
+    settings_save(_interface);
     /* The click is the effects channel confirming its own new level, which is
        the whole of the feedback anybody needs from this pair. */
     _popup.play_sound(Sfx.click);
@@ -1366,6 +1374,7 @@ function popup_handle_action(_popup, _action, _x, _y) {
   }
   case Action.options_sfx_vol_plus: {
     audio_sfx_volume_up();
+    settings_save(_interface);
     _popup.play_sound(Sfx.click);
     break;
   }

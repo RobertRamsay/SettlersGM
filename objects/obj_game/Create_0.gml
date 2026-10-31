@@ -15,6 +15,9 @@
 // tends to go wrong on somebody else's machine - a missing asset or a driver
 // that will not give us a surface goes bang in the lines below.
 crash_init();
+// Mac only, once: bring the saves and settings over from the folder the old
+// app id put them in - see scr_settings. Before anything reads that folder.
+settings_migrate_mac_save_folder();
 fault_init();   // what the simulation does instead of throwing - see scr_fault
 report_init();
 
@@ -23,6 +26,7 @@ sprite_meta_init();
 gfx_init();
 gui_init_globals();
 audio_init();
+settings_load_audio();   // music, effects, volumes, stereo from settlers.ini
 cf_init();      // "borntodie" cheat state + its effects list
 net_init();     // two-player lockstep networking (idle until NET PLAY)
 net_chat_init();
@@ -130,6 +134,8 @@ global.fast_building_click = true;  // dbl-click a build spot -> that build popu
 // Viewport.handle_event divides the drag delta by the zoom (carrying the
 // remainder) before the handler sees it. The minimap always drags 1:1.
 global.map_drag_invert = false;
+// The message filter and drag direction as the player last left them.
+settings_load_interface(interface);
 
 
 // Slot the next F5 writes to / the last one loaded. 0..SAVEGAME_SLOTS-1.

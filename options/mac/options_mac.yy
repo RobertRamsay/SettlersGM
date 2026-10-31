@@ -7,7 +7,7 @@
   "option_mac_allow_outgoing_network":false,
   "option_mac_apple_sign_in":false,
   "option_mac_app_category":"Games",
-  "option_mac_app_id":"com.polytricity.c64devmachine",
+  "option_mac_app_id":"com.polytricity.settlersgm",
   "option_mac_arm64":true,
   "option_mac_build_app_store":false,
   "option_mac_build_number":0,

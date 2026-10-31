@@ -485,7 +485,9 @@ function gfx_wrap_string(_str, _cols) {
 #macro FULLSCREEN_TASKBAR_RESERVE 64
 
 function fullscreen_init() {
-    global.fullscreen_wanted = FULLSCREEN_AT_START;
+    /* FULLSCREEN_AT_START unless the player has said otherwise - the
+       options row and F10 both save it (scr_settings). */
+    global.fullscreen_wanted = settings_load_fullscreen(FULLSCREEN_AT_START);
     global.fullscreen_delay = FULLSCREEN_SETTLE_FRAMES;
     global.fullscreen_on = false;
 }
@@ -550,6 +552,7 @@ function fullscreen_toggle() {
        few frames later. */
     global.fullscreen_wanted = false;
     fullscreen_set(!global.fullscreen_on);
+    settings_save(obj_game.interface);
 }
 
 /* ---------------------------------------------------------------------------
