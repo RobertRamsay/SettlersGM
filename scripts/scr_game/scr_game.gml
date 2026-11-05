@@ -1431,8 +1431,15 @@ function Game() constructor {
             return false;
         }
 
+        /* -1 is "a segment is not valid", and comes back with dest set to
+           BAD_MAP_POS. The C++ tests the int for truth, so -1 got through
+           there too, and map->has_flag(-1) read past the start of the array
+           and happened to say no. GML stops the game on that read: the AI's
+           ai_connect_flag tried a road the pathfinder had found across a
+           segment that was no longer valid (1.2.2.0 crash in Map.get_obj).
+           Anything not positive is a road that cannot be built. */
         var _r = can_build_road(_road, _player);
-        if (_r.result == 0) {
+        if (_r.result <= 0) {
             return false;
         }
         var _dest = _r.dest;
