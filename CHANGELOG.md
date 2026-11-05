@@ -7,7 +7,7 @@ Entries up to 1.2.0 are rebuilt from the git history. Those commit messages
 are short, so the early notes are summaries, and the odd change may sit one
 release out from where it really shipped.
 
-## Unreleased
+## 1.2.4
 
 - **Fixed: a one-second freeze every 10–15 seconds** in games against the AI.
   At every decision, each AI player tried to reconnect every one of its
@@ -17,6 +17,27 @@ release out from where it really shipped.
   gives up after a fixed number of steps. Roads you place yourself are not
   affected.
 - The same fix stops the AI getting stuck retrying roads it can never build.
+- **Custom games: the AI now attacks.** It follows the same rules you do: it
+  can only attack occupied military buildings on its border, and only with
+  knights its own buildings can spare. It goes for the target where it
+  outnumbers the defenders by the most, needing at least one knight more than
+  the defenders (three more for a castle). Smarter opponents think more often,
+  so they attack more often too.
+- **Custom games: the AI builds towers on the front line.** When a new
+  military site is near another player's land and it has the stone and planks
+  to spare, it builds a tower instead of a hut.
+- **Custom games: the AI settles within reach.** It used to put its castle as
+  far from yours as the map allowed, which on a big map (the map wraps) is the
+  other side of the world, so your borders might never meet. It now aims for a
+  site about 40 steps from the nearest castle, or the furthest site on a map
+  too small for that. On big maps it also considers the whole map, not just a
+  few columns.
+- Campaign missions are unchanged: their AI still neither attacks nor builds
+  towers, and settles where it always has.
+- **"Your settlement is under attack" comes once per attack wave**, when the
+  first enemy knight of that wave reaches your building. It used to repeat for
+  every fight at the door, so a castle holding off a big attack filled the
+  message list. This applies to missions too.
 
 ## 1.2.3 — 2026-11-05
 

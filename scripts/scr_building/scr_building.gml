@@ -213,6 +213,9 @@ function Building(_game, _index) : GameObject(_game, _index) constructor {
     holder = false;
     pos = 0;
     progress = 0;
+    /* Whether the owner has been told about the attack wave now on its way.
+       See take_attack_warning. Not in the C++: saved with the rest. */
+    attack_warned = false;
     u = 0;  /* union { tick; level; } */
     inventory = undefined;
 
@@ -308,6 +311,29 @@ function Building(_game, _index) : GameObject(_game, _index) constructor {
     };
     static is_under_attack = function() {
         return ((progress & (1 << 0)) != 0);
+    };
+
+    /* One "under attack" message per attack wave, not one per duel.
+
+       The C++ sends the message every time an attacking knight reaches the
+       building and calls a defender out, and the under-attack bit it tests
+       is set by start_attack and never cleared - so once a building had been
+       attacked at all, every fight at its door, from that wave or any later
+       one, put another copy in the owner's message queue. A castle holding
+       off twenty knights said so twenty times.
+
+       Now the first knight of a wave to arrive raises it and the rest of
+       that wave are quiet. start_attack re-arms it each time it sends knights
+       at the building, so the next wave is reported again. */
+    static rearm_attack_warning = function() {
+        attack_warned = false;
+    };
+    static take_attack_warning = function() {
+        if (!is_under_attack() || attack_warned) {
+            return false;
+        }
+        attack_warned = true;
+        return true;
     };
 
     /* The threat level of the building. Higher values mean that

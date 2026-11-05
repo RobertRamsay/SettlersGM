@@ -318,7 +318,7 @@ function cf_begin_siege(_serf, _bld) {
        non-zero. */
     _serf.s.attacking_def_index = 0;
 
-    if (_bld.is_under_attack()) {
+    if (_bld.take_attack_warning()) {
         _serf.game.get_player(_bld.get_owner()).add_notification(
             MessageType.under_attack, _bld.get_position(), _serf.get_owner());
     }

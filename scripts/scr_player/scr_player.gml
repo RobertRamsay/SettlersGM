@@ -117,6 +117,10 @@ function Player(_game, _index) : GameObject(_game, _index) constructor {
     /// decision, in turn. Only ever read modulo the current orphan count.
     ai_repair_cursor = 0;
 
+    /// Decisions since this player last launched an attack - see ai_attack,
+    /// which looks for one every AI_ATTACK_DECISIONS.
+    ai_decisions_since_attack = 0;
+
     messages = [];   // std::queue<Message> -> array (front = index 0)
     timers = [];     // std::vector<PosTimer> -> array of {timeout, pos}
 
@@ -655,6 +659,9 @@ function Player(_game, _index) : GameObject(_game, _index) constructor {
             !_target.is_active() || _target.get_threat_level() != 3) {
             return;
         }
+
+        /* A new wave: its first knight to arrive tells the owner again. */
+        _target.rearm_attack_warning();
 
         var _map = game.get_map();
         for (var _i = 0; _i < attacking_building_count; _i++) {

@@ -162,6 +162,46 @@
 /// the ones with no answer, flooding the territory to say so.
 #macro AI_PATH_MAX_NODES 1500
 
+/// Whether the AI attacks, and builds towers on its front line, in the
+/// campaign as well as in custom games. Off: the missions were balanced and
+/// played through against an AI that does neither, and changing how hard
+/// mission 1 is was not asked for. Custom games (mission_index -1) always
+/// get both - they had an opponent that never fought back.
+#macro AI_ATTACK_IN_MISSIONS false
+
+/// AI decisions between two looks for something to attack. Like the knight
+/// phase it does not use up the decision: ordering knights out builds
+/// nothing. The thinking interval already scales with intelligence, so a
+/// brighter enemy also attacks more often.
+#macro AI_ATTACK_DECISIONS 4
+
+/// Knights beyond the defenders before the AI commits. Defenders come out
+/// one at a time to fight at their own flag, so an even match loses as often
+/// as it wins; one over makes it worth the knights. Not more: each border
+/// hut can spare only one of its three, so a bigger margin meant an AI that
+/// almost never found enough to go.
+#macro AI_ATTACK_MARGIN 1
+
+/// The margin for a castle: it is the whole game, and its garrison is
+/// refilled from the stock behind it.
+#macro AI_ATTACK_CASTLE_MARGIN 3
+
+/// Enemy buildings weighed per attack phase, nearest the AI's castle first.
+/// knights_available_for_attack walks 32 rings round each one, so this keeps
+/// the phase cheap however big the enemy has grown.
+#macro AI_ATTACK_CANDIDATES 6
+
+/// Spiral positions round a new military site checked for enemy land. Seven
+/// rings: a site this close to another player's ground is the front line,
+/// and gets a tower rather than a hut when stock allows.
+#macro AI_FRONT_SCAN 169
+
+/// Stock to hold before choosing a tower over a hut - its cost (3 stone,
+/// 2 planks) plus some left over, so a tower never takes the last stone the
+/// economy was waiting for.
+#macro AI_TOWER_STONE 6
+#macro AI_TOWER_PLANKS 6
+
 /// After the first report that an AI decision did nothing, say so again only
 /// every this many further decisions.
 #macro AI_STUCK_REPEAT 25
@@ -178,6 +218,19 @@
 /// Keep an AI castle at least this far from one already placed, so opponents
 /// do not spawn on top of each other or of the player.
 #macro AI_CASTLE_MIN_SPACING 12
+
+/// In a custom game, how far (dist_x + dist_y) the AI aims to settle from the
+/// nearest castle already standing.
+///
+/// It used to take the site FURTHEST from every castle. On a small map that
+/// is a fair start; on a big one it is the far side of the world - the map
+/// wraps, so on size 8 (512 x 256) that is a couple of hundred steps - and
+/// the two sides could play a whole game without their borders meeting. That
+/// is the custom game that "is more like PvE". A site near this distance is
+/// still well clear of the player, and close enough that expansion meets in
+/// the middle. On a map too small to reach it, the furthest site wins as
+/// before. Missions keep the old rule: see ai_fights.
+#macro AI_CASTLE_IDEAL_DISTANCE 40
 
 
 /// The order an AI settlement is built in, and how many of each. Planks come
@@ -312,6 +365,10 @@ function ai_update_players(_game) {
         // Knights first: arming men for the huts already standing costs
         // nothing and does not use up the decision.
         ai_manage_knights(_game, _player);
+
+        // Nor does sending them out. Custom games only, unless
+        // AI_ATTACK_IN_MISSIONS says otherwise.
+        ai_attack(_game, _player);
 
         // A building with no road is worth less than no building at all, so
         // reconnecting one comes before putting up another.
@@ -861,8 +918,17 @@ function ai_place_castle(_game, _player) {
     var _tile_count = _map.geom.tile_count;
 
     var _step = max(1, _tile_count div AI_CASTLE_SAMPLES);
+    var _near = ai_fights(_game);
+    if (_near && _step > 1 && (_step mod 2) == 0) {
+        /* The map width is a power of two, so an even step that divides it
+           lands on the same few columns in every row - on size 8, eight
+           columns out of 512, and the rest of the map was never considered.
+           An odd step walks across them. Custom games only, with the rest of
+           this change, so a mission's castle lands where it always has. */
+        _step += 1;
+    }
     var _best = BAD_MAP_POS;
-    var _best_clearance = -1;
+    var _best_score = -AI_SCORE_REJECT;
 
     for (var _pos = 0; _pos < _tile_count; _pos += _step) {
         if (!_game.can_build_castle(_pos, _player)) {
@@ -873,8 +939,16 @@ function ai_place_castle(_game, _player) {
         if (_clearance < AI_CASTLE_MIN_SPACING) {
             continue;
         }
-        if (_clearance > _best_clearance) {
-            _best_clearance = _clearance;
+
+        /* Missions: furthest wins. Custom games: closest to the ideal
+           distance wins, which is the furthest site whenever none reaches
+           it. */
+        var _score = _clearance;
+        if (_near) {
+            _score = -abs(min(_clearance, AI_SCORE_REJECT) - AI_CASTLE_IDEAL_DISTANCE);
+        }
+        if (_score > _best_score) {
+            _best_score = _score;
             _best = _pos;
         }
     }
@@ -1562,15 +1636,259 @@ function ai_expand(_game, _player) {
         return false;
     }
 
-    if (!ai_place_building(_game, _player, _pos, BuildingType.hut)) {
+    var _type = ai_military_type_for_site(_game, _player, _pos);
+    if (!ai_place_building(_game, _player, _pos, _type)) {
         return false;
     }
 
     _player.ai_decisions_since_expand = 0;
     _player.ai_stuck_count = 0;
 
+    var _what = "a hut";
+    if (_type == BuildingType.tower) {
+        _what = "a tower";
+    }
     show_debug_message("ai: player " + string(_player.get_index()) +
-                       " placed a hut at " + string(_pos));
+                       " placed " + _what + " at " + string(_pos));
 
+    return true;
+}
+/* ---------------------------------------------------------------------------
+   Fighting back.
+
+   Up to 1.2.3 the AI never attacked: it built, expanded and manned its huts,
+   and a custom game against it was a race with nobody in the way. It also
+   only ever built huts, so its border was a line of one- to three-knight
+   buildings that the player could take one after another.
+
+   The attack below goes through exactly the player's own route - the same
+   checks the viewport makes before opening the attack box, then
+   knights_available_for_attack and start_attack - so the AI fights by the
+   rules the player does: only buildings on the border (threat level 3) with
+   somebody in them, only from its own military buildings within reach, and
+   leaving each of those its minimum garrison. It is decided from the game
+   state alone, without the random generator, so two machines running the
+   same game agree on it.
+
+   This is not read off the Amiga executable. The per-character values the
+   original keeps (Player.ai_value_0..5) are still unused; what they mean -
+   one of them is very likely how aggressive each face is - is the next
+   thing to find there.
+   --------------------------------------------------------------------------- */
+
+/// Whether this game gets the AI's attacks and front-line towers.
+function ai_fights(_game) {
+    return AI_ATTACK_IN_MISSIONS || _game.mission_index < 0;
+}
+
+/// Planks, stone, swords... of one type across this player's castles and
+/// stocks.
+function ai_stock_count(_game, _player, _res) {
+    var _inventories = _game.inventories.objects;
+    var _n = array_length(_inventories);
+    var _count = 0;
+
+    for (var _i = 0; _i < _n; _i++) {
+        var _inventory = _inventories[_i];
+        if (_inventory == undefined) {
+            continue;
+        }
+        if (_inventory.get_owner() != _player.get_index()) {
+            continue;
+        }
+        _count += _inventory.get_count_of(_res);
+    }
+
+    return _count;
+}
+
+/// Whether another player's land is within AI_FRONT_SCAN of a position.
+function ai_site_on_front(_game, _player, _pos) {
+    var _map = _game.get_map();
+    var _me = _player.get_index();
+
+    for (var _i = 1; _i < AI_FRONT_SCAN; _i++) {
+        var _p = _map.pos_add_spirally(_pos, _i);
+        if (_map.has_owner(_p) && _map.get_owner(_p) != _me) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/// A hut, or a tower when the site faces the enemy, is large enough, and the
+/// stock can pay for it without starving the economy. A tower holds up to
+/// six knights to a hut's three and claims more ground, which is what the
+/// original's opponents put on a contested border.
+function ai_military_type_for_site(_game, _player, _pos) {
+    if (!ai_fights(_game)) {
+        return BuildingType.hut;
+    }
+    if (ai_stock_count(_game, _player, ResourceType.stone) < AI_TOWER_STONE ||
+        ai_stock_count(_game, _player, ResourceType.plank) < AI_TOWER_PLANKS) {
+        return BuildingType.hut;
+    }
+    if (!_game.can_build_building(_pos, BuildingType.tower, _player)) {
+        return BuildingType.hut;
+    }
+    if (!ai_site_on_front(_game, _player, _pos)) {
+        return BuildingType.hut;
+    }
+    return BuildingType.tower;
+}
+
+/// Most knights the attack box offers against this type of building - the
+/// same caps as the viewport's.
+function ai_attack_max_knights(_type) {
+    switch (_type) {
+        case BuildingType.hut:      return 3;
+        case BuildingType.tower:    return 6;
+        case BuildingType.fortress: return 12;
+        case BuildingType.castle:   return 20;
+    }
+    return 0;
+}
+
+/// Knights inside an enemy military building. A castle's defenders are its
+/// owner's castle knights, not a building stock.
+function ai_defender_count(_game, _building) {
+    if (_building.get_type() == BuildingType.castle) {
+        var _owner = _game.get_player(_building.get_owner());
+        if (_owner == undefined) {
+            return 0;
+        }
+        return _owner.castle_knights;
+    }
+    return _building.get_knight_count();
+}
+
+/// Whether this player may attack the building at all: the viewport's rules.
+/// Finished, military, occupied, on the border (threat level 3), and some of
+/// the attacker's land within the spiral the viewport searches.
+function ai_can_attack(_game, _player, _building) {
+    if (_building.get_owner() == _player.get_index()) {
+        return false;
+    }
+    if (!_building.is_military() || !_building.is_done() ||
+        _building.is_burning() || !_building.is_active()) {
+        return false;
+    }
+    if (_building.get_threat_level() != 3) {
+        return false;
+    }
+
+    var _map = _game.get_map();
+    var _pos = _building.get_position();
+    var _me = _player.get_index();
+    for (var _i = 7; _i <= 7 + 257; _i++) {
+        var _spos = _map.pos_add_spirally(_pos, _i);
+        if (_map.has_owner(_spos) && _map.get_owner(_spos) == _me) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/// The attack phase. Picks the enemy building where its spare knights most
+/// outnumber the defenders, and sends them. Returns true if it attacked.
+function ai_attack(_game, _player) {
+    if (!ai_fights(_game)) {
+        return false;
+    }
+    if (!_player.has_castle()) {
+        return false;
+    }
+
+    _player.ai_decisions_since_attack += 1;
+    if (_player.ai_decisions_since_attack < AI_ATTACK_DECISIONS) {
+        return false;
+    }
+
+    var _home = ai_home_position(_game, _player);
+    if (_home == BAD_MAP_POS) {
+        return false;
+    }
+    var _map = _game.get_map();
+
+    /* Every building it could legally attack, with its distance from home. */
+    var _cand = [];
+    var _dists = [];
+    var _buildings = _game.buildings.objects;
+    var _n = array_length(_buildings);
+    for (var _i = 0; _i < _n; _i++) {
+        var _building = _buildings[_i];
+        if (_building == undefined) {
+            continue;
+        }
+        if (!ai_can_attack(_game, _player, _building)) {
+            continue;
+        }
+        var _pos = _building.get_position();
+        array_push(_cand, _building);
+        array_push(_dists, abs(_map.dist_x(_home, _pos)) + abs(_map.dist_y(_home, _pos)));
+    }
+
+    /* The nearest few, weighed nearest first, so on a tie the closer one
+       wins: its knights have less far to walk and the border it opens is
+       the one already being fought over. */
+    var _count = array_length(_cand);
+    var _best = undefined;
+    var _best_spare = 0;
+    for (var _k = 0; _k < AI_ATTACK_CANDIDATES; _k++) {
+        var _pick = -1;
+        var _pick_dist = AI_SCORE_REJECT;
+        for (var _j = 0; _j < _count; _j++) {
+            if (_dists[_j] < _pick_dist) {
+                _pick_dist = _dists[_j];
+                _pick = _j;
+            }
+        }
+        if (_pick < 0) {
+            break;
+        }
+        _dists[_pick] = AI_SCORE_REJECT;   // taken
+
+        var _target = _cand[_pick];
+        var _available = min(_player.knights_available_for_attack(_target.get_position()),
+                             ai_attack_max_knights(_target.get_type()));
+        var _margin = AI_ATTACK_MARGIN;
+        if (_target.get_type() == BuildingType.castle) {
+            _margin = AI_ATTACK_CASTLE_MARGIN;
+        }
+        var _spare = _available - ai_defender_count(_game, _target) - _margin;
+        if (_spare < 0) {
+            continue;
+        }
+        if (_best == undefined || _spare > _best_spare) {
+            _best = _target;
+            _best_spare = _spare;
+        }
+    }
+
+    if (_best == undefined) {
+        return false;
+    }
+
+    /* Worked out again for the one chosen: knights_available_for_attack
+       leaves the list of buildings to send from in the player, and
+       start_attack reads that list. */
+    _player.building_attacked = _best.get_index();
+    var _knights = min(_player.knights_available_for_attack(_best.get_position()),
+                       ai_attack_max_knights(_best.get_type()));
+    if (_knights <= 0 || _player.attacking_building_count <= 0) {
+        return false;
+    }
+    _player.knights_attacking = _knights;
+    _player.start_attack();
+
+    _player.ai_decisions_since_attack = 0;
+
+    show_debug_message("ai: player " + string(_player.get_index()) +
+                       " attacked building " + string(_best.get_index()) +
+                       " (type " + string(_best.get_type()) +
+                       ", owner " + string(_best.get_owner()) +
+                       ", " + string(ai_defender_count(_game, _best)) +
+                       " defending) with " + string(_knights) + " knights");
     return true;
 }

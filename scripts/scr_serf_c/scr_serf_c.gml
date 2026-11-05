@@ -77,7 +77,7 @@ function serf_handle_serf_knight_engaging_building_state(_serf) {
           building.is_military() &&
           building.get_owner() != _serf.get_owner() &&
           building.has_knight()) {
-        if (building.is_under_attack()) {
+        if (building.take_attack_warning()) {
           _serf.game.get_player(building.get_owner()).add_notification(
                                                   MessageType.under_attack,
                                                   building.get_position(),
