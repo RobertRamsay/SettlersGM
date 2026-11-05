@@ -142,16 +142,47 @@ function pathfinder_make_heap(_open) {
 /// should be minimized. Returns a Road (struct from scr_interface.gml);
 /// an invalid Road (is_valid() == false) when no path exists.
 /// _building_road is optional (undefined = nullptr).
-function pathfinder_map(_map, _start, _end, _building_road) {
+///
+/// _owner and _max_nodes are additions for the AI, and both optional; the
+/// player's own road clicks pass neither and search exactly as Freeserf does.
+///
+///   _owner      a player index. Only ground that player owns is entered.
+///               build_road refuses any road with a step off the builder's
+///               land anyway, so this loses nothing the AI could have built -
+///               and it may find an owned detour the plain shortest path
+///               would have missed.
+///   _max_nodes  give up (no road) after expanding this many positions.
+///
+/// Without them a target that cannot be reached - across water, behind an
+/// enemy border - made the search flood every walkable position on the map
+/// before answering no, about a second of frozen game on a big map, and
+/// ai_repair_roads used to ask that question for every orphaned flag at
+/// every decision (the regular 1.2.3 freeze).
+function pathfinder_map(_map, _start, _end, _building_road, _owner = undefined,
+                        _max_nodes = undefined) {
     pathfinder_init_tables();
 
     // _building_road may be omitted by the caller (then it is undefined).
+
+    if (_owner != undefined) {
+        if (!_map.has_owner(_start) || _map.get_owner(_start) != _owner ||
+            !_map.has_owner(_end) || _map.get_owner(_end) != _owner) {
+            return new Road();
+        }
+    }
 
     // Open list kept heapified with the manual heap primitives above.
     var _open = [];
     // Membership only: iteration order is never used. Keep the original
     // open heap and score-update operations, including all tie-breaking.
     var _closed = {};
+    // pos -> the node for it in _open. A position is in _open at most once,
+    // so this answers "is it open, and with what score" without the linear
+    // scan; the scan below now only runs to find the heap slot of a node
+    // whose score actually improves, so the heap operations - and the road
+    // that comes out - are unchanged.
+    var _open_set = {};
+    var _expanded = 0;
 
     /* Create start node */
     var _node = new PathfinderSearchNode();
@@ -160,11 +191,13 @@ function pathfinder_map(_map, _start, _end, _building_road) {
     _node.f_score = pathfinder_heuristic_cost(_map, _start, _end);
 
     array_push(_open, _node);
+    _open_set[$ string(_node.pos)] = _node;
 
     while (array_length(_open) > 0) {
         pathfinder_pop_heap(_open);
         _node = _open[array_length(_open) - 1];
         array_pop(_open);
+        variable_struct_remove(_open_set, string(_node.pos));
 
         if (_node.pos == _start) {
             /* Construct solution */
@@ -178,6 +211,13 @@ function pathfinder_map(_map, _start, _end, _building_road) {
             }
 
             return _solution;
+        }
+
+        if (_max_nodes != undefined) {
+            _expanded += 1;
+            if (_expanded > _max_nodes) {
+                break;
+            }
         }
 
         /* Put current node on closed list. */
@@ -199,34 +239,41 @@ function pathfinder_map(_map, _start, _end, _building_road) {
                 continue;
             }
 
+            if (_owner != undefined &&
+                (!_map.has_owner(_new_pos) || _map.get_owner(_new_pos) != _owner)) {
+                continue;
+            }
+
             /* Check if neighbour is in closed list. */
-            if (variable_struct_exists(_closed, string(_new_pos))) {
+            var _key = string(_new_pos);
+            if (variable_struct_exists(_closed, _key)) {
                 continue;
             }
 
             /* See if neighbour is already in open list. */
-            var _in_open = false;
-            var _open_len = array_length(_open);
-            for (var _it = 0; _it < _open_len; _it++) {
-                var _n = _open[_it];
-                if (_n.pos == _new_pos) {
-                    _in_open = true;
-                    if (_n.g_score >= _node.g_score + _cost) {
-                        _n.g_score = _node.g_score + _cost;
-                        _n.f_score = _n.g_score + pathfinder_heuristic_cost(_map, _new_pos, _start);
-                        _n.parent = _node;
-                        _n.dir = _d;
+            var _open_node = _open_set[$ _key];
+            var _in_open = (_open_node != undefined);
+            if (_in_open && _open_node.g_score >= _node.g_score + _cost) {
+                _open_node.g_score = _node.g_score + _cost;
+                _open_node.f_score = _open_node.g_score +
+                                     pathfinder_heuristic_cost(_map, _new_pos, _start);
+                _open_node.parent = _node;
+                _open_node.dir = _d;
 
-                        // Move element to the back and heapify
-                        // (iter_swap(it, open.rbegin()); make_heap)
+                // Move element to the back and heapify
+                // (iter_swap(it, open.rbegin()); make_heap). The slot is
+                // only needed here, so only here is it looked for.
+                var _open_len = array_length(_open);
+                for (var _it = 0; _it < _open_len; _it++) {
+                    if (_open[_it] == _open_node) {
                         var _last = _open_len - 1;
                         var _tmp = _open[_last];
                         _open[_last] = _open[_it];
                         _open[_it] = _tmp;
-                        pathfinder_make_heap(_open);
+                        break;
                     }
-                    break;
                 }
+                pathfinder_make_heap(_open);
             }
 
             /* If not found in the open set, create a new node. */
@@ -242,6 +289,7 @@ function pathfinder_map(_map, _start, _end, _building_road) {
 
                 array_push(_open, _new_node);
                 pathfinder_push_heap(_open);
+                _open_set[$ _key] = _new_node;
             }
         }
     }

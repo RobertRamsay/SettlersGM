@@ -157,6 +157,11 @@
 /// flag is usually a perfectly good join.
 #macro AI_CONNECT_TRIES 5
 
+/// Most positions one road search may expand before giving up. A connecting
+/// road is a few dozen steps; the searches that ran into the thousands were
+/// the ones with no answer, flooding the territory to say so.
+#macro AI_PATH_MAX_NODES 1500
+
 /// After the first report that an AI decision did nothing, say so again only
 /// every this many further decisions.
 #macro AI_STUCK_REPEAT 25
@@ -708,7 +713,11 @@ function ai_connect_flag(_game, _player, _flag_pos) {
     var _n = array_length(_targets);
 
     for (var _i = 0; _i < _n; _i++) {
-        var _road = pathfinder_map(_map, _flag_pos, _targets[_i], undefined);
+        /* Own ground only, and a ceiling on the work: build_road refuses
+           anything else, and an unreachable target used to cost a search of
+           the whole map - see pathfinder_map. */
+        var _road = pathfinder_map(_map, _flag_pos, _targets[_i], undefined,
+                                   _player.get_index(), AI_PATH_MAX_NODES);
         if (_road.get_length() == 0) {
             continue;
         }
@@ -761,18 +770,30 @@ function ai_orphan_flags(_game, _player) {
 /// Try to rescue one orphaned flag. Runs before anything else the AI does,
 /// because a building already standing and doing nothing is worth more than
 /// a new one, and territory won since it was built often makes the road
-/// possible now. One per decision keeps the cost flat.
+/// possible now.
+///
+/// ONE flag per decision, taken in turn. This used to loop until one worked,
+/// so when none could - an orphan across water, behind a border - every one
+/// of them was tried, five road searches each, at every decision. The cost
+/// grew with every orphan and arrived on the AI's beat: the regular one-
+/// second freeze in 1.2.3, where invalid roads stopped crashing the game and
+/// started failing quietly instead. Taking them in rotation still reaches
+/// every orphan in time, and a decision costs at most AI_CONNECT_TRIES
+/// bounded searches however many have built up.
 function ai_repair_roads(_game, _player) {
     var _orphans = ai_orphan_flags(_game, _player);
     var _n = array_length(_orphans);
+    if (_n == 0) {
+        return false;
+    }
 
-    for (var _i = 0; _i < _n; _i++) {
-        if (ai_connect_flag(_game, _player, _orphans[_i])) {
-            show_debug_message("ai: player " + string(_player.get_index()) +
-                               " connected an orphaned flag at " +
-                               string(_orphans[_i]));
-            return true;
-        }
+    var _pos = _orphans[_player.ai_repair_cursor mod _n];
+    _player.ai_repair_cursor += 1;
+
+    if (ai_connect_flag(_game, _player, _pos)) {
+        show_debug_message("ai: player " + string(_player.get_index()) +
+                           " connected an orphaned flag at " + string(_pos));
+        return true;
     }
 
     return false;

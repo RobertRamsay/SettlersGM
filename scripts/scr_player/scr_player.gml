@@ -113,6 +113,10 @@ function Player(_game, _index) : GameObject(_game, _index) constructor {
     /// ai_manage_knights, which the original runs one slot in six.
     ai_knight_phase_counter = 0;
 
+    /// Which orphaned flag ai_repair_roads tries next: it takes one per
+    /// decision, in turn. Only ever read modulo the current orphan count.
+    ai_repair_cursor = 0;
+
     messages = [];   // std::queue<Message> -> array (front = index 0)
     timers = [];     // std::vector<PosTimer> -> array of {timeout, pos}
 
